@@ -423,6 +423,9 @@ export default {
     reloginRequired: 'Session expired. Please log in again.',
     turnstileExpired: 'Verification expired, please try again',
     turnstileFailed: 'Verification failed, please try again',
+    captchaExpired: 'Verification expired, please try again',
+    captchaFailed: 'Verification failed, please try again',
+    completeCaptchaVerification: 'Please complete the verification',
     completeVerification: 'Please complete the verification',
     verifyYourEmail: 'Verify Your Email',
     sessionExpired: 'Session expired',
@@ -5189,16 +5192,18 @@ export default {
           'Please configure TOTP_ENCRYPTION_KEY in environment variables first. Generate a key with: openssl rand -hex 32'
       },
       turnstile: {
-        title: 'Cloudflare Turnstile',
+        title: 'Verification Protection',
         description: 'Bot protection for login and registration',
-        enableTurnstile: 'Enable Turnstile',
-        enableTurnstileHint: 'Require Cloudflare Turnstile verification',
+        enableTurnstile: 'Enable verification',
+        enableTurnstileHint: 'Require verification',
+        provider: 'Provider',
         siteKey: 'Site Key',
         secretKey: 'Secret Key',
         siteKeyHint: 'Get this from your Cloudflare Dashboard',
         cloudflareDashboard: 'Cloudflare Dashboard',
         secretKeyHint: 'Server-side verification key (keep this secret)',
-        secretKeyConfiguredHint: 'Secret key configured. Leave empty to keep the current value.'      },
+        secretKeyConfiguredHint: 'Secret key configured. Leave empty to keep the current value.'
+      },
       linuxdo: {
         title: 'LinuxDo Connect Login',
         description: 'Configure LinuxDo Connect OAuth for Sub2API end-user login',

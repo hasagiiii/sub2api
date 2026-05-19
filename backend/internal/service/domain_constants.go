@@ -127,6 +127,8 @@ const (
 	SettingKeyTurnstileEnabled   = "turnstile_enabled"    // 是否启用 Turnstile 验证
 	SettingKeyTurnstileSiteKey   = "turnstile_site_key"   // Turnstile Site Key
 	SettingKeyTurnstileSecretKey = "turnstile_secret_key" // Turnstile Secret Key
+	SettingKeyCaptchaProvider    = "captcha_provider"     // 人机验证提供商：turnstile / hcaptcha
+	SettingKeyCaptchaConfig      = "captcha_config"       // 人机验证配置（JSON）
 
 	// TOTP 双因素认证设置
 	SettingKeyTotpEnabled = "totp_enabled" // 是否启用 TOTP 2FA 功能

@@ -66,14 +66,15 @@
           </div>
         </div>
 
-        <!-- Turnstile Widget for Resend -->
-        <div v-if="turnstileEnabled && turnstileSiteKey && showResendTurnstile">
-          <TurnstileWidget
-            ref="turnstileRef"
-            :site-key="turnstileSiteKey"
-            @verify="onTurnstileVerify"
-            @expire="onTurnstileExpire"
-            @error="onTurnstileError"
+        <!-- Captcha Widget for Resend -->
+        <div v-if="captchaEnabled && captchaSiteKey && showResendCaptcha">
+          <CaptchaWidget
+            ref="captchaRef"
+            :provider="captchaProvider"
+            :site-key="captchaSiteKey"
+            @verify="onCaptchaVerify"
+            @expire="onCaptchaExpire"
+            @error="onCaptchaError"
           />
         </div>
 
@@ -118,12 +119,12 @@
             type="button"
             @click="handleResendCode"
             :disabled="
-              isSendingCode || (turnstileEnabled && showResendTurnstile && !resendTurnstileToken)
+              isSendingCode || (captchaEnabled && showResendCaptcha && !resendCaptchaToken)
             "
             class="text-sm text-primary-600 transition-colors hover:text-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-400 dark:hover:text-primary-300"
           >
             <span v-if="isSendingCode">{{ t('auth.sendingCode') }}</span>
-            <span v-else-if="turnstileEnabled && !showResendTurnstile">
+            <span v-else-if="captchaEnabled && !showResendCaptcha">
               {{ t('auth.clickToResend') }}
             </span>
             <span v-else>{{ t('auth.resendCode') }}</span>
@@ -151,7 +152,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
 import Icon from '@/components/icons/Icon.vue'
-import TurnstileWidget from '@/components/TurnstileWidget.vue'
+import CaptchaWidget from '@/components/CaptchaWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
 import {
   persistOAuthTokenContext,
@@ -211,7 +212,7 @@ type PendingOAuthCreateAccountResponse = {
 
 const email = ref<string>('')
 const password = ref<string>('')
-const initialTurnstileToken = ref<string>('')
+const initialCaptchaToken = ref<string>('')
 const promoCode = ref<string>('')
 const invitationCode = ref<string>('')
 const affCode = ref<string>('')
@@ -226,23 +227,24 @@ const pendingAdoptionDecision = ref<{
 const hasRegisterData = ref<boolean>(false)
 
 // Public settings
-const turnstileEnabled = ref<boolean>(false)
-const turnstileSiteKey = ref<string>('')
+const captchaEnabled = ref<boolean>(false)
+const captchaProvider = ref<'turnstile' | 'hcaptcha'>('turnstile')
+const captchaSiteKey = ref<string>('')
 const siteName = ref<string>('Sub2API')
 const registrationEmailSuffixWhitelist = ref<string[]>([])
 
-// Turnstile for resend
-const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
-const resendTurnstileToken = ref<string>('')
-const showResendTurnstile = ref<boolean>(false)
+// Captcha for resend
+const captchaRef = ref<InstanceType<typeof CaptchaWidget> | null>(null)
+const resendCaptchaToken = ref<string>('')
+const showResendCaptcha = ref<boolean>(false)
 
 const errors = ref({
   code: '',
-  turnstile: ''
+  captcha: ''
 })
 
 const validationToastMessage = computed(
-  () => errors.value.code || errors.value.turnstile || ''
+  () => errors.value.code || errors.value.captcha || ''
 )
 
 watch(validationToastMessage, (value, previousValue) => {
@@ -263,7 +265,7 @@ onMounted(async () => {
       const registerData = JSON.parse(registerDataStr)
       email.value = registerData.email || ''
       password.value = registerData.password || ''
-      initialTurnstileToken.value = registerData.turnstile_token || ''
+      initialCaptchaToken.value = registerData.captcha_token || ''
       promoCode.value = registerData.promo_code || ''
       invitationCode.value = registerData.invitation_code || ''
       affCode.value = registerData.aff_code || loadAffiliateReferralCode()
@@ -291,8 +293,9 @@ onMounted(async () => {
   // Load public settings
   try {
     const settings = await getPublicSettings()
-    turnstileEnabled.value = settings.turnstile_enabled
-    turnstileSiteKey.value = settings.turnstile_site_key || ''
+    captchaEnabled.value = settings.captcha_enabled ?? settings.turnstile_enabled
+    captchaProvider.value = settings.captcha_provider === 'hcaptcha' ? 'hcaptcha' : 'turnstile'
+    captchaSiteKey.value = settings.captcha_site_key || settings.turnstile_site_key || ''
     siteName.value = settings.site_name || 'Sub2API'
     registrationEmailSuffixWhitelist.value = normalizeRegistrationEmailSuffixWhitelist(
       settings.registration_email_suffix_whitelist || []
@@ -335,21 +338,21 @@ function startCountdown(seconds: number): void {
   }, 1000)
 }
 
-// ==================== Turnstile Handlers ====================
+// ==================== Captcha Handlers ====================
 
-function onTurnstileVerify(token: string): void {
-  resendTurnstileToken.value = token
-  errors.value.turnstile = ''
+function onCaptchaVerify(token: string): void {
+  resendCaptchaToken.value = token
+  errors.value.captcha = ''
 }
 
-function onTurnstileExpire(): void {
-  resendTurnstileToken.value = ''
-  errors.value.turnstile = t('auth.turnstileExpired')
+function onCaptchaExpire(): void {
+  resendCaptchaToken.value = ''
+  errors.value.captcha = t('auth.captchaExpired')
 }
 
-function onTurnstileError(): void {
-  resendTurnstileToken.value = ''
-  errors.value.turnstile = t('auth.turnstileFailed')
+function onCaptchaError(): void {
+  resendCaptchaToken.value = ''
+  errors.value.captcha = t('auth.captchaFailed')
 }
 
 function isPendingOAuthFlow(): boolean {
@@ -409,7 +412,7 @@ async function sendCode(): Promise<void> {
       email: email.value,
       [pendingAuthTokenField.value]: pendingAuthToken.value || undefined,
       // 优先使用重发时新获取的 token（因为初始 token 可能已被使用）
-      turnstile_token: resendTurnstileToken.value || initialTurnstileToken.value || undefined
+      captcha_token: resendCaptchaToken.value || initialCaptchaToken.value || undefined
     } as Parameters<typeof sendVerifyCode>[0]
     const response = isPendingOAuthFlow()
       ? await sendPendingOAuthVerifyCode(requestPayload)
@@ -433,10 +436,10 @@ async function sendCode(): Promise<void> {
     codeSent.value = true
     startCountdown(response.countdown)
 
-    // Reset turnstile state（token 已使用，清除以避免重复使用）
-    initialTurnstileToken.value = ''
-    showResendTurnstile.value = false
-    resendTurnstileToken.value = ''
+    // Reset captcha state（token 已使用，清除以避免重复使用）
+    initialCaptchaToken.value = ''
+    showResendCaptcha.value = false
+    resendCaptchaToken.value = ''
   } catch (error: unknown) {
     errorMessage.value = buildAuthErrorMessage(error, {
       fallback: t('auth.sendCodeFailed')
@@ -451,15 +454,15 @@ async function sendCode(): Promise<void> {
 // ==================== Handlers ====================
 
 async function handleResendCode(): Promise<void> {
-  // If turnstile is enabled and we haven't shown it yet, show it
-  if (turnstileEnabled.value && !showResendTurnstile.value) {
-    showResendTurnstile.value = true
+  // If captcha is enabled and we haven't shown it yet, show it
+  if (captchaEnabled.value && !showResendCaptcha.value) {
+    showResendCaptcha.value = true
     return
   }
 
-  // If turnstile is enabled but no token yet, wait
-  if (turnstileEnabled.value && !resendTurnstileToken.value) {
-    errors.value.turnstile = t('auth.completeVerification')
+  // If captcha is enabled but no token yet, wait
+  if (captchaEnabled.value && !resendCaptchaToken.value) {
+    errors.value.captcha = t('auth.completeCaptchaVerification')
     return
   }
 
@@ -530,7 +533,7 @@ async function handleVerify(): Promise<void> {
         email: email.value,
         password: password.value,
         verify_code: verifyCode.value.trim(),
-        turnstile_token: initialTurnstileToken.value || undefined,
+        captcha_token: initialCaptchaToken.value || undefined,
         promo_code: promoCode.value || undefined,
         invitation_code: invitationCode.value || undefined,
         ...(affCode.value ? { aff_code: affCode.value } : {})

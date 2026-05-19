@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -24,6 +25,23 @@ var semverPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // menuItemIDPattern validates custom menu item IDs: alphanumeric, hyphens, underscores only.
 var menuItemIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return map[string]string{}
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func maskCaptchaConfig(cfg map[string]string) map[string]string {
+	masked := cloneStringMap(cfg)
+	delete(masked, "secret_key")
+	return masked
+}
 
 // generateMenuItemID generates a short random hex ID for a custom menu item.
 func generateMenuItemID() (string, error) {
@@ -56,18 +74,18 @@ func firstNonEmpty(values ...string) string {
 type SettingHandler struct {
 	settingService       *service.SettingService
 	emailService         *service.EmailService
-	turnstileService     *service.TurnstileService
+	captchaService       *service.CaptchaService
 	opsService           *service.OpsService
 	paymentConfigService *service.PaymentConfigService
 	paymentService       *service.PaymentService
 }
 
 // NewSettingHandler 创建系统设置处理器
-func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, turnstileService *service.TurnstileService, opsService *service.OpsService, paymentConfigService *service.PaymentConfigService, paymentService *service.PaymentService) *SettingHandler {
+func NewSettingHandler(settingService *service.SettingService, emailService *service.EmailService, captchaService *service.CaptchaService, opsService *service.OpsService, paymentConfigService *service.PaymentConfigService, paymentService *service.PaymentService) *SettingHandler {
 	return &SettingHandler{
 		settingService:       settingService,
 		emailService:         emailService,
-		turnstileService:     turnstileService,
+		captchaService:       captchaService,
 		opsService:           opsService,
 		paymentConfigService: paymentConfigService,
 		paymentService:       paymentService,
@@ -131,6 +149,11 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		TurnstileEnabled:                       settings.TurnstileEnabled,
 		TurnstileSiteKey:                       settings.TurnstileSiteKey,
 		TurnstileSecretKeyConfigured:           settings.TurnstileSecretKeyConfigured,
+		CaptchaProvider:                        settings.CaptchaProvider,
+		CaptchaEnabled:                         settings.CaptchaEnabled,
+		CaptchaSiteKey:                         settings.CaptchaSiteKey,
+		CaptchaSecretKeyConfigured:             settings.CaptchaSecretKeyConfigured,
+		CaptchaConfig:                          maskCaptchaConfig(settings.CaptchaConfig),
 		LinuxDoConnectEnabled:                  settings.LinuxDoConnectEnabled,
 		LinuxDoConnectClientID:                 settings.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecretConfigured:   settings.LinuxDoConnectClientSecretConfigured,
@@ -364,9 +387,11 @@ type UpdateSettingsRequest struct {
 	SMTPUseTLS   bool   `json:"smtp_use_tls"`
 
 	// Cloudflare Turnstile 设置
-	TurnstileEnabled   bool   `json:"turnstile_enabled"`
-	TurnstileSiteKey   string `json:"turnstile_site_key"`
-	TurnstileSecretKey string `json:"turnstile_secret_key"`
+	TurnstileEnabled   bool              `json:"turnstile_enabled"`
+	TurnstileSiteKey   string            `json:"turnstile_site_key"`
+	TurnstileSecretKey string            `json:"turnstile_secret_key"`
+	CaptchaProvider    string            `json:"captcha_provider"`
+	CaptchaConfig      map[string]string `json:"captcha_config"`
 
 	// LinuxDo Connect OAuth 登录
 	LinuxDoConnectEnabled      bool   `json:"linuxdo_connect_enabled"`
@@ -669,31 +694,51 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		req.SMTPUseTLS = previousSettings.SMTPUseTLS
 	}
 
-	// Turnstile 参数验证
-	if req.TurnstileEnabled {
-		// 检查必填字段
-		if req.TurnstileSiteKey == "" {
-			response.BadRequest(c, "Turnstile Site Key is required when enabled")
+	// Captcha 参数验证。配置以 captcha_config JSON map 保存，旧 turnstile_* 字段仅作为兼容输入。
+	req.CaptchaProvider = service.NormalizeCaptchaProviderForSettings(req.CaptchaProvider)
+	req.CaptchaConfig = cloneStringMap(req.CaptchaConfig)
+	if len(req.CaptchaConfig) == 0 && req.CaptchaProvider == service.CaptchaProviderTurnstile {
+		req.CaptchaConfig = map[string]string{
+			"enabled":    strconv.FormatBool(req.TurnstileEnabled),
+			"site_key":   strings.TrimSpace(req.TurnstileSiteKey),
+			"secret_key": strings.TrimSpace(req.TurnstileSecretKey),
+		}
+	}
+	captchaEnabled := strings.EqualFold(req.CaptchaConfig["enabled"], "true")
+	req.CaptchaConfig["enabled"] = strconv.FormatBool(captchaEnabled)
+	req.CaptchaConfig["site_key"] = strings.TrimSpace(req.CaptchaConfig["site_key"])
+	req.CaptchaConfig["secret_key"] = strings.TrimSpace(req.CaptchaConfig["secret_key"])
+	if captchaEnabled {
+		if req.CaptchaConfig["site_key"] == "" {
+			response.BadRequest(c, "Captcha Site Key is required when enabled")
 			return
 		}
-		// 如果未提供 secret key，使用已保存的值（留空保留当前值）
-		if req.TurnstileSecretKey == "" {
-			if previousSettings.TurnstileSecretKey == "" {
-				response.BadRequest(c, "Turnstile Secret Key is required when enabled")
+		previousSecret := ""
+		if previousSettings.CaptchaProvider == req.CaptchaProvider {
+			previousSecret = previousSettings.CaptchaSecretKey
+		}
+		if req.CaptchaConfig["secret_key"] == "" {
+			if previousSecret == "" {
+				response.BadRequest(c, "Captcha Secret Key is required when enabled")
 				return
 			}
-			req.TurnstileSecretKey = previousSettings.TurnstileSecretKey
+			req.CaptchaConfig["secret_key"] = previousSecret
 		}
-
-		// 当 site_key 或 secret_key 任一变化时验证（避免配置错误导致无法登录）
-		siteKeyChanged := previousSettings.TurnstileSiteKey != req.TurnstileSiteKey
-		secretKeyChanged := previousSettings.TurnstileSecretKey != req.TurnstileSecretKey
+		siteKeyChanged := previousSettings.CaptchaProvider != req.CaptchaProvider || previousSettings.CaptchaSiteKey != req.CaptchaConfig["site_key"]
+		secretKeyChanged := previousSecret != req.CaptchaConfig["secret_key"]
 		if siteKeyChanged || secretKeyChanged {
-			if err := h.turnstileService.ValidateSecretKey(c.Request.Context(), req.TurnstileSecretKey); err != nil {
+			if err := h.captchaService.ValidateProviderSecretKey(c.Request.Context(), req.CaptchaProvider, req.CaptchaConfig["secret_key"]); err != nil {
 				response.ErrorFrom(c, err)
 				return
 			}
 		}
+	}
+	req.TurnstileEnabled = req.CaptchaProvider == service.CaptchaProviderTurnstile && captchaEnabled
+	req.TurnstileSiteKey = ""
+	req.TurnstileSecretKey = ""
+	if req.CaptchaProvider == service.CaptchaProviderTurnstile {
+		req.TurnstileSiteKey = req.CaptchaConfig["site_key"]
+		req.TurnstileSecretKey = req.CaptchaConfig["secret_key"]
 	}
 
 	// TOTP 双因素认证参数验证
@@ -1282,6 +1327,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		TurnstileEnabled:                 req.TurnstileEnabled,
 		TurnstileSiteKey:                 req.TurnstileSiteKey,
 		TurnstileSecretKey:               req.TurnstileSecretKey,
+		CaptchaProvider:                  req.CaptchaProvider,
+		CaptchaConfig:                    req.CaptchaConfig,
 		LinuxDoConnectEnabled:            req.LinuxDoConnectEnabled,
 		LinuxDoConnectClientID:           req.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecret:       req.LinuxDoConnectClientSecret,
@@ -1654,6 +1701,11 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		TurnstileEnabled:                       updatedSettings.TurnstileEnabled,
 		TurnstileSiteKey:                       updatedSettings.TurnstileSiteKey,
 		TurnstileSecretKeyConfigured:           updatedSettings.TurnstileSecretKeyConfigured,
+		CaptchaProvider:                        updatedSettings.CaptchaProvider,
+		CaptchaEnabled:                         updatedSettings.CaptchaEnabled,
+		CaptchaSiteKey:                         updatedSettings.CaptchaSiteKey,
+		CaptchaSecretKeyConfigured:             updatedSettings.CaptchaSecretKeyConfigured,
+		CaptchaConfig:                          maskCaptchaConfig(updatedSettings.CaptchaConfig),
 		LinuxDoConnectEnabled:                  updatedSettings.LinuxDoConnectEnabled,
 		LinuxDoConnectClientID:                 updatedSettings.LinuxDoConnectClientID,
 		LinuxDoConnectClientSecretConfigured:   updatedSettings.LinuxDoConnectClientSecretConfigured,
@@ -1896,6 +1948,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if req.TurnstileSecretKey != "" {
 		changed = append(changed, "turnstile_secret_key")
+	}
+	if before.CaptchaProvider != after.CaptchaProvider {
+		changed = append(changed, "captcha_provider")
+	}
+	if before.CaptchaEnabled != after.CaptchaEnabled || before.CaptchaSiteKey != after.CaptchaSiteKey || req.CaptchaConfig["secret_key"] != "" {
+		changed = append(changed, "captcha_config")
 	}
 	if before.LinuxDoConnectEnabled != after.LinuxDoConnectEnabled {
 		changed = append(changed, "linuxdo_connect_enabled")

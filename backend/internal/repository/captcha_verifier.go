@@ -13,14 +13,17 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-const turnstileVerifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+const (
+	turnstileVerifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+	hcaptchaVerifyURL  = "https://hcaptcha.com/siteverify"
+)
 
-type turnstileVerifier struct {
+type captchaHTTPVerifier struct {
 	httpClient *http.Client
-	verifyURL  string
+	verifyURLs map[string]string
 }
 
-func NewTurnstileVerifier() service.TurnstileVerifier {
+func NewCaptchaVerifier() service.CaptchaVerifier {
 	sharedClient, err := httpclient.GetClient(httpclient.Options{
 		Timeout:            10 * time.Second,
 		ValidateResolvedIP: true,
@@ -28,13 +31,21 @@ func NewTurnstileVerifier() service.TurnstileVerifier {
 	if err != nil {
 		sharedClient = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &turnstileVerifier{
+	return &captchaHTTPVerifier{
 		httpClient: sharedClient,
-		verifyURL:  turnstileVerifyURL,
+		verifyURLs: map[string]string{
+			service.CaptchaProviderTurnstile: turnstileVerifyURL,
+			service.CaptchaProviderHcaptcha:  hcaptchaVerifyURL,
+		},
 	}
 }
 
-func (v *turnstileVerifier) VerifyToken(ctx context.Context, secretKey, token, remoteIP string) (*service.TurnstileVerifyResponse, error) {
+func (v *captchaHTTPVerifier) VerifyToken(ctx context.Context, provider, secretKey, token, remoteIP string) (*service.CaptchaVerifyResponse, error) {
+	verifyURL := v.verifyURLs[provider]
+	if verifyURL == "" {
+		return nil, fmt.Errorf("unsupported captcha provider: %s", provider)
+	}
+
 	formData := url.Values{}
 	formData.Set("secret", secretKey)
 	formData.Set("response", token)
@@ -42,7 +53,7 @@ func (v *turnstileVerifier) VerifyToken(ctx context.Context, secretKey, token, r
 		formData.Set("remoteip", remoteIP)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, v.verifyURL, strings.NewReader(formData.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, verifyURL, strings.NewReader(formData.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -54,7 +65,7 @@ func (v *turnstileVerifier) VerifyToken(ctx context.Context, secretKey, token, r
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	var result service.TurnstileVerifyResponse
+	var result service.CaptchaVerifyResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
 	}

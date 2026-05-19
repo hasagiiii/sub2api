@@ -38,6 +38,12 @@ type SystemSettings struct {
 	TurnstileSiteKey             string
 	TurnstileSecretKey           string
 	TurnstileSecretKeyConfigured bool
+	CaptchaProvider              string
+	CaptchaEnabled               bool
+	CaptchaSiteKey               string
+	CaptchaSecretKey             string
+	CaptchaSecretKeyConfigured   bool
+	CaptchaConfig                map[string]string
 
 	// LinuxDo Connect OAuth 登录
 	LinuxDoConnectEnabled                bool
@@ -216,6 +222,9 @@ type PublicSettings struct {
 	LoginAgreementDocuments          []LoginAgreementDocument
 	TurnstileEnabled                 bool
 	TurnstileSiteKey                 string
+	CaptchaProvider                  string
+	CaptchaEnabled                   bool
+	CaptchaSiteKey                   string
 	SiteName                         string
 	SiteLogo                         string
 	SiteSubtitle                     string

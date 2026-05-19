@@ -182,14 +182,15 @@
           </transition>
         </div>
 
-        <!-- Turnstile Widget -->
-        <div v-if="turnstileEnabled && turnstileSiteKey">
-          <TurnstileWidget
-            ref="turnstileRef"
-            :site-key="turnstileSiteKey"
-            @verify="onTurnstileVerify"
-            @expire="onTurnstileExpire"
-            @error="onTurnstileError"
+        <!-- Captcha Widget -->
+        <div v-if="captchaEnabled && captchaSiteKey">
+          <CaptchaWidget
+            ref="captchaRef"
+            :provider="captchaProvider"
+            :site-key="captchaSiteKey"
+            @verify="onCaptchaVerify"
+            @expire="onCaptchaExpire"
+            @error="onCaptchaError"
           />
         </div>
 
@@ -208,7 +209,7 @@
         <!-- Submit Button -->
         <button
           type="submit"
-          :disabled="registrationActionDisabled || (turnstileEnabled && !turnstileToken)"
+          :disabled="registrationActionDisabled || (captchaEnabled && !captchaToken)"
           class="btn btn-primary w-full"
         >
           <svg
@@ -308,7 +309,7 @@ import WechatOAuthSection from '@/components/auth/WechatOAuthSection.vue'
 import EmailOAuthButtons from '@/components/auth/EmailOAuthButtons.vue'
 import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import Icon from '@/components/icons/Icon.vue'
-import TurnstileWidget from '@/components/TurnstileWidget.vue'
+import CaptchaWidget from '@/components/CaptchaWidget.vue'
 import { useAuthStore, useAppStore } from '@/stores'
 import {
   getPublicSettings,
@@ -350,8 +351,9 @@ const registrationEnabled = ref<boolean>(true)
 const emailVerifyEnabled = ref<boolean>(false)
 const promoCodeEnabled = ref<boolean>(true)
 const invitationCodeEnabled = ref<boolean>(false)
-const turnstileEnabled = ref<boolean>(false)
-const turnstileSiteKey = ref<string>('')
+const captchaEnabled = ref<boolean>(false)
+const captchaProvider = ref<'turnstile' | 'hcaptcha'>('turnstile')
+const captchaSiteKey = ref<string>('')
 const siteName = ref<string>('Sub2API')
 const linuxdoOAuthEnabled = ref<boolean>(false)
 const wechatOAuthEnabled = ref<boolean>(false)
@@ -368,9 +370,9 @@ const loginAgreementDocuments = ref<LoginAgreementDocument[]>([])
 const agreementAccepted = ref<boolean>(false)
 const showAgreementModal = ref<boolean>(false)
 
-// Turnstile
-const turnstileRef = ref<InstanceType<typeof TurnstileWidget> | null>(null)
-const turnstileToken = ref<string>('')
+// Captcha
+const captchaRef = ref<InstanceType<typeof CaptchaWidget> | null>(null)
+const captchaToken = ref<string>('')
 
 // Promo code validation
 const promoValidating = ref<boolean>(false)
@@ -402,7 +404,7 @@ const formData = reactive({
 const errors = reactive({
   email: '',
   password: '',
-  turnstile: '',
+  captcha: '',
   invitation_code: ''
 })
 
@@ -412,7 +414,7 @@ const validationToastMessage = computed(() =>
   (invitationValidation.invalid ? invitationValidation.message : '') ||
   errors.invitation_code ||
   (promoValidation.invalid ? promoValidation.message : '') ||
-  errors.turnstile ||
+  errors.captcha ||
   ''
 )
 
@@ -458,8 +460,9 @@ onMounted(async () => {
     emailVerifyEnabled.value = settings.email_verify_enabled
     promoCodeEnabled.value = settings.promo_code_enabled
     invitationCodeEnabled.value = settings.invitation_code_enabled
-    turnstileEnabled.value = settings.turnstile_enabled
-    turnstileSiteKey.value = settings.turnstile_site_key || ''
+    captchaEnabled.value = settings.captcha_enabled ?? settings.turnstile_enabled
+    captchaProvider.value = settings.captcha_provider === 'hcaptcha' ? 'hcaptcha' : 'turnstile'
+    captchaSiteKey.value = settings.captcha_site_key || settings.turnstile_site_key || ''
     siteName.value = settings.site_name || 'Sub2API'
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     wechatOAuthEnabled.value = isWeChatWebOAuthEnabled(settings)
@@ -706,21 +709,21 @@ function getInvitationErrorMessage(errorCode?: string): string {
   }
 }
 
-// ==================== Turnstile Handlers ====================
+// ==================== Captcha Handlers ====================
 
-function onTurnstileVerify(token: string): void {
-  turnstileToken.value = token
-  errors.turnstile = ''
+function onCaptchaVerify(token: string): void {
+  captchaToken.value = token
+  errors.captcha = ''
 }
 
-function onTurnstileExpire(): void {
-  turnstileToken.value = ''
-  errors.turnstile = t('auth.turnstileExpired')
+function onCaptchaExpire(): void {
+  captchaToken.value = ''
+  errors.captcha = t('auth.captchaExpired')
 }
 
-function onTurnstileError(): void {
-  turnstileToken.value = ''
-  errors.turnstile = t('auth.turnstileFailed')
+function onCaptchaError(): void {
+  captchaToken.value = ''
+  errors.captcha = t('auth.captchaFailed')
 }
 
 // ==================== Validation ====================
@@ -747,7 +750,7 @@ function validateForm(): boolean {
   // Reset errors
   errors.email = ''
   errors.password = ''
-  errors.turnstile = ''
+  errors.captcha = ''
   errors.invitation_code = ''
 
   let isValid = true
@@ -791,9 +794,9 @@ function validateForm(): boolean {
     }
   }
 
-  // Turnstile validation
-  if (turnstileEnabled.value && !turnstileToken.value) {
-    errors.turnstile = t('auth.completeVerification')
+  // Captcha validation
+  if (captchaEnabled.value && !captchaToken.value) {
+    errors.captcha = t('auth.completeCaptchaVerification')
     isValid = false
   }
 
@@ -865,7 +868,7 @@ async function handleRegister(): Promise<void> {
         JSON.stringify({
           email: formData.email,
           password: formData.password,
-          turnstile_token: turnstileToken.value,
+          captcha_token: captchaToken.value,
           promo_code: formData.promo_code || undefined,
           invitation_code: formData.invitation_code || undefined,
           ...(affCode ? { aff_code: affCode } : {})
@@ -881,7 +884,7 @@ async function handleRegister(): Promise<void> {
     await authStore.register({
       email: formData.email,
       password: formData.password,
-      turnstile_token: turnstileEnabled.value ? turnstileToken.value : undefined,
+      captcha_token: captchaEnabled.value ? captchaToken.value : undefined,
       promo_code: formData.promo_code || undefined,
       invitation_code: formData.invitation_code || undefined,
       ...(affCode ? { aff_code: affCode } : {})
@@ -894,10 +897,10 @@ async function handleRegister(): Promise<void> {
     // Redirect to dashboard
     await router.push('/dashboard')
   } catch (error: unknown) {
-    // Reset Turnstile on error
-    if (turnstileRef.value) {
-      turnstileRef.value.reset()
-      turnstileToken.value = ''
+    // Reset Captcha on error
+    if (captchaRef.value) {
+      captchaRef.value.reset()
+      captchaToken.value = ''
     }
 
     // Handle registration error
