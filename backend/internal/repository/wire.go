@@ -130,7 +130,7 @@ var ProviderSet = wire.NewSet(
 	NewS3BackupStoreFactory,
 
 	// HTTP service ports (DI Strategy A: return interface directly)
-	NewTurnstileVerifier,
+	NewCaptchaVerifier,
 	ProvidePricingRemoteClient,
 	ProvideGitHubReleaseClient,
 	NewProxyExitInfoProber,

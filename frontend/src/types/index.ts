@@ -112,6 +112,7 @@ export interface AdminUser extends User {
 export interface LoginRequest {
   email: string
   password: string
+  captcha_token?: string
   turnstile_token?: string
 }
 
@@ -119,6 +120,7 @@ export interface RegisterRequest {
   email: string
   password: string
   verify_code?: string
+  captcha_token?: string
   turnstile_token?: string
   promo_code?: string
   invitation_code?: string
@@ -153,6 +155,7 @@ export interface AffiliateTransferResponse {
 
 export interface SendVerifyCodeRequest {
   email: string
+  captcha_token?: string
   turnstile_token?: string
   pending_auth_token?: string
   pending_oauth_token?: string
@@ -200,6 +203,9 @@ export interface PublicSettings {
   login_agreement_documents?: LoginAgreementDocument[]
   turnstile_enabled: boolean
   turnstile_site_key: string
+  captcha_provider: 'turnstile' | 'hcaptcha' | string
+  captcha_enabled: boolean
+  captcha_site_key: string
   site_name: string
   site_logo: string
   site_subtitle: string

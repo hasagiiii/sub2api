@@ -697,6 +697,14 @@ func TestAPIContracts(t *testing.T) {
 					"turnstile_enabled": true,
 					"turnstile_site_key": "site-key",
 					"turnstile_secret_key_configured": true,
+					"captcha_provider": "turnstile",
+					"captcha_enabled": true,
+					"captcha_site_key": "site-key",
+					"captcha_secret_key_configured": true,
+					"captcha_config": {
+						"enabled": "true",
+						"site_key": "site-key"
+					},
 						"linuxdo_connect_enabled": false,
 						"linuxdo_connect_client_id": "",
 						"linuxdo_connect_client_secret_configured": false,
@@ -960,6 +968,14 @@ func TestAPIContracts(t *testing.T) {
 					"turnstile_enabled": false,
 					"turnstile_site_key": "",
 					"turnstile_secret_key_configured": false,
+					"captcha_provider": "turnstile",
+					"captcha_enabled": false,
+					"captcha_site_key": "",
+					"captcha_secret_key_configured": false,
+					"captcha_config": {
+						"enabled": "false",
+						"site_key": ""
+					},
 					"linuxdo_connect_enabled": false,
 					"linuxdo_connect_client_id": "",
 					"linuxdo_connect_client_secret_configured": false,

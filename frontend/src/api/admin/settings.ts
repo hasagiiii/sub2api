@@ -396,6 +396,11 @@ export interface SystemSettings {
   turnstile_enabled: boolean;
   turnstile_site_key: string;
   turnstile_secret_key_configured: boolean;
+  captcha_provider: string;
+  captcha_enabled: boolean;
+  captcha_site_key: string;
+  captcha_secret_key_configured: boolean;
+  captcha_config: Record<string, string>;
   api_key_acl_trust_forwarded_ip: boolean;
 
   // LinuxDo Connect OAuth settings
@@ -639,6 +644,8 @@ export interface UpdateSettingsRequest {
   turnstile_enabled?: boolean;
   turnstile_site_key?: string;
   turnstile_secret_key?: string;
+  captcha_provider?: string;
+  captcha_config?: Record<string, string>;
   api_key_acl_trust_forwarded_ip?: boolean;
   linuxdo_connect_enabled?: boolean;
   linuxdo_connect_client_id?: string;

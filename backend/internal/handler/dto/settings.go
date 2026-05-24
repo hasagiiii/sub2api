@@ -47,10 +47,15 @@ type SystemSettings struct {
 	SMTPFromName           string `json:"smtp_from_name"`
 	SMTPUseTLS             bool   `json:"smtp_use_tls"`
 
-	TurnstileEnabled             bool   `json:"turnstile_enabled"`
-	TurnstileSiteKey             string `json:"turnstile_site_key"`
-	TurnstileSecretKeyConfigured bool   `json:"turnstile_secret_key_configured"`
-	APIKeyACLTrustForwardedIP    bool   `json:"api_key_acl_trust_forwarded_ip"`
+	TurnstileEnabled             bool              `json:"turnstile_enabled"`
+	TurnstileSiteKey             string            `json:"turnstile_site_key"`
+	TurnstileSecretKeyConfigured bool              `json:"turnstile_secret_key_configured"`
+	CaptchaProvider              string            `json:"captcha_provider"`
+	CaptchaEnabled               bool              `json:"captcha_enabled"`
+	CaptchaSiteKey               string            `json:"captcha_site_key"`
+	CaptchaSecretKeyConfigured   bool              `json:"captcha_secret_key_configured"`
+	CaptchaConfig                map[string]string `json:"captcha_config"`
+	APIKeyACLTrustForwardedIP    bool              `json:"api_key_acl_trust_forwarded_ip"`
 
 	LinuxDoConnectEnabled                bool   `json:"linuxdo_connect_enabled"`
 	LinuxDoConnectClientID               string `json:"linuxdo_connect_client_id"`
@@ -269,6 +274,9 @@ type PublicSettings struct {
 	LoginAgreementDocuments          []LoginAgreementDocument `json:"login_agreement_documents"`
 	TurnstileEnabled                 bool                     `json:"turnstile_enabled"`
 	TurnstileSiteKey                 string                   `json:"turnstile_site_key"`
+	CaptchaProvider                  string                   `json:"captcha_provider"`
+	CaptchaEnabled                   bool                     `json:"captcha_enabled"`
+	CaptchaSiteKey                   string                   `json:"captcha_site_key"`
 	SiteName                         string                   `json:"site_name"`
 	SiteLogo                         string                   `json:"site_logo"`
 	SiteSubtitle                     string                   `json:"site_subtitle"`

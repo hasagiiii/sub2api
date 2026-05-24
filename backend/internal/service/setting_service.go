@@ -650,6 +650,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyLoginAgreementDocuments,
 		SettingKeyTurnstileEnabled,
 		SettingKeyTurnstileSiteKey,
+		SettingKeyCaptchaProvider,
+		SettingKeyCaptchaConfig,
 		SettingKeyAPIKeyACLTrustForwardedIP,
 		SettingKeySiteName,
 		SettingKeySiteLogo,
@@ -753,6 +755,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 	if loginAgreementUpdatedAt == "" {
 		loginAgreementUpdatedAt = defaultLoginAgreementDate
 	}
+	captchaRuntime := captchaRuntimeFromSettings(settings)
 
 	var balanceLowNotifyThreshold float64
 	if v, err := strconv.ParseFloat(settings[SettingKeyBalanceLowNotifyThreshold], 64); err == nil && v >= 0 {
@@ -775,6 +778,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		LoginAgreementDocuments:          loginAgreementDocuments,
 		TurnstileEnabled:                 settings[SettingKeyTurnstileEnabled] == "true",
 		TurnstileSiteKey:                 settings[SettingKeyTurnstileSiteKey],
+		CaptchaProvider:                  captchaRuntime.Provider,
+		CaptchaEnabled:                   captchaRuntime.Enabled,
+		CaptchaSiteKey:                   captchaRuntime.SiteKey,
 		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
 		SiteLogo:                         settings[SettingKeySiteLogo],
 		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
@@ -833,6 +839,108 @@ func parseChannelMonitorInterval(raw string) int {
 		return channelMonitorIntervalFallback
 	}
 	return clampChannelMonitorInterval(v)
+}
+
+type CaptchaRuntime struct {
+	Provider  string
+	Enabled   bool
+	SiteKey   string
+	SecretKey string
+	Config    map[string]string
+}
+
+func normalizeCaptchaProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case CaptchaProviderHcaptcha:
+		return CaptchaProviderHcaptcha
+	default:
+		return CaptchaProviderTurnstile
+	}
+}
+
+func NormalizeCaptchaProviderForSettings(provider string) string {
+	return normalizeCaptchaProvider(provider)
+}
+
+func parseCaptchaConfig(raw string) map[string]string {
+	if strings.TrimSpace(raw) == "" {
+		return map[string]string{}
+	}
+	var cfg map[string]string
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil || cfg == nil {
+		return map[string]string{}
+	}
+	return cfg
+}
+
+func encodeCaptchaConfig(cfg map[string]string) string {
+	if cfg == nil {
+		cfg = map[string]string{}
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return map[string]string{}
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func maskCaptchaConfig(cfg map[string]string) map[string]string {
+	masked := cloneStringMap(cfg)
+	delete(masked, "secret_key")
+	return masked
+}
+
+func captchaRuntimeFromSettings(settings map[string]string) CaptchaRuntime {
+	provider := normalizeCaptchaProvider(settings[SettingKeyCaptchaProvider])
+	config := parseCaptchaConfig(settings[SettingKeyCaptchaConfig])
+	if len(config) > 0 {
+		return CaptchaRuntime{
+			Provider:  provider,
+			Enabled:   config["enabled"] == "true",
+			SiteKey:   config["site_key"],
+			SecretKey: config["secret_key"],
+			Config:    cloneStringMap(config),
+		}
+	}
+
+	// Legacy Turnstile settings remain a fallback for existing deployments.
+	legacyConfig := map[string]string{
+		"enabled":    strconv.FormatBool(settings[SettingKeyTurnstileEnabled] == "true"),
+		"site_key":   settings[SettingKeyTurnstileSiteKey],
+		"secret_key": settings[SettingKeyTurnstileSecretKey],
+	}
+	return CaptchaRuntime{
+		Provider:  CaptchaProviderTurnstile,
+		Enabled:   settings[SettingKeyTurnstileEnabled] == "true",
+		SiteKey:   settings[SettingKeyTurnstileSiteKey],
+		SecretKey: settings[SettingKeyTurnstileSecretKey],
+		Config:    legacyConfig,
+	}
+}
+
+func (s *SettingService) GetCaptchaRuntime(ctx context.Context) CaptchaRuntime {
+	values, err := s.settingRepo.GetMultiple(ctx, []string{
+		SettingKeyCaptchaProvider,
+		SettingKeyTurnstileEnabled,
+		SettingKeyTurnstileSiteKey,
+		SettingKeyTurnstileSecretKey,
+		SettingKeyCaptchaConfig,
+	})
+	if err != nil {
+		return CaptchaRuntime{Provider: CaptchaProviderTurnstile}
+	}
+	return captchaRuntimeFromSettings(values)
 }
 
 // clampChannelMonitorInterval clamps v to the allowed range. 0 means "not provided".
@@ -1028,6 +1136,9 @@ type PublicSettingsInjectionPayload struct {
 	LoginAgreementDocuments          []LoginAgreementDocument `json:"login_agreement_documents"`
 	TurnstileEnabled                 bool                     `json:"turnstile_enabled"`
 	TurnstileSiteKey                 string                   `json:"turnstile_site_key"`
+	CaptchaProvider                  string                   `json:"captcha_provider"`
+	CaptchaEnabled                   bool                     `json:"captcha_enabled"`
+	CaptchaSiteKey                   string                   `json:"captcha_site_key"`
 	SiteName                         string                   `json:"site_name"`
 	SiteLogo                         string                   `json:"site_logo"`
 	SiteSubtitle                     string                   `json:"site_subtitle"`
@@ -1093,6 +1204,9 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		LoginAgreementDocuments:          settings.LoginAgreementDocuments,
 		TurnstileEnabled:                 settings.TurnstileEnabled,
 		TurnstileSiteKey:                 settings.TurnstileSiteKey,
+		CaptchaProvider:                  settings.CaptchaProvider,
+		CaptchaEnabled:                   settings.CaptchaEnabled,
+		CaptchaSiteKey:                   settings.CaptchaSiteKey,
 		SiteName:                         settings.SiteName,
 		SiteLogo:                         settings.SiteLogo,
 		SiteSubtitle:                     settings.SiteSubtitle,
@@ -1580,11 +1694,29 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeySMTPFromName] = settings.SMTPFromName
 	updates[SettingKeySMTPUseTLS] = strconv.FormatBool(settings.SMTPUseTLS)
 
-	// Cloudflare Turnstile 设置（只有非空才更新密钥）
+	// Captcha config uses one provider-selected JSON map. Legacy Turnstile keys
+	// are still mirrored for old clients and existing scripts.
 	updates[SettingKeyTurnstileEnabled] = strconv.FormatBool(settings.TurnstileEnabled)
 	updates[SettingKeyTurnstileSiteKey] = settings.TurnstileSiteKey
 	if settings.TurnstileSecretKey != "" {
 		updates[SettingKeyTurnstileSecretKey] = settings.TurnstileSecretKey
+	}
+	updates[SettingKeyCaptchaProvider] = normalizeCaptchaProvider(settings.CaptchaProvider)
+	captchaConfig := cloneStringMap(settings.CaptchaConfig)
+	if len(captchaConfig) == 0 {
+		captchaConfig = map[string]string{
+			"enabled":    strconv.FormatBool(settings.TurnstileEnabled),
+			"site_key":   settings.TurnstileSiteKey,
+			"secret_key": settings.TurnstileSecretKey,
+		}
+	}
+	updates[SettingKeyCaptchaConfig] = encodeCaptchaConfig(captchaConfig)
+	if normalizeCaptchaProvider(settings.CaptchaProvider) == CaptchaProviderTurnstile {
+		updates[SettingKeyTurnstileEnabled] = captchaConfig["enabled"]
+		updates[SettingKeyTurnstileSiteKey] = captchaConfig["site_key"]
+		if captchaConfig["secret_key"] != "" {
+			updates[SettingKeyTurnstileSecretKey] = captchaConfig["secret_key"]
+		}
 	}
 	updates[SettingKeyAPIKeyACLTrustForwardedIP] = strconv.FormatBool(settings.APIKeyACLTrustForwardedIP)
 
@@ -2652,6 +2784,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else if s != nil && s.cfg != nil {
 		apiKeyACLTrustForwardedIP = s.cfg.Security.TrustForwardedIPForAPIKeyACL
 	}
+	captchaRuntime := captchaRuntimeFromSettings(settings)
 	result := &SystemSettings{
 		RegistrationEnabled:              settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:               emailVerifyEnabled,
@@ -2674,6 +2807,11 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		TurnstileEnabled:                 settings[SettingKeyTurnstileEnabled] == "true",
 		TurnstileSiteKey:                 settings[SettingKeyTurnstileSiteKey],
 		TurnstileSecretKeyConfigured:     settings[SettingKeyTurnstileSecretKey] != "",
+		CaptchaProvider:                  captchaRuntime.Provider,
+		CaptchaEnabled:                   captchaRuntime.Enabled,
+		CaptchaSiteKey:                   captchaRuntime.SiteKey,
+		CaptchaSecretKeyConfigured:       captchaRuntime.SecretKey != "",
+		CaptchaConfig:                    maskCaptchaConfig(captchaRuntime.Config),
 		APIKeyACLTrustForwardedIP:        apiKeyACLTrustForwardedIP,
 		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
 		SiteLogo:                         settings[SettingKeySiteLogo],
@@ -2742,6 +2880,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	// 敏感信息直接返回，方便测试连接时使用
 	result.SMTPPassword = settings[SettingKeySMTPPassword]
 	result.TurnstileSecretKey = settings[SettingKeyTurnstileSecretKey]
+	result.CaptchaSecretKey = captchaRuntime.SecretKey
+	result.CaptchaConfig = cloneStringMap(captchaRuntime.Config)
 
 	// LinuxDo Connect 设置：
 	// - 兼容 config.yaml/env（避免老部署因为未迁移到数据库设置而被意外关闭）
@@ -3371,11 +3511,8 @@ func (s *SettingService) getStringOrDefault(settings map[string]string, key, def
 
 // IsTurnstileEnabled 检查是否启用 Turnstile 验证
 func (s *SettingService) IsTurnstileEnabled(ctx context.Context) bool {
-	value, err := s.settingRepo.GetValue(ctx, SettingKeyTurnstileEnabled)
-	if err != nil {
-		return false
-	}
-	return value == "true"
+	runtime := s.GetCaptchaRuntime(ctx)
+	return runtime.Provider == CaptchaProviderTurnstile && runtime.Enabled
 }
 
 // GetTurnstileSecretKey 获取 Turnstile Secret Key

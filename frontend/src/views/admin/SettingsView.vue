@@ -1586,58 +1586,104 @@
             </div>
           </div>
 
-          <!-- Cloudflare Turnstile Settings -->
+          <!-- Captcha Settings -->
           <div class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
               <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t("admin.settings.turnstile.title") }}
+                {{ t("admin.settings.captcha.title") }}
               </h2>
               <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {{ t("admin.settings.turnstile.description") }}
+                {{ t("admin.settings.captcha.description") }}
               </p>
             </div>
             <div class="space-y-5 p-6">
-              <!-- Enable Turnstile -->
+              <!-- Enable Captcha -->
               <div class="flex items-center justify-between">
                 <div>
                   <label class="font-medium text-gray-900 dark:text-white">{{
-                    t("admin.settings.turnstile.enableTurnstile")
+                    t("admin.settings.captcha.enable")
                   }}</label>
                   <p class="text-sm text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.turnstile.enableTurnstileHint") }}
+                    {{ t("admin.settings.captcha.enableHint") }}
                   </p>
                 </div>
-                <Toggle v-model="form.turnstile_enabled" />
+                <Toggle v-model="captchaEnabled" />
               </div>
 
-              <!-- Turnstile Keys - Only show when enabled -->
+              <div v-if="captchaEnabled">
+                <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t("admin.settings.captcha.provider") }}
+                </label>
+                <Select
+                  :modelValue="form.captcha_provider"
+                  @update:modelValue="form.captcha_provider = $event as 'turnstile' | 'hcaptcha'"
+                  :options="captchaProviderOptions"
+                />
+              </div>
+
+              <!-- Captcha Keys - Only show when enabled -->
               <div
-                v-if="form.turnstile_enabled"
+                v-if="captchaEnabled"
                 class="border-t border-gray-100 pt-4 dark:border-dark-700"
               >
-                <div class="grid grid-cols-1 gap-6">
+                <div v-if="form.captcha_provider === 'hcaptcha'" class="grid grid-cols-1 gap-6">
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.captcha.hcaptchaSiteKey") }}
+                    </label>
+                    <input
+                      v-model="form.captcha_config.site_key"
+                      type="text"
+                      class="input font-mono text-sm"
+                      placeholder="10000000-ffff-ffff-ffff-000000000001"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.captcha.hcaptchaSiteKeyHint") }}
+                      <a href="https://dashboard.hcaptcha.com/" target="_blank" class="text-primary-600 hover:text-primary-500">{{ t("admin.settings.captcha.hcaptchaDashboard") }}</a>.
+                    </p>
+                  </div>
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.captcha.hcaptchaSecretKey") }}
+                    </label>
+                    <input
+                      v-model="form.captcha_config.secret_key"
+                      type="text"
+                      class="input font-mono text-sm"
+                      placeholder="0x0000000000000000000000000000000000000000"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        form.captcha_secret_key_configured
+                          ? t("admin.settings.captcha.secretKeyConfiguredHint")
+                          : t("admin.settings.captcha.secretKeyHint")
+                      }}
+                    </p>
+                  </div>
+                </div>
+                <div v-else class="grid grid-cols-1 gap-6">
                   <div>
                     <label
                       class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
                     >
-                      {{ t("admin.settings.turnstile.siteKey") }}
+                      {{ t("admin.settings.captcha.turnstileSiteKey") }}
                     </label>
                     <input
-                      v-model="form.turnstile_site_key"
+                      v-model="form.captcha_config.site_key"
                       type="text"
                       class="input font-mono text-sm"
                       placeholder="0x4AAAAAAA..."
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.turnstile.siteKeyHint") }}
+                      {{ t("admin.settings.captcha.turnstileSiteKeyHint") }}
                       <a
                         href="https://dash.cloudflare.com/"
                         target="_blank"
                         class="text-primary-600 hover:text-primary-500"
                         >{{
-                          t("admin.settings.turnstile.cloudflareDashboard")
+                          t("admin.settings.captcha.cloudflareDashboard")
                         }}</a
                       >
                     </p>
@@ -1646,21 +1692,21 @@
                     <label
                       class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
                     >
-                      {{ t("admin.settings.turnstile.secretKey") }}
+                      {{ t("admin.settings.captcha.turnstileSecretKey") }}
                     </label>
                     <input
-                      v-model="form.turnstile_secret_key"
+                      v-model="form.captcha_config.secret_key"
                       type="password"
                       class="input font-mono text-sm"
                       placeholder="0x4AAAAAAA..."
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {{
-                        form.turnstile_secret_key_configured
+                        form.captcha_secret_key_configured
                           ? t(
-                              "admin.settings.turnstile.secretKeyConfiguredHint",
+                              "admin.settings.captcha.secretKeyConfiguredHint",
                             )
-                          : t("admin.settings.turnstile.secretKeyHint")
+                          : t("admin.settings.captcha.secretKeyHint")
                       }}
                     </p>
                   </div>
@@ -6601,6 +6647,18 @@ const paymentMethodsHref = computed(() =>
     : "https://github.com/Wei-Shaw/sub2api/blob/main/docs/PAYMENT.md#supported-payment-methods",
 );
 
+const captchaProviderOptions = computed(() => [
+  { value: "turnstile", label: "Cloudflare Turnstile" },
+  { value: "hcaptcha", label: "hCaptcha" },
+]);
+
+const captchaEnabled = computed({
+  get: () => form.captcha_config.enabled === "true",
+  set: (enabled: boolean) => {
+    form.captcha_config.enabled = enabled ? "true" : "false";
+  },
+});
+
 type SettingsTab =
   | "general"
   | "agreement"
@@ -6919,6 +6977,15 @@ const form = reactive<SettingsForm>({
   turnstile_site_key: "",
   turnstile_secret_key: "",
   turnstile_secret_key_configured: false,
+  captcha_provider: "turnstile",
+  captcha_enabled: false,
+  captcha_site_key: "",
+  captcha_secret_key_configured: false,
+  captcha_config: {
+    enabled: "false",
+    site_key: "",
+    secret_key: "",
+  },
   api_key_acl_trust_forwarded_ip: false,
   // LinuxDo Connect OAuth 登录
   linuxdo_connect_enabled: false,
@@ -7676,6 +7743,11 @@ async function loadSettings() {
     form.smtp_password = "";
     smtpPasswordManuallyEdited.value = false;
     form.turnstile_secret_key = "";
+    form.captcha_config = {
+      enabled: settings.captcha_enabled ? "true" : "false",
+      site_key: settings.captcha_config?.site_key || settings.captcha_site_key || "",
+      secret_key: "",
+    };
     form.linuxdo_connect_client_secret = "";
     form.dingtalk_connect_client_secret = "";
     form.github_oauth_client_secret = "";
@@ -8022,9 +8094,18 @@ async function saveSettings() {
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_use_tls,
-      turnstile_enabled: form.turnstile_enabled,
-      turnstile_site_key: form.turnstile_site_key,
-      turnstile_secret_key: form.turnstile_secret_key || undefined,
+      turnstile_enabled:
+        form.captcha_provider === "turnstile" && captchaEnabled.value,
+      turnstile_site_key:
+        form.captcha_provider === "turnstile" ? form.captcha_config.site_key : form.turnstile_site_key,
+      turnstile_secret_key:
+        form.captcha_provider === "turnstile" ? form.captcha_config.secret_key || undefined : form.turnstile_secret_key || undefined,
+      captcha_provider: form.captcha_provider,
+      captcha_config: {
+        enabled: captchaEnabled.value ? "true" : "false",
+        site_key: form.captcha_config.site_key || "",
+        ...(form.captcha_config.secret_key ? { secret_key: form.captcha_config.secret_key } : {}),
+      },
       api_key_acl_trust_forwarded_ip: form.api_key_acl_trust_forwarded_ip,
       linuxdo_connect_enabled: form.linuxdo_connect_enabled,
       linuxdo_connect_client_id: form.linuxdo_connect_client_id,
