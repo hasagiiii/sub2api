@@ -422,10 +422,10 @@ func buildCanonicalHeaders(headers map[string]string) string {
 	sort.Strings(keys)
 	var sb strings.Builder
 	for _, k := range keys {
-		sb.WriteString(k)
-		sb.WriteString(":")
-		sb.WriteString(strings.TrimSpace(headers[k]))
-		sb.WriteString("\n")
+		_, _ = sb.WriteString(k)
+		_, _ = sb.WriteString(":")
+		_, _ = sb.WriteString(strings.TrimSpace(headers[k]))
+		_, _ = sb.WriteString("\n")
 	}
 	return sb.String()
 }
@@ -439,6 +439,6 @@ func sha256Hex(input []byte) string {
 // hmacSHA256 返回 HMAC-SHA256(key, data)，二进制形式（用于继续派生）。
 func hmacSHA256(key, data []byte) []byte {
 	h := hmac.New(sha256.New, key)
-	h.Write(data)
+	_, _ = h.Write(data)
 	return h.Sum(nil)
 }
