@@ -13,20 +13,24 @@ import (
 type captchaRegisterVerifierSpy struct {
 	called    int
 	lastToken string
-	result    *CaptchaVerifyResponse
+	result    *VerifyResult
 	err       error
 }
 
-func (s *captchaRegisterVerifierSpy) VerifyToken(_ context.Context, _, _ string, token, _ string) (*CaptchaVerifyResponse, error) {
+func (s *captchaRegisterVerifierSpy) Verify(_ context.Context, req VerifyRequest) (*VerifyResult, error) {
 	s.called++
-	s.lastToken = token
+	s.lastToken = req.Payload["token"]
 	if s.err != nil {
 		return nil, s.err
 	}
 	if s.result != nil {
 		return s.result, nil
 	}
-	return &CaptchaVerifyResponse{Success: true}, nil
+	return &VerifyResult{Success: true}, nil
+}
+
+func (s *captchaRegisterVerifierSpy) ValidateProviderConfig(_ context.Context, _ string, _ map[string]string) error {
+	return nil
 }
 
 func newAuthServiceForRegisterCaptchaTest(settings map[string]string, verifier CaptchaVerifier) *AuthService {

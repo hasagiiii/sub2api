@@ -510,7 +510,7 @@ gateway:
 - `billing.circuit_breaker` 计费异常时 fail-closed
 - `server.trusted_proxies` 启用可信代理解析 X-Forwarded-For
 - `turnstile.required` 在 release 模式强制启用 Turnstile（兼容旧配置）
-- `captcha.required` 在 release 模式强制配置一个人机验证服务商；管理后台可选择 Cloudflare Turnstile 或 hCaptcha
+- `captcha.required` 在 release 模式强制配置一个人机验证服务商；管理后台可选择 Cloudflare Turnstile、hCaptcha 或腾讯天御 (TencentCaptcha)
 
 **网关防御纵深建议（重点）**
 

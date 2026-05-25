@@ -374,8 +374,28 @@ func (s *AuthService) VerifyCaptchaForRegister(ctx context.Context, token, remot
 	return s.VerifyCaptcha(ctx, token, remoteIP)
 }
 
+// VerifyCaptchaPayloadForRegister 是 captcha_payload 协议下的注册阶段入口（design.md D2）。
+//
+// 与 VerifyCaptchaForRegister 行为完全对齐，仅 payload 携带方式不同。所有 4 个 captcha-gated
+// handler 改造完成后，VerifyCaptchaForRegister 会被废弃。
+func (s *AuthService) VerifyCaptchaPayloadForRegister(ctx context.Context, payload map[string]string, remoteIP, verifyCode string) error {
+	if s.IsEmailVerifyEnabled(ctx) && strings.TrimSpace(verifyCode) != "" {
+		logger.LegacyPrintf("service.auth", "%s", "[Auth] Email verify flow detected, skip duplicate Captcha check on register")
+		return nil
+	}
+	return s.VerifyCaptchaPayload(ctx, payload, remoteIP)
+}
+
 // VerifyCaptcha 验证当前启用的人机验证 token。
 func (s *AuthService) VerifyCaptcha(ctx context.Context, token string, remoteIP string) error {
+	return s.VerifyCaptchaPayload(ctx, map[string]string{"token": token}, remoteIP)
+}
+
+// VerifyCaptchaPayload 是 captcha_payload 协议下的统一入口（design.md D2）。
+//
+// 与历史 VerifyCaptcha(ctx, token, remoteIP) 行为对齐，区别仅在于把 payload 形态从单 token 字符串
+// 拓宽为结构化 map，让 tencent_captcha 的 {ticket, randstr} 等多字段 provider 在 service 层无需特殊分支。
+func (s *AuthService) VerifyCaptchaPayload(ctx context.Context, payload map[string]string, remoteIP string) error {
 	required := s.cfg != nil && s.cfg.Server.Mode == "release" && (s.cfg.Turnstile.Required || s.cfg.Captcha.Required)
 
 	if required {
@@ -408,7 +428,7 @@ func (s *AuthService) VerifyCaptcha(ctx context.Context, token string, remoteIP 
 		}
 	}
 
-	return s.captchaService.VerifyToken(ctx, token, remoteIP)
+	return s.captchaService.VerifyPayload(ctx, payload, remoteIP)
 }
 
 // IsCaptchaEnabled 检查是否启用人机验证。

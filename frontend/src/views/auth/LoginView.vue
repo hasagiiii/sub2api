@@ -93,7 +93,7 @@
         <!-- Submit Button -->
         <button
           type="submit"
-          :disabled="authActionDisabled || (captchaEnabled && !captchaToken)"
+          :disabled="authActionDisabled || (captchaEnabled && captchaProvider !== 'tencent_captcha' && !captchaToken)"
           class="btn btn-primary w-full"
         >
           <svg
@@ -212,6 +212,7 @@ import LoginAgreementPrompt from '@/components/auth/LoginAgreementPrompt.vue'
 import TotpLoginModal from '@/components/auth/TotpLoginModal.vue'
 import Icon from '@/components/icons/Icon.vue'
 import CaptchaWidget from '@/components/CaptchaWidget.vue'
+import { useCaptchaSubmit, type CaptchaSubmitError } from '@/composables/useCaptchaSubmit'
 import { useAuthStore, useAppStore } from '@/stores'
 import { getPublicSettings, isTotp2FARequired, isWeChatWebOAuthEnabled } from '@/api/auth'
 import type { LoginAgreementDocument, TotpLoginResponse } from '@/types'
@@ -236,7 +237,7 @@ const publicSettingsLoaded = ref<boolean>(false)
 
 // Public settings
 const captchaEnabled = ref<boolean>(false)
-const captchaProvider = ref<'turnstile' | 'hcaptcha'>('turnstile')
+const captchaProvider = ref<'turnstile' | 'hcaptcha' | 'tencent_captcha'>('turnstile')
 const captchaSiteKey = ref<string>('')
 const linuxdoOAuthEnabled = ref<boolean>(false)
 const dingtalkOAuthEnabled = ref<boolean>(false)
@@ -319,7 +320,12 @@ onMounted(async () => {
   try {
     const settings = await getPublicSettings()
     captchaEnabled.value = settings.captcha_enabled ?? settings.turnstile_enabled
-    captchaProvider.value = settings.captcha_provider === 'hcaptcha' ? 'hcaptcha' : 'turnstile'
+    captchaProvider.value =
+      settings.captcha_provider === 'hcaptcha'
+        ? 'hcaptcha'
+        : settings.captcha_provider === 'tencent_captcha'
+          ? 'tencent_captcha'
+          : 'turnstile'
     captchaSiteKey.value = settings.captcha_site_key || settings.turnstile_site_key || ''
     linuxdoOAuthEnabled.value = settings.linuxdo_oauth_enabled
     dingtalkOAuthEnabled.value = settings.dingtalk_oauth_enabled ?? false
@@ -457,7 +463,9 @@ function validateForm(): boolean {
   }
 
   // Captcha validation
-  if (captchaEnabled.value && !captchaToken.value) {
+  // 天御 (tencent_captcha) 是 popup 形态：用户点提交后才弹挑战，没有"先验证后提交"概念，
+  // 所以这里只对声明式 widget（turnstile / hcaptcha）做 token 缺失拦截。
+  if (captchaEnabled.value && captchaProvider.value !== 'tencent_captcha' && !captchaToken.value) {
     errors.captcha = t('auth.completeCaptchaVerification')
     isValid = false
   }
@@ -466,6 +474,37 @@ function validateForm(): boolean {
 }
 
 // ==================== Form Handlers ====================
+
+// captchaSubmit: 抽离的 captcha-gated submit 状态机。
+const captchaSubmit = useCaptchaSubmit({
+  captchaRef,
+  captchaEnabled: () => captchaEnabled.value,
+  getCachedToken: () => captchaToken.value,
+  submitFn: async (payload) => {
+    const response = await authStore.login({
+      email: formData.email,
+      password: formData.password,
+      captcha_payload: captchaEnabled.value ? payload : undefined
+    })
+
+    // Check if 2FA is required
+    if (isTotp2FARequired(response)) {
+      const totpResponse = response as TotpLoginResponse
+      totpTempToken.value = totpResponse.temp_token || ''
+      totpUserEmailMasked.value = totpResponse.user_email_masked || ''
+      show2FAModal.value = true
+      return
+    }
+
+    // Show success toast
+    clearAllAffiliateReferralCodes()
+    appStore.showSuccess(t('auth.loginSuccess'))
+
+    // Redirect to dashboard or intended route
+    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
+    await router.push(redirectTo)
+  }
+})
 
 async function handleLogin(): Promise<void> {
   // Clear previous error
@@ -479,38 +518,28 @@ async function handleLogin(): Promise<void> {
   isLoading.value = true
 
   try {
-    // Call auth store login
-    const response = await authStore.login({
-      email: formData.email,
-      password: formData.password,
-      captcha_token: captchaEnabled.value ? captchaToken.value : undefined
-    })
-
-    // Check if 2FA is required
-    if (isTotp2FARequired(response)) {
-      const totpResponse = response as TotpLoginResponse
-      totpTempToken.value = totpResponse.temp_token || ''
-      totpUserEmailMasked.value = totpResponse.user_email_masked || ''
-      show2FAModal.value = true
+    await captchaSubmit.submit()
+    // 2FA 分支：submit 成功（且 modal 已弹），保留 isLoading=false 让用户能继续操作。
+    if (show2FAModal.value) {
       isLoading.value = false
       return
     }
-
-    // Show success toast
-    clearAllAffiliateReferralCodes()
-    appStore.showSuccess(t('auth.loginSuccess'))
-
-    // Redirect to dashboard or intended route
-    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
-    await router.push(redirectTo)
   } catch (error: unknown) {
+    const captchaErr = error as CaptchaSubmitError
     // Reset Captcha on error
     if (captchaRef.value) {
       captchaRef.value.reset()
       captchaToken.value = ''
     }
 
-    errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', t('auth.loginFailed'))
+    console.log(captchaErr)
+    if (captchaErr.reason === 'cancelled') {
+      errorMessage.value = t('auth.captchaFailed')
+    } else {
+      // submit 阶段业务错误，cause 是原始 axios error
+      const cause = (captchaErr as Error & { cause?: unknown }).cause ?? error
+      errorMessage.value = extractI18nErrorMessage(cause, t, 'auth.errors', t('auth.loginFailed'))
+    }
 
     // Also show error toast
     appStore.showError(errorMessage.value)

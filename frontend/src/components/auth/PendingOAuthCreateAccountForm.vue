@@ -41,7 +41,7 @@
         :data-testid="`${testIdPrefix}-create-account-send-code`"
         type="button"
         class="btn btn-secondary shrink-0"
-        :disabled="isSubmitting || isSendingCode || countdown > 0 || !email.trim() || (captchaEnabled && !captchaToken)"
+        :disabled="isSubmitting || isSendingCode || countdown > 0 || !email.trim() || (captchaEnabled && captchaProvider !== 'tencent_captcha' && !captchaToken)"
         @click="handleSendCode"
       >
         {{
@@ -127,7 +127,7 @@ const sendCodeSuccess = ref(false)
 const countdown = ref(0)
 const invitationCodeEnabled = ref(false)
 const captchaEnabled = ref<boolean>(false)
-const captchaProvider = ref<'turnstile' | 'hcaptcha'>('turnstile')
+const captchaProvider = ref<'turnstile' | 'hcaptcha' | 'tencent_captcha'>('turnstile')
 const captchaSiteKey = ref('')
 const captchaToken = ref('')
 const captchaRef = ref<InstanceType<typeof CaptchaWidget> | null>(null)
@@ -214,9 +214,23 @@ async function handleSendCode() {
     return
   }
 
-  if (captchaEnabled.value && !captchaToken.value) {
-    sendCodeError.value = t('auth.completeCaptchaVerification')
-    return
+  // 声明式 widget 必须先 verify；天御 popup 形态在调用 sendPendingOAuthVerifyCode 前 execute() 弹窗。
+  let captchaPayload: Record<string, string> | undefined
+  if (captchaEnabled.value) {
+    if (captchaProvider.value === 'tencent_captcha') {
+      const popupPayload = await captchaRef.value?.execute()
+      if (!popupPayload) {
+        sendCodeError.value = t('auth.captchaFailed')
+        return
+      }
+      captchaPayload = popupPayload
+    } else {
+      if (!captchaToken.value) {
+        sendCodeError.value = t('auth.completeCaptchaVerification')
+        return
+      }
+      captchaPayload = { token: captchaToken.value }
+    }
   }
 
   isSendingCode.value = true
@@ -226,7 +240,7 @@ async function handleSendCode() {
   try {
     const response = await sendPendingOAuthVerifyCode({
       email: trimmedEmail,
-      captcha_token: captchaEnabled.value ? captchaToken.value : undefined
+      captcha_payload: captchaEnabled.value ? captchaPayload : undefined
     })
     sendCodeSuccess.value = true
     startCountdown(response.countdown)
@@ -263,7 +277,12 @@ onMounted(async () => {
     const settings = await getPublicSettings()
     invitationCodeEnabled.value = settings.invitation_code_enabled === true
     captchaEnabled.value = settings.captcha_enabled ?? settings.turnstile_enabled
-    captchaProvider.value = settings.captcha_provider === 'hcaptcha' ? 'hcaptcha' : 'turnstile'
+    captchaProvider.value =
+      settings.captcha_provider === 'hcaptcha'
+        ? 'hcaptcha'
+        : settings.captcha_provider === 'tencent_captcha'
+          ? 'tencent_captcha'
+          : 'turnstile'
     captchaSiteKey.value = settings.captcha_site_key || settings.turnstile_site_key || ''
   } catch {
     invitationCodeEnabled.value = false

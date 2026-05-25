@@ -5511,7 +5511,25 @@ export default {
         hcaptchaSiteKeyHint: '请在 ',
         hcaptchaDashboard: 'hCaptcha dashboard',
         secretKeyHint: '服务端验证密钥（请保密）',
-        secretKeyConfiguredHint: '密钥已配置，留空以保留当前值。'
+        secretKeyConfiguredHint: '密钥已配置，留空以保留当前值。',
+        // 腾讯天御 (TencentCaptcha)
+        tencentProviderLabel: '腾讯天御 (TencentCaptcha)',
+        tencentDashboard: '腾讯云验证码控制台',
+        tencentCaptchaAppId: '验证码 AppId (CaptchaAppId)',
+        tencentCaptchaAppIdHint: '请在 ',
+        tencentAppSecretKey: '验证码 AppSecretKey',
+        tencentAppSecretKeyHint: '前端验证码密钥（请保密）',
+        tencentAppSecretKeyConfiguredHint: 'AppSecretKey 已配置，留空以保留当前值。',
+        tencentSecretId: '腾讯云 SecretId',
+        tencentSecretIdHint: 'SecretId 和 SecretKey 用于服务端调用 DescribeCaptchaResult 校验接口，可在',
+        tencentSecretIdConfiguredHint: 'SecretId 已配置，留空以保留当前值；如需更换可前往',
+        tencentCamConsole: '访问管理 CAM 控制台',
+        tencentCamConsoleSuffix: '申请。',
+        tencentSecretKey: '腾讯云 SecretKey',
+        tencentSecretKeyHint: '与上方 SecretId 配对使用，请妥善保管不要泄露。',
+        tencentSecretKeyConfiguredHint: 'SecretKey 已配置，留空以保留当前值。',
+        tencentTrustedProxiesHint: '建议在反向代理 / Swarm 部署下配置 trusted_proxies，否则天御风控评分准确性会降低。',
+        tencentNoPreflightHint: '提示：腾讯天御不支持预校验，请保存后实测一次登录链路确认连通性。'
       },
       apiKeyAcl: {
         title: 'API Key IP 访问控制',

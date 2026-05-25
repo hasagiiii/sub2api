@@ -1618,7 +1618,7 @@
                 </label>
                 <Select
                   :modelValue="form.captcha_provider"
-                  @update:modelValue="form.captcha_provider = $event as 'turnstile' | 'hcaptcha'"
+                  @update:modelValue="form.captcha_provider = $event as 'turnstile' | 'hcaptcha' | 'tencent_captcha'"
                   :options="captchaProviderOptions"
                 />
               </div>
@@ -1661,6 +1661,100 @@
                           : t("admin.settings.captcha.secretKeyHint")
                       }}
                     </p>
+                  </div>
+                </div>
+                <!-- 腾讯天御 (TencentCaptcha)：4 个字段（D7） -->
+                <div
+                  v-else-if="form.captcha_provider === 'tencent_captcha'"
+                  class="grid grid-cols-1 gap-6"
+                >
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.captcha.tencentCaptchaAppId") }}
+                    </label>
+                    <input
+                      v-model="form.captcha_config.captcha_app_id"
+                      type="text"
+                      class="input font-mono text-sm"
+                      placeholder="20000xxxxx"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.captcha.tencentCaptchaAppIdHint") }}
+                      <a
+                        href="https://console.cloud.tencent.com/captcha"
+                        target="_blank"
+                        class="text-primary-600 hover:text-primary-500"
+                        >{{ t("admin.settings.captcha.tencentDashboard") }}</a
+                      >
+                    </p>
+                  </div>
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.captcha.tencentAppSecretKey") }}
+                    </label>
+                    <input
+                      v-model="form.captcha_config.app_secret_key"
+                      type="password"
+                      class="input font-mono text-sm"
+                      placeholder=""
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        form.captcha_secret_key_configured
+                          ? t("admin.settings.captcha.tencentAppSecretKeyConfiguredHint")
+                          : t("admin.settings.captcha.tencentAppSecretKeyHint")
+                      }}
+                    </p>
+                  </div>
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.captcha.tencentSecretId") }}
+                    </label>
+                    <input
+                      v-model="form.captcha_config.secret_id"
+                      type="text"
+                      class="input font-mono text-sm"
+                      placeholder="AKIDxxxxxxxxxxxxxxxx"
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        form.captcha_tencent_secret_id_configured
+                          ? t("admin.settings.captcha.tencentSecretIdConfiguredHint")
+                          : t("admin.settings.captcha.tencentSecretIdHint")
+                      }}
+                      <a
+                        href="https://console.cloud.tencent.com/cam/capi"
+                        target="_blank"
+                        class="text-primary-600 hover:text-primary-500"
+                        >{{ t("admin.settings.captcha.tencentCamConsole") }}</a
+                      >{{ t("admin.settings.captcha.tencentCamConsoleSuffix") }}
+                    </p>
+                  </div>
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.captcha.tencentSecretKey") }}
+                    </label>
+                    <input
+                      v-model="form.captcha_config.secret_key"
+                      type="password"
+                      class="input font-mono text-sm"
+                      placeholder=""
+                    />
+                    <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        form.captcha_tencent_secret_key_configured
+                          ? t("admin.settings.captcha.tencentSecretKeyConfiguredHint")
+                          : t("admin.settings.captcha.tencentSecretKeyHint")
+                      }}
+                    </p>
+                  </div>
+                  <!-- D8: trusted_proxies 提示 -->
+                  <div class="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+                    {{ t("admin.settings.captcha.tencentTrustedProxiesHint") }}
+                  </div>
+                  <!-- "测试连接"按钮文案：天御无法预校验 -->
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.captcha.tencentNoPreflightHint") }}
                   </div>
                 </div>
                 <div v-else class="grid grid-cols-1 gap-6">
@@ -6650,6 +6744,7 @@ const paymentMethodsHref = computed(() =>
 const captchaProviderOptions = computed(() => [
   { value: "turnstile", label: "Cloudflare Turnstile" },
   { value: "hcaptcha", label: "hCaptcha" },
+  { value: "tencent_captcha", label: t("admin.settings.captcha.tencentProviderLabel") },
 ]);
 
 const captchaEnabled = computed({
@@ -6981,6 +7076,8 @@ const form = reactive<SettingsForm>({
   captcha_enabled: false,
   captcha_site_key: "",
   captcha_secret_key_configured: false,
+  captcha_tencent_secret_id_configured: false,
+  captcha_tencent_secret_key_configured: false,
   captcha_config: {
     enabled: "false",
     site_key: "",
@@ -7747,7 +7844,16 @@ async function loadSettings() {
       enabled: settings.captcha_enabled ? "true" : "false",
       site_key: settings.captcha_config?.site_key || settings.captcha_site_key || "",
       secret_key: "",
+      // 腾讯天御 4 字段：保留 site_key 字段含义为 captcha_app_id（与后端 §3.4 一致）；
+      // captcha_app_id / app_secret_key / secret_id / secret_key 均不在响应里回传明文，编辑时未填即保持后端原值。
+      captcha_app_id: settings.captcha_config?.captcha_app_id || "",
+      app_secret_key: "",
+      secret_id: settings.captcha_config?.secret_id || "",
     };
+    form.captcha_tencent_secret_id_configured =
+      settings.captcha_tencent_secret_id_configured === true;
+    form.captcha_tencent_secret_key_configured =
+      settings.captcha_tencent_secret_key_configured === true;
     form.linuxdo_connect_client_secret = "";
     form.dingtalk_connect_client_secret = "";
     form.github_oauth_client_secret = "";
@@ -8103,8 +8209,27 @@ async function saveSettings() {
       captcha_provider: form.captcha_provider,
       captcha_config: {
         enabled: captchaEnabled.value ? "true" : "false",
-        site_key: form.captcha_config.site_key || "",
+        // 兼容字段：site_key / secret_key 在 turnstile / hcaptcha 下含义保持不变；
+        // 在 tencent_captcha 下：后端 §3.4 把 captcha_app_id 同步映射为公开 site_key，所以这里仍写回 site_key
+        // 以保留老前端 site_key 兼容窗口；同时显式传 tencent 4 字段；为空字符串的字段后端会按"未填则保留旧值"语义处理（admin §3.5）。
+        site_key:
+          form.captcha_provider === "tencent_captcha"
+            ? form.captcha_config.captcha_app_id || form.captcha_config.site_key || ""
+            : form.captcha_config.site_key || "",
         ...(form.captcha_config.secret_key ? { secret_key: form.captcha_config.secret_key } : {}),
+        // 天御场景：captcha_app_id / app_secret_key / secret_id / secret_key 全部按原样透传；
+        // 空字符串字段被后端处理时会保留旧值（service.SaveSystemSettings -> handler.captchaEditableFields trim）。
+        ...(form.captcha_provider === "tencent_captcha"
+          ? {
+              captcha_app_id: form.captcha_config.captcha_app_id || "",
+              ...(form.captcha_config.app_secret_key
+                ? { app_secret_key: form.captcha_config.app_secret_key }
+                : {}),
+              secret_id: form.captcha_config.secret_id || "",
+              // secret_key 与 turnstile/hcaptcha 共享同一字段名（在天御侧表示 SecretKey），
+              // 已在上面的 ...(form.captcha_config.secret_key ? ...) 中透传。
+            }
+          : {}),
       },
       api_key_acl_trust_forwarded_ip: form.api_key_acl_trust_forwarded_ip,
       linuxdo_connect_enabled: form.linuxdo_connect_enabled,

@@ -849,10 +849,25 @@ type CaptchaRuntime struct {
 	Config    map[string]string
 }
 
+// captchaSecretFields 列出每个 provider 的所有敏感字段名（在 captcha_config JSON map 中）。
+// maskCaptchaConfig 用此表把这些字段从对外响应中移除，并在 SystemSettings DTO 中改用 *_configured: bool 暴露。
+//
+// 注：在统一 captcha_config 抽象之前，Turnstile/hCaptcha 都把私钥放在 "secret_key" 这一个键中；
+// 腾讯天御因为腾讯云 API 强制依赖 4 个独立字段（CaptchaAppId 用作 site_key 显式公开；
+// AppSecretKey 是天御本身验票的密钥；SecretId/SecretKey 是腾讯云 IAM 接入凭证），因此天御
+// 同时有 3 个敏感字段需要 mask。
+var captchaSecretFields = map[string][]string{
+	CaptchaProviderTurnstile: {"secret_key"},
+	CaptchaProviderHcaptcha:  {"secret_key"},
+	CaptchaProviderTencent:   {"app_secret_key", "secret_id", "secret_key"},
+}
+
 func normalizeCaptchaProvider(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case CaptchaProviderHcaptcha:
 		return CaptchaProviderHcaptcha
+	case CaptchaProviderTencent:
+		return CaptchaProviderTencent
 	default:
 		return CaptchaProviderTurnstile
 	}
@@ -860,6 +875,12 @@ func normalizeCaptchaProvider(provider string) string {
 
 func NormalizeCaptchaProviderForSettings(provider string) string {
 	return normalizeCaptchaProvider(provider)
+}
+
+// MaskCaptchaConfigForSettings 是 maskCaptchaConfig 的对外导出包装，供 handler 包在
+// GET / PUT admin settings 时复用同一份脱敏规则（D7）。provider 必须是 normalize 后的值。
+func MaskCaptchaConfigForSettings(provider string, cfg map[string]string) map[string]string {
+	return maskCaptchaConfig(provider, cfg)
 }
 
 func parseCaptchaConfig(raw string) map[string]string {
@@ -895,10 +916,48 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-func maskCaptchaConfig(cfg map[string]string) map[string]string {
+// maskCaptchaConfig 按 provider 移除 captcha_config 中的所有敏感字段（D7）。
+// provider 取 normalizeCaptchaProvider 之后的稳定值；未知 provider 走保守降级：
+// 把所有已知 provider 的敏感字段都剥掉，避免遗留。
+func maskCaptchaConfig(provider string, cfg map[string]string) map[string]string {
 	masked := cloneStringMap(cfg)
-	delete(masked, "secret_key")
+	if fields, ok := captchaSecretFields[provider]; ok {
+		for _, f := range fields {
+			delete(masked, f)
+		}
+		return masked
+	}
+	// 降级：未知 provider，剥掉所有 provider 已知的敏感字段。
+	for _, fields := range captchaSecretFields {
+		for _, f := range fields {
+			delete(masked, f)
+		}
+	}
 	return masked
+}
+
+// captchaConfigPrimarySecret 抽出指定 provider 的"主"密钥（用于 SystemSettings.CaptchaSecretKey 内部传递与
+// admin GET/PUT 阶段的 unchanged-secret 留存逻辑）。
+//   - Turnstile / hCaptcha: secret_key
+//   - Tencent: app_secret_key（业务验票密钥）
+func captchaConfigPrimarySecret(provider string, cfg map[string]string) string {
+	switch provider {
+	case CaptchaProviderTencent:
+		return cfg["app_secret_key"]
+	default:
+		return cfg["secret_key"]
+	}
+}
+
+// captchaConfigSiteKey 抽出指定 provider 用于前端公开页面的 site key
+// （weak public credential：Turnstile/hCaptcha 是 site_key；Tencent 是 captcha_app_id）。
+func captchaConfigSiteKey(provider string, cfg map[string]string) string {
+	switch provider {
+	case CaptchaProviderTencent:
+		return cfg["captcha_app_id"]
+	default:
+		return cfg["site_key"]
+	}
 }
 
 func captchaRuntimeFromSettings(settings map[string]string) CaptchaRuntime {
@@ -908,8 +967,8 @@ func captchaRuntimeFromSettings(settings map[string]string) CaptchaRuntime {
 		return CaptchaRuntime{
 			Provider:  provider,
 			Enabled:   config["enabled"] == "true",
-			SiteKey:   config["site_key"],
-			SecretKey: config["secret_key"],
+			SiteKey:   captchaConfigSiteKey(provider, config),
+			SecretKey: captchaConfigPrimarySecret(provider, config),
 			Config:    cloneStringMap(config),
 		}
 	}
@@ -1695,15 +1754,19 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeySMTPUseTLS] = strconv.FormatBool(settings.SMTPUseTLS)
 
 	// Captcha config uses one provider-selected JSON map. Legacy Turnstile keys
-	// are still mirrored for old clients and existing scripts.
+	// are still mirrored for old clients and existing scripts (only when active
+	// provider is Turnstile — hCaptcha / Tencent must not pollute these keys).
 	updates[SettingKeyTurnstileEnabled] = strconv.FormatBool(settings.TurnstileEnabled)
 	updates[SettingKeyTurnstileSiteKey] = settings.TurnstileSiteKey
 	if settings.TurnstileSecretKey != "" {
 		updates[SettingKeyTurnstileSecretKey] = settings.TurnstileSecretKey
 	}
-	updates[SettingKeyCaptchaProvider] = normalizeCaptchaProvider(settings.CaptchaProvider)
+	normalizedProvider := normalizeCaptchaProvider(settings.CaptchaProvider)
+	updates[SettingKeyCaptchaProvider] = normalizedProvider
 	captchaConfig := cloneStringMap(settings.CaptchaConfig)
 	if len(captchaConfig) == 0 {
+		// 历史回退：当前置层未传 captcha_config 时，仅 Turnstile 有合理的 legacy 字段映射；
+		// 其它 provider 视为"清空 captcha_config"，仅保留 enabled 标记。
 		captchaConfig = map[string]string{
 			"enabled":    strconv.FormatBool(settings.TurnstileEnabled),
 			"site_key":   settings.TurnstileSiteKey,
@@ -1711,12 +1774,16 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		}
 	}
 	updates[SettingKeyCaptchaConfig] = encodeCaptchaConfig(captchaConfig)
-	if normalizeCaptchaProvider(settings.CaptchaProvider) == CaptchaProviderTurnstile {
+	if normalizedProvider == CaptchaProviderTurnstile {
 		updates[SettingKeyTurnstileEnabled] = captchaConfig["enabled"]
 		updates[SettingKeyTurnstileSiteKey] = captchaConfig["site_key"]
 		if captchaConfig["secret_key"] != "" {
 			updates[SettingKeyTurnstileSecretKey] = captchaConfig["secret_key"]
 		}
+	} else {
+		// 切到非 Turnstile provider 时强制关闭 legacy turnstile_enabled，
+		// 避免老前端误以为 Turnstile 仍在线（D7 / 兼容窗口结束前的过渡保护）。
+		updates[SettingKeyTurnstileEnabled] = "false"
 	}
 	updates[SettingKeyAPIKeyACLTrustForwardedIP] = strconv.FormatBool(settings.APIKeyACLTrustForwardedIP)
 
@@ -2811,7 +2878,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		CaptchaEnabled:                   captchaRuntime.Enabled,
 		CaptchaSiteKey:                   captchaRuntime.SiteKey,
 		CaptchaSecretKeyConfigured:       captchaRuntime.SecretKey != "",
-		CaptchaConfig:                    maskCaptchaConfig(captchaRuntime.Config),
+		CaptchaTencentSecretIDConfigured: captchaRuntime.Provider == CaptchaProviderTencent && strings.TrimSpace(captchaRuntime.Config["secret_id"]) != "",
+		CaptchaTencentSecretKeyConfigured: captchaRuntime.Provider == CaptchaProviderTencent && strings.TrimSpace(captchaRuntime.Config["secret_key"]) != "",
+		CaptchaConfig:                    maskCaptchaConfig(captchaRuntime.Provider, captchaRuntime.Config),
 		APIKeyACLTrustForwardedIP:        apiKeyACLTrustForwardedIP,
 		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
 		SiteLogo:                         settings[SettingKeySiteLogo],

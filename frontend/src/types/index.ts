@@ -112,6 +112,10 @@ export interface AdminUser extends User {
 export interface LoginRequest {
   email: string
   password: string
+  // captcha_payload 是新协议（design.md D2）：结构化 captcha 凭证，
+  // turnstile / hcaptcha 走 {token: "..."}，腾讯天御走 {ticket, randstr}。
+  // captcha_token / turnstile_token 是兼容窗口字段，下个 release 移除。
+  captcha_payload?: Record<string, string>
   captcha_token?: string
   turnstile_token?: string
 }
@@ -120,6 +124,7 @@ export interface RegisterRequest {
   email: string
   password: string
   verify_code?: string
+  captcha_payload?: Record<string, string>
   captcha_token?: string
   turnstile_token?: string
   promo_code?: string
@@ -155,6 +160,7 @@ export interface AffiliateTransferResponse {
 
 export interface SendVerifyCodeRequest {
   email: string
+  captcha_payload?: Record<string, string>
   captcha_token?: string
   turnstile_token?: string
   pending_auth_token?: string
@@ -203,7 +209,7 @@ export interface PublicSettings {
   login_agreement_documents?: LoginAgreementDocument[]
   turnstile_enabled: boolean
   turnstile_site_key: string
-  captcha_provider: 'turnstile' | 'hcaptcha' | string
+  captcha_provider: 'turnstile' | 'hcaptcha' | 'tencent_captcha' | string
   captcha_enabled: boolean
   captcha_site_key: string
   site_name: string

@@ -5348,7 +5348,25 @@ export default {
         hcaptchaSiteKeyHint: 'Configure this in the ',
         hcaptchaDashboard: 'hCaptcha dashboard',
         secretKeyHint: 'Server-side verification key (keep this secret)',
-        secretKeyConfiguredHint: 'Secret key configured. Leave empty to keep the current value.'
+        secretKeyConfiguredHint: 'Secret key configured. Leave empty to keep the current value.',
+        // Tencent Captcha (TencentCaptcha)
+        tencentProviderLabel: 'Tencent Captcha',
+        tencentDashboard: 'Tencent Cloud Captcha Console',
+        tencentCaptchaAppId: 'CaptchaAppId',
+        tencentCaptchaAppIdHint: 'Find this in the ',
+        tencentAppSecretKey: 'AppSecretKey',
+        tencentAppSecretKeyHint: 'Frontend captcha secret (keep this secret)',
+        tencentAppSecretKeyConfiguredHint: 'AppSecretKey configured. Leave empty to keep the current value.',
+        tencentSecretId: 'Tencent Cloud SecretId',
+        tencentSecretIdHint: 'SecretId and SecretKey are used to call the DescribeCaptchaResult API. You can create both at the',
+        tencentSecretIdConfiguredHint: 'SecretId configured. Leave empty to keep the current value, or rotate at the',
+        tencentCamConsole: 'Tencent Cloud CAM Console',
+        tencentCamConsoleSuffix: '.',
+        tencentSecretKey: 'Tencent Cloud SecretKey',
+        tencentSecretKeyHint: 'Paired with the SecretId above. Keep this value secret.',
+        tencentSecretKeyConfiguredHint: 'SecretKey configured. Leave empty to keep the current value.',
+        tencentTrustedProxiesHint: 'Recommended: configure trusted_proxies behind a reverse proxy / Swarm; otherwise Tencent risk scoring accuracy may degrade.',
+        tencentNoPreflightHint: 'Note: Tencent Captcha does not support pre-validation. Please save and test a real login flow to confirm connectivity.'
       },
       apiKeyAcl: {
         title: 'API Key IP Access Control',

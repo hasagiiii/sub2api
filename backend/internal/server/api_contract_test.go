@@ -701,6 +701,8 @@ func TestAPIContracts(t *testing.T) {
 					"captcha_enabled": true,
 					"captcha_site_key": "site-key",
 					"captcha_secret_key_configured": true,
+					"captcha_tencent_secret_id_configured": false,
+					"captcha_tencent_secret_key_configured": false,
 					"captcha_config": {
 						"enabled": "true",
 						"site_key": "site-key"
@@ -972,6 +974,8 @@ func TestAPIContracts(t *testing.T) {
 					"captcha_enabled": false,
 					"captcha_site_key": "",
 					"captcha_secret_key_configured": false,
+					"captcha_tencent_secret_id_configured": false,
+					"captcha_tencent_secret_key_configured": false,
 					"captcha_config": {
 						"enabled": "false",
 						"site_key": ""

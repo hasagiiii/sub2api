@@ -81,7 +81,7 @@
         <!-- Submit Button -->
         <button
           type="submit"
-          :disabled="isLoading || (captchaEnabled && !captchaToken)"
+          :disabled="isLoading || (captchaEnabled && captchaProvider !== 'tencent_captcha' && !captchaToken)"
           class="btn btn-primary w-full"
         >
           <svg
@@ -131,6 +131,7 @@ import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
 import Icon from '@/components/icons/Icon.vue'
 import CaptchaWidget from '@/components/CaptchaWidget.vue'
+import { useCaptchaSubmit, type CaptchaSubmitError } from '@/composables/useCaptchaSubmit'
 import { useAppStore } from '@/stores'
 import { getPublicSettings, forgotPassword } from '@/api/auth'
 
@@ -148,7 +149,7 @@ const errorMessage = ref<string>('')
 
 // Public settings
 const captchaEnabled = ref<boolean>(false)
-const captchaProvider = ref<'turnstile' | 'hcaptcha'>('turnstile')
+const captchaProvider = ref<'turnstile' | 'hcaptcha' | 'tencent_captcha'>('turnstile')
 const captchaSiteKey = ref<string>('')
 
 // Captcha
@@ -178,7 +179,12 @@ onMounted(async () => {
   try {
     const settings = await getPublicSettings()
     captchaEnabled.value = settings.captcha_enabled ?? settings.turnstile_enabled
-    captchaProvider.value = settings.captcha_provider === 'hcaptcha' ? 'hcaptcha' : 'turnstile'
+    captchaProvider.value =
+      settings.captcha_provider === 'hcaptcha'
+        ? 'hcaptcha'
+        : settings.captcha_provider === 'tencent_captcha'
+          ? 'tencent_captcha'
+          : 'turnstile'
     captchaSiteKey.value = settings.captcha_site_key || settings.turnstile_site_key || ''
   } catch (error) {
     console.error('Failed to load public settings:', error)
@@ -220,7 +226,8 @@ function validateForm(): boolean {
   }
 
   // Captcha validation
-  if (captchaEnabled.value && !captchaToken.value) {
+  // 天御 (tencent_captcha) popup 形态：用户点提交后才弹挑战，跳过 token 缺失拦截。
+  if (captchaEnabled.value && captchaProvider.value !== 'tencent_captcha' && !captchaToken.value) {
     errors.captcha = t('auth.completeCaptchaVerification')
     isValid = false
   }
@@ -229,6 +236,20 @@ function validateForm(): boolean {
 }
 
 // ==================== Form Handlers ====================
+
+const captchaSubmit = useCaptchaSubmit({
+  captchaRef,
+  captchaEnabled: () => captchaEnabled.value,
+  getCachedToken: () => captchaToken.value,
+  submitFn: async (payload) => {
+    await forgotPassword({
+      email: formData.email,
+      captcha_payload: captchaEnabled.value ? payload : undefined
+    })
+    isSubmitted.value = true
+    appStore.showSuccess(t('auth.resetEmailSent'))
+  }
+})
 
 async function handleSubmit(): Promise<void> {
   errorMessage.value = ''
@@ -240,28 +261,27 @@ async function handleSubmit(): Promise<void> {
   isLoading.value = true
 
   try {
-    await forgotPassword({
-      email: formData.email,
-      captcha_token: captchaEnabled.value ? captchaToken.value : undefined
-    })
-
-    isSubmitted.value = true
-    appStore.showSuccess(t('auth.resetEmailSent'))
+    await captchaSubmit.submit()
   } catch (error: unknown) {
+    const captchaErr = error as CaptchaSubmitError
     // Reset Captcha on error
     if (captchaRef.value) {
       captchaRef.value.reset()
       captchaToken.value = ''
     }
 
-    const err = error as { message?: string; response?: { data?: { detail?: string } } }
-
-    if (err.response?.data?.detail) {
-      errorMessage.value = err.response.data.detail
-    } else if (err.message) {
-      errorMessage.value = err.message
+    if (captchaErr.reason === 'cancelled') {
+      errorMessage.value = t('auth.captchaFailed')
     } else {
-      errorMessage.value = t('auth.sendResetLinkFailed')
+      const cause = (captchaErr as Error & { cause?: unknown }).cause ?? error
+      const err = cause as { message?: string; response?: { data?: { detail?: string } } }
+      if (err.response?.data?.detail) {
+        errorMessage.value = err.response.data.detail
+      } else if (err.message) {
+        errorMessage.value = err.message
+      } else {
+        errorMessage.value = t('auth.sendResetLinkFailed')
+      }
     }
 
     appStore.showError(errorMessage.value)

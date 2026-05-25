@@ -39,10 +39,43 @@ func cloneStringMap(src map[string]string) map[string]string {
 	return dst
 }
 
-func maskCaptchaConfig(cfg map[string]string) map[string]string {
-	masked := cloneStringMap(cfg)
-	delete(masked, "secret_key")
-	return masked
+// captchaEditableFields 返回指定 provider 在 admin PUT /settings 中需要做 trim 与
+// "未填则保留旧值"处理的字段名（D7）。
+//
+// publicFields 是公开字段（前端可读、admin 可编辑、保存后会出现在脱敏后的 captcha_config 中）。
+// secretFields 是敏感字段（保存后会被 maskCaptchaConfig 剥除，对外只通过 *_configured: bool 暴露）。
+//
+// provider 必须是 normalize 后的稳定值；未知 provider 返回空切片，调用方因此跳过 secret 校验逻辑。
+func captchaEditableFields(provider string) (publicFields, secretFields []string) {
+	switch provider {
+	case service.CaptchaProviderTurnstile, service.CaptchaProviderHcaptcha:
+		return []string{"site_key"}, []string{"secret_key"}
+	case service.CaptchaProviderTencent:
+		return []string{"captcha_app_id"}, []string{"app_secret_key", "secret_id", "secret_key"}
+	default:
+		return nil, nil
+	}
+}
+
+// captchaPrimarySecretField 返回指定 provider 用作"主密钥"的 captcha_config 键名。
+// 用途：admin 后台密钥未变更时仍需调用 ValidateProviderConfig 探活的判定与 audit log。
+func captchaPrimarySecretField(provider string) string {
+	switch provider {
+	case service.CaptchaProviderTencent:
+		return "app_secret_key"
+	default:
+		return "secret_key"
+	}
+}
+
+// captchaPrimarySiteField 返回指定 provider 用作"主站点公钥"的 captcha_config 键名（D7）。
+func captchaPrimarySiteField(provider string) string {
+	switch provider {
+	case service.CaptchaProviderTencent:
+		return "captcha_app_id"
+	default:
+		return "site_key"
+	}
 }
 
 // generateMenuItemID generates a short random hex ID for a custom menu item.
@@ -164,7 +197,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		CaptchaEnabled:                         settings.CaptchaEnabled,
 		CaptchaSiteKey:                         settings.CaptchaSiteKey,
 		CaptchaSecretKeyConfigured:             settings.CaptchaSecretKeyConfigured,
-		CaptchaConfig:                          maskCaptchaConfig(settings.CaptchaConfig),
+		CaptchaTencentSecretIDConfigured:       settings.CaptchaTencentSecretIDConfigured,
+		CaptchaTencentSecretKeyConfigured:      settings.CaptchaTencentSecretKeyConfigured,
+		CaptchaConfig:                          service.MaskCaptchaConfigForSettings(settings.CaptchaProvider, settings.CaptchaConfig),
 		APIKeyACLTrustForwardedIP:              settings.APIKeyACLTrustForwardedIP,
 		LinuxDoConnectEnabled:                  settings.LinuxDoConnectEnabled,
 		LinuxDoConnectClientID:                 settings.LinuxDoConnectClientID,
@@ -773,32 +808,58 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	captchaEnabled := strings.EqualFold(req.CaptchaConfig["enabled"], "true")
 	req.CaptchaConfig["enabled"] = strconv.FormatBool(captchaEnabled)
-	req.CaptchaConfig["site_key"] = strings.TrimSpace(req.CaptchaConfig["site_key"])
-	req.CaptchaConfig["secret_key"] = strings.TrimSpace(req.CaptchaConfig["secret_key"])
+
+	// provider-aware 字段归一化与"未填则保留旧值"语义。
+	// Turnstile / hCaptcha: 公钥 site_key + 私钥 secret_key
+	// Tencent: 公钥 captcha_app_id + 三个敏感字段 app_secret_key / secret_id / secret_key
+	publicFields, secretFields := captchaEditableFields(req.CaptchaProvider)
+	for _, f := range publicFields {
+		req.CaptchaConfig[f] = strings.TrimSpace(req.CaptchaConfig[f])
+	}
+	for _, f := range secretFields {
+		req.CaptchaConfig[f] = strings.TrimSpace(req.CaptchaConfig[f])
+	}
+
+	// 仅当当前请求依然是同一 provider 时，才允许"未填密钥则沿用旧值"，避免跨 provider 残留。
+	previousCaptchaConfig := map[string]string{}
+	if previousSettings.CaptchaProvider == req.CaptchaProvider {
+		previousCaptchaConfig = previousSettings.CaptchaConfig
+	}
+	primarySecretField := captchaPrimarySecretField(req.CaptchaProvider)
+	primarySiteField := captchaPrimarySiteField(req.CaptchaProvider)
+
 	if captchaEnabled {
-		if req.CaptchaConfig["site_key"] == "" {
-			response.BadRequest(c, "Captcha Site Key is required when enabled")
+		if req.CaptchaConfig[primarySiteField] == "" {
+			response.BadRequest(c, "Captcha public key is required when enabled")
 			return
 		}
-		previousSecret := ""
-		if previousSettings.CaptchaProvider == req.CaptchaProvider {
-			previousSecret = previousSettings.CaptchaSecretKey
-		}
-		if req.CaptchaConfig["secret_key"] == "" {
-			if previousSecret == "" {
-				response.BadRequest(c, "Captcha Secret Key is required when enabled")
+		// 主密钥 / 多敏感字段：未填则尝试沿用旧值；旧值也为空 → 报错。
+		secretChanged := false
+		for _, f := range secretFields {
+			if req.CaptchaConfig[f] == "" {
+				if prev := previousCaptchaConfig[f]; prev != "" {
+					req.CaptchaConfig[f] = prev
+					continue
+				}
+				// 主密钥必填；其它敏感字段（仅天御 secret_id/secret_key）也必填。
+				response.BadRequest(c, "Captcha secret fields are required when enabled")
 				return
 			}
-			req.CaptchaConfig["secret_key"] = previousSecret
+			if previousCaptchaConfig[f] != req.CaptchaConfig[f] {
+				secretChanged = true
+			}
 		}
-		siteKeyChanged := previousSettings.CaptchaProvider != req.CaptchaProvider || previousSettings.CaptchaSiteKey != req.CaptchaConfig["site_key"]
-		secretKeyChanged := previousSecret != req.CaptchaConfig["secret_key"]
-		if siteKeyChanged || secretKeyChanged {
-			if err := h.captchaService.ValidateProviderSecretKey(c.Request.Context(), req.CaptchaProvider, req.CaptchaConfig["secret_key"]); err != nil {
+		siteKeyChanged := previousSettings.CaptchaProvider != req.CaptchaProvider ||
+			previousSettings.CaptchaSiteKey != req.CaptchaConfig[primarySiteField]
+		if siteKeyChanged || secretChanged {
+			// Turnstile / hCaptcha 走 deliberately-invalid-token 探活；
+			// Tencent 不做预校验（无 SDK + 4 字段无法构造合法探活请求），由保存后的实际登录链路验证。
+			if err := h.captchaService.ValidateProviderConfig(c.Request.Context(), req.CaptchaProvider, req.CaptchaConfig); err != nil {
 				response.ErrorFrom(c, err)
 				return
 			}
 		}
+		_ = primarySecretField // 当前未使用，保留以便后续 audit log 标注主密钥字段名。
 	}
 	req.TurnstileEnabled = req.CaptchaProvider == service.CaptchaProviderTurnstile && captchaEnabled
 	req.TurnstileSiteKey = ""
@@ -1938,7 +1999,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		CaptchaEnabled:                         updatedSettings.CaptchaEnabled,
 		CaptchaSiteKey:                         updatedSettings.CaptchaSiteKey,
 		CaptchaSecretKeyConfigured:             updatedSettings.CaptchaSecretKeyConfigured,
-		CaptchaConfig:                          maskCaptchaConfig(updatedSettings.CaptchaConfig),
+		CaptchaTencentSecretIDConfigured:       updatedSettings.CaptchaTencentSecretIDConfigured,
+		CaptchaTencentSecretKeyConfigured:      updatedSettings.CaptchaTencentSecretKeyConfigured,
+		CaptchaConfig:                          service.MaskCaptchaConfigForSettings(updatedSettings.CaptchaProvider, updatedSettings.CaptchaConfig),
 		APIKeyACLTrustForwardedIP:              updatedSettings.APIKeyACLTrustForwardedIP,
 		LinuxDoConnectEnabled:                  updatedSettings.LinuxDoConnectEnabled,
 		LinuxDoConnectClientID:                 updatedSettings.LinuxDoConnectClientID,

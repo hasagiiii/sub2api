@@ -119,7 +119,7 @@
             type="button"
             @click="handleResendCode"
             :disabled="
-              isSendingCode || (captchaEnabled && showResendCaptcha && !resendCaptchaToken)
+              isSendingCode || (captchaEnabled && showResendCaptcha && captchaProvider !== 'tencent_captcha' && !resendCaptchaToken)
             "
             class="text-sm text-primary-600 transition-colors hover:text-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-primary-400 dark:hover:text-primary-300"
           >
@@ -214,6 +214,8 @@ type PendingOAuthCreateAccountResponse = {
 const email = ref<string>('')
 const password = ref<string>('')
 const initialCaptchaToken = ref<string>('')
+// initialCaptchaPayload 是 RegisterView 写入 sessionStorage 的新协议字段（design.md D2），优先于 token。
+const initialCaptchaPayload = ref<Record<string, string> | null>(null)
 const promoCode = ref<string>('')
 const invitationCode = ref<string>('')
 const affCode = ref<string>('')
@@ -229,7 +231,7 @@ const hasRegisterData = ref<boolean>(false)
 
 // Public settings
 const captchaEnabled = ref<boolean>(false)
-const captchaProvider = ref<'turnstile' | 'hcaptcha'>('turnstile')
+const captchaProvider = ref<'turnstile' | 'hcaptcha' | 'tencent_captcha'>('turnstile')
 const captchaSiteKey = ref<string>('')
 const siteName = ref<string>('Sub2API')
 const registrationEmailSuffixWhitelist = ref<string[]>([])
@@ -267,6 +269,11 @@ onMounted(async () => {
       email.value = registerData.email || ''
       password.value = registerData.password || ''
       initialCaptchaToken.value = registerData.captcha_token || ''
+      // 新协议字段：RegisterView 在写入 sessionStorage 时同时存 captcha_payload；旧版本可能没有。
+      initialCaptchaPayload.value =
+        registerData.captcha_payload && typeof registerData.captcha_payload === 'object'
+          ? (registerData.captcha_payload as Record<string, string>)
+          : null
       promoCode.value = registerData.promo_code || ''
       invitationCode.value = registerData.invitation_code || ''
       affCode.value = registerData.aff_code || loadAffiliateReferralCode()
@@ -295,7 +302,12 @@ onMounted(async () => {
   try {
     const settings = await getPublicSettings()
     captchaEnabled.value = settings.captcha_enabled ?? settings.turnstile_enabled
-    captchaProvider.value = settings.captcha_provider === 'hcaptcha' ? 'hcaptcha' : 'turnstile'
+    captchaProvider.value =
+      settings.captcha_provider === 'hcaptcha'
+        ? 'hcaptcha'
+        : settings.captcha_provider === 'tencent_captcha'
+          ? 'tencent_captcha'
+          : 'turnstile'
     captchaSiteKey.value = settings.captcha_site_key || settings.turnstile_site_key || ''
     siteName.value = settings.site_name || 'Sub2API'
     registrationEmailSuffixWhitelist.value = normalizeRegistrationEmailSuffixWhitelist(
@@ -409,11 +421,37 @@ async function sendCode(): Promise<void> {
       return
     }
 
+    // 拼装 captcha 凭证：
+    //   - 优先使用 resend 路径下用户重新通过的新 payload（声明式 widget verify 后缓存或 tencent execute() 返回）
+    //   - 否则回落到首次进页面时从 sessionStorage 读到的 captcha_payload / captcha_token（兼容字段窗口）
+    let captchaPayloadForSend: Record<string, string> | undefined
+    if (captchaEnabled.value) {
+      // 1) tencent_captcha：由于是 popup 形态，需要在 sendCode 调用时实时 execute()
+      if (captchaProvider.value === 'tencent_captcha' && showResendCaptcha.value) {
+        const popupPayload = await captchaRef.value?.execute()
+        if (popupPayload) {
+          captchaPayloadForSend = popupPayload
+        }
+      } else if (resendCaptchaToken.value) {
+        captchaPayloadForSend = { token: resendCaptchaToken.value }
+      } else if (initialCaptchaPayload.value) {
+        captchaPayloadForSend = { ...initialCaptchaPayload.value }
+      } else if (initialCaptchaToken.value) {
+        captchaPayloadForSend = { token: initialCaptchaToken.value }
+      }
+    }
+
     const requestPayload = {
       email: email.value,
       [pendingAuthTokenField.value]: pendingAuthToken.value || undefined,
-      // 优先使用重发时新获取的 token（因为初始 token 可能已被使用）
-      captcha_token: resendCaptchaToken.value || initialCaptchaToken.value || undefined
+      // 新协议字段；同时保留 captcha_token 作为兼容窗口（取 token / ticket 任一非空值）让旧后端仍能识别。
+      captcha_payload: captchaPayloadForSend,
+      captcha_token:
+        captchaPayloadForSend?.token ||
+        captchaPayloadForSend?.ticket ||
+        resendCaptchaToken.value ||
+        initialCaptchaToken.value ||
+        undefined
     } as Parameters<typeof sendVerifyCode>[0]
     const response = isPendingOAuthFlow()
       ? await sendPendingOAuthVerifyCode(requestPayload)
@@ -437,8 +475,9 @@ async function sendCode(): Promise<void> {
     codeSent.value = true
     startCountdown(response.countdown)
 
-    // Reset captcha state（token 已使用，清除以避免重复使用）
+    // Reset captcha state（token / payload 已使用，清除以避免重复使用）
     initialCaptchaToken.value = ''
+    initialCaptchaPayload.value = null
     showResendCaptcha.value = false
     resendCaptchaToken.value = ''
   } catch (error: unknown) {
@@ -461,8 +500,13 @@ async function handleResendCode(): Promise<void> {
     return
   }
 
-  // If captcha is enabled but no token yet, wait
-  if (captchaEnabled.value && !resendCaptchaToken.value) {
+  // 声明式 widget（turnstile / hcaptcha）必须先 verify 才能 send。
+  // 天御 (tencent_captcha) 是 popup 形态：直接进 sendCode，由其内部 execute() 触发挑战。
+  if (
+    captchaEnabled.value &&
+    captchaProvider.value !== 'tencent_captcha' &&
+    !resendCaptchaToken.value
+  ) {
     errors.value.captcha = t('auth.completeCaptchaVerification')
     return
   }
@@ -530,10 +574,12 @@ async function handleVerify(): Promise<void> {
       authStore.clearPendingAuthSession?.()
     } else {
       // Register with verification code
+      // 优先用新协议 captcha_payload；若不存在（来自老 RegisterView 写入的 sessionStorage）则用旧 captcha_token。
       await authStore.register({
         email: email.value,
         password: password.value,
         verify_code: verifyCode.value.trim(),
+        captcha_payload: initialCaptchaPayload.value || undefined,
         captcha_token: initialCaptchaToken.value || undefined,
         promo_code: promoCode.value || undefined,
         invitation_code: invitationCode.value || undefined,

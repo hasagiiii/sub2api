@@ -478,7 +478,7 @@ Additional security-related options are available in `config.yaml`:
 - `billing.circuit_breaker` to fail closed on billing errors
 - `server.trusted_proxies` to enable X-Forwarded-For parsing
 - `turnstile.required` to require Turnstile in release mode (legacy-compatible)
-- `captcha.required` to require one configured captcha provider in release mode; the admin settings page supports Cloudflare Turnstile and hCaptcha
+- `captcha.required` to require one configured captcha provider in release mode; the admin settings page supports Cloudflare Turnstile, hCaptcha and Tencent Captcha (TencentCaptcha)
 
 **⚠️ Security Warning: HTTP URL Configuration**
 
