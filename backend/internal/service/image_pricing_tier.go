@@ -77,8 +77,9 @@ func ParseImageRequestDimensions(value string) (ImageDimensions, error) {
 	}
 }
 
-// ImagePricingTier uses Resolution as a bounding box. A request matches the
-// first tier whose short and long edges both fit within that box.
+// ImagePricingTier uses Resolution as a tier bound. A request matches the
+// first tier whose short edge fits; requests beyond the highest configured
+// tier are billed at the highest tier, subject to that tier's limits.
 type ImagePricingTier struct {
 	Label      string
 	Resolution string
@@ -109,18 +110,24 @@ func MatchImagePricingTier(dimensions ImageDimensions, tiers []ImagePricingTier)
 	}
 
 	last := normalized[len(normalized)-1]
+	if longSide > last.dimensions.LongSide() {
+		return nil, fmt.Errorf("image long side must not exceed the %s tier limit (%s)", last.Label, last.Resolution)
+	}
 	if dimensions.Pixels() > last.dimensions.Pixels() {
 		return nil, fmt.Errorf("image total pixels exceed the %s tier limit (%s)", last.Label, last.dimensions.String())
 	}
 	for i := range normalized {
 		tier := &normalized[i]
-		if shortSide > tier.dimensions.ShortSide() || longSide > tier.dimensions.LongSide() {
+		if shortSide > tier.dimensions.ShortSide() {
 			continue
 		}
 		matched := tier.ImagePricingTier
 		return &matched, nil
 	}
-	return nil, fmt.Errorf("image dimensions exceed the %s tier limit (%s)", last.Label, last.dimensions.String())
+	// A valid request that exceeds the highest configured tier uses the
+	// highest tier price instead of becoming unbillable.
+	matched := last.ImagePricingTier
+	return &matched, nil
 }
 
 func normalizeImagePricingTiers(tiers []ImagePricingTier) ([]normalizedImagePricingTier, error) {
