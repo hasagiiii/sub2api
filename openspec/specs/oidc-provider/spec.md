@@ -14,7 +14,7 @@ The system SHALL expose an OpenID Connect Discovery 1.0 compliant document at `G
 - **AND** the JSON body contains `issuer` equal to the configured `oidc_provider.issuer_url` (no trailing slash)
 - **AND** the JSON body contains `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, `jwks_uri` formed by appending `/oidc/authorize`, `/oidc/token`, `/oidc/userinfo`, `/.well-known/jwks.json` respectively to the issuer URL
 - **AND** the JSON body declares `response_types_supported: ["code"]`, `grant_types_supported: ["authorization_code","refresh_token"]`, `id_token_signing_alg_values_supported: ["RS256"]`, `subject_types_supported: ["public"]`, `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported: ["client_secret_basic","client_secret_post"]`
-- **AND** the JSON body declares `scopes_supported` containing exactly `openid`, `profile`, `email`, `offline_access`, `sub2api:apikey`
+- **AND** the JSON body declares `scopes_supported` containing exactly `openid`, `profile`, `email`, `offline_access`, `sub2api:balance`, `sub2api:apikey`
 
 #### Scenario: Discovery is hidden when provider is disabled
 
@@ -160,6 +160,34 @@ The system SHALL implement `GET /oidc/userinfo` requiring a Bearer access token 
 
 - **WHEN** the userinfo request lacks `Authorization` header OR carries a token that is unknown / revoked / expired / not issued by the OIDC token endpoint
 - **THEN** the response is HTTP 401 with header `WWW-Authenticate: Bearer error="invalid_token"`
+
+### Requirement: Resource Endpoint — Balance
+
+The system SHALL implement `GET /oidc/resource/balance` as a lightweight OAuth2-protected resource endpoint for frequent balance polling. It MUST require an OIDC access token whose granted scopes include `sub2api:balance` and MUST read through the existing billing balance cache.
+
+#### Scenario: Bearer token with sub2api:balance scope returns current balance
+
+- **WHEN** a client sends `GET /oidc/resource/balance` with an unrevoked, unexpired OIDC access token whose scopes include `sub2api:balance`
+- **THEN** the response is HTTP 200 JSON `{balance: string}` where `balance` is the authenticated user's current balance represented as a decimal string
+- **AND** the response includes `Cache-Control: no-store`
+- **AND** the balance lookup uses the billing balance cache and its existing database fallback
+
+#### Scenario: Bearer token without sub2api:balance scope is rejected
+
+- **WHEN** the request carries a valid access token whose scopes do NOT include `sub2api:balance`
+- **THEN** the response is HTTP 403 JSON `{error: "insufficient_scope", error_description: ...}`
+- **AND** the response includes header `WWW-Authenticate: Bearer error="insufficient_scope", scope="sub2api:balance"`
+- **AND** the response MUST NOT leak the user's balance
+
+#### Scenario: Missing or invalid Bearer token
+
+- **WHEN** the request lacks an `Authorization` header OR carries a token that is unknown, revoked, or expired
+- **THEN** the response is HTTP 401 with header `WWW-Authenticate: Bearer error="invalid_token"`
+
+#### Scenario: Provider disabled hides the balance resource endpoint
+
+- **WHEN** any request reaches `/oidc/resource/balance` while `oidc_provider.enabled=false`
+- **THEN** the response is HTTP 404 with no OAuth2 error metadata body
 
 ### Requirement: Resource Endpoint — API Keys
 
@@ -412,4 +440,3 @@ The system SHALL emit OIDC/OAuth2 standards-compliant error codes for all OIDC e
 - **THEN** the response MUST use error code `server_error` with a generic `error_description`
 - **AND** the underlying root cause MUST NOT appear in the response body
 - **AND** the underlying root cause MUST be logged with a trace identifier sufficient for operator diagnosis
-

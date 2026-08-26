@@ -5,6 +5,8 @@
 //	GET  /oidc/authorize                     授权端点 (浏览器跳转)
 //	POST /oidc/token                         令牌端点
 //	GET  /oidc/userinfo                      用户信息端点
+//	GET  /oidc/resource/balance              余额资源端点
+//	GET  /oidc/resource/api-keys             API Key 资源端点
 //
 // 错误响应遵循 design.md D10：
 //   - authorize: 能信任 redirect_uri 时 302 回跳 error+state；否则 400 JSON
@@ -14,6 +16,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -32,6 +35,11 @@ type OidcProviderHandler struct {
 	provider *service.OidcProviderService
 	sso      *service.SsoSessionService
 	apiKeys  *service.APIKeyService
+	balance  oidcBalanceReader
+}
+
+type oidcBalanceReader interface {
+	GetUserBalance(ctx context.Context, userID int64) (float64, error)
 }
 
 // NewOidcProviderHandler 构造 handler。
@@ -39,8 +47,13 @@ func NewOidcProviderHandler(
 	provider *service.OidcProviderService,
 	sso *service.SsoSessionService,
 	apiKeys *service.APIKeyService,
+	balance *service.BillingCacheService,
 ) *OidcProviderHandler {
-	return &OidcProviderHandler{provider: provider, sso: sso, apiKeys: apiKeys}
+	h := &OidcProviderHandler{provider: provider, sso: sso, apiKeys: apiKeys}
+	if balance != nil {
+		h.balance = balance
+	}
+	return h
 }
 
 // ─── 内部：错误输出 ──────────────────────────────────────────────────────────
@@ -370,6 +383,32 @@ func (h *OidcProviderHandler) resolveOidcBearer(c *gin.Context, requiredScope st
 		return nil, false
 	}
 	return resolved, true
+}
+
+// GetBalance GET /oidc/resource/balance
+//
+// 返回 access token 所属用户的当前钱包余额。该端点面向频繁轮询场景，复用计费余额缓存，
+// 并要求 access token 携带独立的 sub2api:balance scope。
+func (h *OidcProviderHandler) GetBalance(c *gin.Context) {
+	resolved, ok := h.resolveOidcBearer(c, service.OidcScopeBalance)
+	if !ok {
+		return
+	}
+
+	if h.balance == nil {
+		writeOAuthError(c, service.NewOidcError("server_error", "balance service not available", http.StatusInternalServerError))
+		return
+	}
+
+	balance, err := h.balance.GetUserBalance(c.Request.Context(), resolved.UserID)
+	if err != nil {
+		writeOAuthError(c, service.NewOidcError("server_error", "get balance failed", http.StatusInternalServerError))
+		return
+	}
+
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.JSON(http.StatusOK, gin.H{"balance": strconv.FormatFloat(balance, 'f', -1, 64)})
 }
 
 // ListAPIKeys GET /oidc/resource/api-keys

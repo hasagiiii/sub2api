@@ -500,6 +500,27 @@ func TestOidcProvider_BuildUserInfo_ScopedClaims(t *testing.T) {
 	require.False(t, hasBalance)
 }
 
+func TestOidcProvider_BuildUserInfo_BalanceScopeIsReservedForResourceEndpoint(t *testing.T) {
+	e := newProviderTestEnv(t)
+	rp := e.newRP(t, []string{"openid", OidcScopeBalance}, true)
+	user := e.newUser(t)
+
+	code, verifier := e.issueValidCode(t, rp, user.ID, []string{"openid", OidcScopeBalance}, "")
+	resp, oerr := e.svc.ExchangeCode(context.Background(), OidcExchangeCodeInput{
+		Client: rp, Code: code, RedirectURI: "https://acme.example.com/cb", CodeVerifier: verifier,
+	})
+	require.Nil(t, oerr)
+
+	resolved, rerr := e.svc.ResolveAccessToken(context.Background(), resp.AccessToken)
+	require.Nil(t, rerr)
+	require.True(t, resolved.HasScope(OidcScopeBalance))
+
+	claims, uerr := e.svc.BuildUserInfo(context.Background(), resp.AccessToken)
+	require.Nil(t, uerr)
+	require.NotContains(t, claims, "sub2api_balance")
+	require.NotContains(t, claims, "sub2api_total_recharged")
+}
+
 func TestOidcProvider_BuildUserInfo_ApikeyScopeCountOnly(t *testing.T) {
 	e := newProviderTestEnv(t)
 	rp := e.newRP(t, []string{"openid", "sub2api:apikey"}, true)

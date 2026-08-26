@@ -53,8 +53,9 @@ Use the returned `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`
    token endpoint (authenticate the client via Basic or form body).
 4. **Verify the ID Token**: RS256 via JWKS, check `iss`, `aud == client_id`, `exp`,
    and `nonce`. (Libraries do this — make sure it is actually enabled.)
-5. **UserInfo** (optional): call with the Bearer access token for live claims,
-   including the sensitive `sub2api:*` claims (which are never in the ID Token).
+5. **UserInfo/resources** (optional): call UserInfo for live identity claims, or
+   `/oidc/resource/balance` with `sub2api:balance` for the current balance. Sensitive
+   `sub2api:*` data is never placed in the ID Token.
 6. **Refresh** (only if `offline_access` was requested): rotate tokens; persist the
    **new** refresh token; never reuse an old one (reuse revokes the whole family).
 
@@ -67,8 +68,8 @@ Use the returned `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`
   + family revocation → user must re-authenticate.
 - **`scope` must include `openid`** and stay within the client's allowed set.
 - Keep `client_secret` server-side only.
-- Request the **minimum scopes**; `sub2api:apikey` is sensitive
-  and warns the user on the consent screen.
+- Request the **minimum scopes**; `sub2api:balance` and `sub2api:apikey` are sensitive
+  and trigger warnings on the consent screen.
 
 ## Full reference
 

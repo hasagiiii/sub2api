@@ -134,6 +134,8 @@ function scopeKey(scope: string): string {
       return 'email'
     case 'offline_access':
       return 'offlineAccess'
+    case 'sub2api:balance':
+      return 'balance'
     case 'sub2api:apikey':
       return 'apikey'
     default:

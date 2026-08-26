@@ -128,6 +128,24 @@ describe('ConsentView', () => {
     expect(sensitiveRow.html()).toContain('text-red-600')
   })
 
+  it('请求包含 sub2api:balance 时展示余额权限与敏感警示', async () => {
+    getConsentInfo.mockResolvedValue({
+      client_id: 'rp_demo',
+      client_name: 'Demo RP',
+      scopes: [
+        { scope: 'openid', sensitive: false },
+        { scope: 'sub2api:balance', sensitive: true }
+      ]
+    })
+    const { wrapper } = await mountConsent()
+
+    expect(wrapper.find('[data-testid="consent-sensitive-warning"]').exists()).toBe(true)
+    const balanceRow = wrapper.find('[data-testid="consent-scope-sub2api:balance"]')
+    expect(balanceRow.exists()).toBe(true)
+    expect(balanceRow.text()).toContain('oidc.consent.scopes.balance.title')
+    expect(balanceRow.html()).toContain('text-red-600')
+  })
+
   it('无敏感 scope 时不渲染警示横幅', async () => {
     const { wrapper } = await mountConsent()
     expect(wrapper.find('[data-testid="consent-sensitive-warning"]').exists()).toBe(false)

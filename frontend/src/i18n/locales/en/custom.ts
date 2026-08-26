@@ -8506,7 +8506,7 @@ decodeSizeOnRspHint: 'When the upstream response omits the size field or returns
         },
         balance: {
           title: 'Account balance (sensitive)',
-          description: 'Read your account balance and total recharged amount.'
+          description: 'Read your current account balance.'
         },
         apikey: {
           title: 'API key count (sensitive)',

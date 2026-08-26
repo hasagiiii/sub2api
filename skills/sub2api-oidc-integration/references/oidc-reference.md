@@ -17,6 +17,7 @@ GET  {issuer}/.well-known/jwks.json              JWKS (public RSA keys for RS256
 GET  {issuer}/oidc/authorize                     Authorization endpoint (browser redirect)
 POST {issuer}/oidc/token                         Token endpoint
 GET  {issuer}/oidc/userinfo                      UserInfo (also accepts POST)
+GET  {issuer}/oidc/resource/balance              Current balance resource
 ```
 
 All endpoints return **HTTP 404** when the provider feature is disabled on the instance.
@@ -34,7 +35,7 @@ All endpoints return **HTTP 404** when the provider feature is disabled on the i
   "grant_types_supported": ["authorization_code", "refresh_token"],
   "subject_types_supported": ["public"],
   "id_token_signing_alg_values_supported": ["RS256"],
-  "scopes_supported": ["openid","profile","email","offline_access","sub2api:apikey"],
+  "scopes_supported": ["openid","profile","email","offline_access","sub2api:balance","sub2api:apikey"],
   "token_endpoint_auth_methods_supported": ["client_secret_basic","client_secret_post"],
   "code_challenge_methods_supported": ["S256"],
   "claims_supported": ["sub","iss","aud","exp","iat","auth_time","nonce","acr","name","preferred_username","email","email_verified"]
@@ -64,6 +65,7 @@ All endpoints return **HTTP 404** when the provider feature is disabled on the i
 | `profile` | `name`, `preferred_username` | ID Token + UserInfo |
 | `email` | `email`, `email_verified` | ID Token + UserInfo |
 | `offline_access` | (enables `refresh_token`) | — |
+| `sub2api:balance` ⚠️ | current account balance | **Balance resource only** |
 | `sub2api:apikey` ⚠️ | `sub2api_apikey_count`, `sub2api_apikeys` | **UserInfo only** |
 
 ID Token always carries `iss`, `aud`, `exp`, `iat`, `auth_time`, `acr`, and `nonce`
@@ -212,7 +214,32 @@ Fields depend on granted scopes. Invalid/expired/revoked token → `401` with
 
 ---
 
-## 7a. Resource: API Keys (paginated)
+## 7a. Resource: Balance
+
+Lightweight protected resource for clients that need to poll the authenticated user's
+current balance without fetching the complete UserInfo response.
+
+```http
+GET {issuer}/oidc/resource/balance
+Authorization: Bearer {access_token}
+```
+
+- Requires the access token to carry scope `sub2api:balance`.
+- The response uses a decimal string to avoid binary floating-point rounding.
+- Successful responses include `Cache-Control: no-store`.
+
+```json
+{
+  "balance": "12.5"
+}
+```
+
+Errors:
+- Missing/invalid token → `401` with `WWW-Authenticate: Bearer error="invalid_token"`.
+- Token without `sub2api:balance` → `403` with
+  `WWW-Authenticate: Bearer error="insufficient_scope", scope="sub2api:balance"`.
+
+## 7b. Resource: API Keys (paginated)
 
 Protected resource endpoint for RPs that need a structured / paginated view of
 the authenticated user's API Keys (instead of the bulk list returned by
