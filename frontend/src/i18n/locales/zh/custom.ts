@@ -8687,7 +8687,7 @@ decodeSizeOnRspHint: '开启后上游不返回 size 字段或返回 size=auto �
         },
         balance: {
           title: '账户余额（敏感）',
-          description: '读取你的账户余额与累计充值金额。'
+          description: '读取你的当前账户余额。'
         },
         apikey: {
           title: 'API Key 数量（敏感）',

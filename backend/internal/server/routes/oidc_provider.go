@@ -17,6 +17,7 @@ import (
 //	GET  /oidc/userinfo
 //	GET  /oidc/consent
 //	POST /oidc/consent
+//	GET  /oidc/resource/balance       (Bearer + scope sub2api:balance)
 //	GET  /oidc/resource/api-keys      (Bearer + scope sub2api:apikey)
 //
 // 当 oidc_provider.enabled=false 时，各 handler 内部统一返回 404。
@@ -41,6 +42,7 @@ func RegisterOidcProviderRoutes(r *gin.Engine, h *handler.Handlers) {
 		// 受保护资源端点：使用 OIDC access_token 鉴权，scope 控制可用性。
 		resource := oidc.Group("/resource")
 		{
+			resource.GET("/balance", op.GetBalance)
 			resource.GET("/api-keys", op.ListAPIKeys)
 		}
 	}

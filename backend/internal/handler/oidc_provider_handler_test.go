@@ -147,7 +147,7 @@ func newOidcHandlerTestEnv(t *testing.T, enabled bool) *oidcHandlerTestEnv {
 	provider := service.NewOidcProviderService(client, repo, signing, clientSvc, consentSvc)
 	sso := service.NewSsoSessionService(client, repo)
 
-	h := NewOidcProviderHandler(provider, sso, nil)
+	h := NewOidcProviderHandler(provider, sso, nil, nil)
 
 	r := gin.New()
 	r.GET("/.well-known/openid-configuration", h.Discovery)
@@ -219,6 +219,7 @@ func TestOidcHandler_Discovery_OKWhenEnabled(t *testing.T) {
 	var doc map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &doc))
 	require.Equal(t, "https://op.example.com", doc["issuer"])
+	require.Contains(t, doc["scopes_supported"], "sub2api:balance")
 }
 
 func TestOidcHandler_JWKS_OKWhenEnabled(t *testing.T) {
@@ -455,7 +456,7 @@ func TestOidcHandler_Authorize_RejectsBadRedirectURI(t *testing.T) {
 func newOidcHandlerTestEnvWithResource(t *testing.T, enabled bool) *oidcHandlerTestEnv {
 	t.Helper()
 	e := newOidcHandlerTestEnv(t, enabled)
-	h := NewOidcProviderHandler(e.provider, e.sso, nil)
+	h := NewOidcProviderHandler(e.provider, e.sso, nil, nil)
 	e.router.GET("/oidc/resource/api-keys", h.ListAPIKeys)
 	return e
 }
@@ -543,4 +544,90 @@ func TestOidcHandler_ListAPIKeys_ScopeOKButServiceMissingReturns500(t *testing.T
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, "server_error", body["error"])
+}
+
+// ─── Resource: Balance ──────────────────────────────────────────────────────
+
+type oidcBalanceReaderStub struct {
+	balance float64
+	err     error
+	userID  int64
+}
+
+func TestOidcConsentSensitiveScopes(t *testing.T) {
+	require.True(t, isSensitiveScope(service.OidcScopeBalance))
+	require.True(t, isSensitiveScope(service.OidcScopeAPIKey))
+	require.False(t, isSensitiveScope(service.OidcScopeOpenID))
+}
+
+func (s *oidcBalanceReaderStub) GetUserBalance(_ context.Context, userID int64) (float64, error) {
+	s.userID = userID
+	return s.balance, s.err
+}
+
+func newOidcHandlerTestEnvWithBalanceResource(t *testing.T, reader oidcBalanceReader) *oidcHandlerTestEnv {
+	t.Helper()
+	e := newOidcHandlerTestEnv(t, true)
+	h := NewOidcProviderHandler(e.provider, e.sso, nil, nil)
+	h.balance = reader
+	e.router.GET("/oidc/resource/balance", h.GetBalance)
+	return e
+}
+
+func TestOidcHandler_GetBalance_InsufficientScopeReturns403(t *testing.T) {
+	e := newOidcHandlerTestEnvWithBalanceResource(t, &oidcBalanceReaderStub{balance: 12.5})
+	const token = "test-access-token-no-balance-scope"
+	_, err := e.client.OidcAccessToken.Create().
+		SetToken(token).
+		SetClientID("rp-test").
+		SetUserID(42).
+		SetScopes([]string{"openid"}).
+		SetRefreshFamilyID("").
+		SetExpiresAt(timeFromNow(3600)).
+		Save(context.Background())
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/oidc/resource/balance", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	e.router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Contains(t, w.Header().Get("WWW-Authenticate"), `scope="sub2api:balance"`)
+}
+
+func TestOidcHandler_GetBalance_MissingTokenReturns401(t *testing.T) {
+	e := newOidcHandlerTestEnvWithBalanceResource(t, &oidcBalanceReaderStub{balance: 12.5})
+	w := httptest.NewRecorder()
+	e.router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/oidc/resource/balance", nil))
+
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Contains(t, w.Header().Get("WWW-Authenticate"), "Bearer")
+}
+
+func TestOidcHandler_GetBalance_ReturnsCachedBalanceAsDecimalString(t *testing.T) {
+	reader := &oidcBalanceReaderStub{balance: 12.5}
+	e := newOidcHandlerTestEnvWithBalanceResource(t, reader)
+	const token = "test-access-token-with-balance-scope"
+	_, err := e.client.OidcAccessToken.Create().
+		SetToken(token).
+		SetClientID("rp-test").
+		SetUserID(42).
+		SetScopes([]string{"openid", "sub2api:balance"}).
+		SetRefreshFamilyID("").
+		SetExpiresAt(timeFromNow(3600)).
+		Save(context.Background())
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/oidc/resource/balance", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	e.router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	require.Equal(t, int64(42), reader.userID)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "12.5", body["balance"])
 }

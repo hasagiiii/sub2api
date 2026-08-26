@@ -57,7 +57,8 @@ const (
 	OidcScopeEmail         = "email"
 	OidcScopeOfflineAccess = "offline_access"
 
-	OidcScopeAPIKey = "sub2api:apikey"
+	OidcScopeBalance = "sub2api:balance"
+	OidcScopeAPIKey  = "sub2api:apikey"
 )
 
 // ─── OAuth2 错误 ─────────────────────────────────────────────────────────────
