@@ -1493,6 +1493,26 @@ func TestProvideConfig(t *testing.T) {
 	}
 }
 
+func TestPprofConfigDefaultsAndValidation(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Server.Pprof.Enabled {
+		t.Fatal("pprof should be disabled by default")
+	}
+	if cfg.Server.Pprof.Host != "127.0.0.1" || cfg.Server.Pprof.Port != 6060 {
+		t.Fatalf("unexpected pprof defaults: %+v", cfg.Server.Pprof)
+	}
+
+	cfg.Server.Pprof.Enabled = true
+	cfg.Server.Pprof.Port = 65536
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "server.pprof.port") {
+		t.Fatalf("Validate() error = %v, want server.pprof.port error", err)
+	}
+}
+
 func TestValidateConfigWithLinuxDoEnabled(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

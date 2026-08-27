@@ -50,6 +50,13 @@ server:
   # Applies to all requests, especially important for h2c first request memory protection
   # 适用于所有请求，对 h2c 第一请求的内存保护尤为重要
   max_request_body_size: 268435456
+  # Optional Go pprof diagnostics listener. Keep this disabled in production
+  # unless the listener is reachable only from a trusted private network.
+  # 可选的 Go pprof 性能分析监听器。生产环境建议保持关闭，除非仅允许可信内网访问。
+  pprof:
+    enabled: false
+    host: "127.0.0.1"
+    port: 6060
   # HTTP/2 Cleartext (h2c) configuration
   # HTTP/2 Cleartext (h2c) 配置
   h2c:

@@ -706,18 +706,28 @@ type PricingConfig struct {
 }
 
 type ServerConfig struct {
-	Host                     string    `mapstructure:"host"`
-	Port                     int       `mapstructure:"port"`
-	Mode                     string    `mapstructure:"mode"`                  // debug/release
-	EnableServerTiming       bool      `mapstructure:"enable_server_timing"`  // Admin UI Server-Timing response header
-	FrontendURL              string    `mapstructure:"frontend_url"`          // 前端基础 URL，用于生成邮件中的外部链接
-	ReadHeaderTimeout        int       `mapstructure:"read_header_timeout"`   // 读取请求头超时（秒）
-	MaxHeaderBytes           int       `mapstructure:"max_header_bytes"`      // 请求头最大字节数（HTTP/2 映射为 header-list 上限）
-	IdleTimeout              int       `mapstructure:"idle_timeout"`          // 空闲连接超时（秒）
-	TrustedProxies           []string  `mapstructure:"trusted_proxies"`       // 可信代理列表（CIDR/IP）
-	TrustedProxiesConfigured bool      `mapstructure:"-" json:"-" yaml:"-"`   // 是否显式配置了可信代理列表
-	MaxRequestBodySize       int64     `mapstructure:"max_request_body_size"` // 全局最大请求体限制
-	H2C                      H2CConfig `mapstructure:"h2c"`                   // HTTP/2 Cleartext 配置
+	Host                     string      `mapstructure:"host"`
+	Port                     int         `mapstructure:"port"`
+	Mode                     string      `mapstructure:"mode"`                  // debug/release
+	EnableServerTiming       bool        `mapstructure:"enable_server_timing"`  // Admin UI Server-Timing response header
+	FrontendURL              string      `mapstructure:"frontend_url"`          // 前端基础 URL，用于生成邮件中的外部链接
+	ReadHeaderTimeout        int         `mapstructure:"read_header_timeout"`   // 读取请求头超时（秒）
+	MaxHeaderBytes           int         `mapstructure:"max_header_bytes"`      // 请求头最大字节数（HTTP/2 映射为 header-list 上限）
+	IdleTimeout              int         `mapstructure:"idle_timeout"`          // 空闲连接超时（秒）
+	TrustedProxies           []string    `mapstructure:"trusted_proxies"`       // 可信代理列表（CIDR/IP）
+	TrustedProxiesConfigured bool        `mapstructure:"-" json:"-" yaml:"-"`   // 是否显式配置了可信代理列表
+	MaxRequestBodySize       int64       `mapstructure:"max_request_body_size"` // 全局最大请求体限制
+	H2C                      H2CConfig   `mapstructure:"h2c"`                   // HTTP/2 Cleartext 配置
+	Pprof                    PprofConfig `mapstructure:"pprof"`                 // Go pprof 性能分析服务
+}
+
+// PprofConfig controls the optional Go pprof diagnostics listener.
+// It is intentionally disabled by default because pprof endpoints expose
+// detailed process state and should not be served on the public API listener.
+type PprofConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Host    string `mapstructure:"host"`
+	Port    int    `mapstructure:"port"`
 }
 
 // H2CConfig HTTP/2 Cleartext 配置
@@ -2046,6 +2056,10 @@ func setDefaults() {
 	viper.SetDefault("server.max_header_bytes", 64*1024)
 	viper.SetDefault("server.idle_timeout", 120) // 120秒空闲超时
 	viper.SetDefault("server.max_request_body_size", int64(256*1024*1024))
+	// pprof is disabled by default and, when enabled, only listens locally.
+	viper.SetDefault("server.pprof.enabled", false)
+	viper.SetDefault("server.pprof.host", "127.0.0.1")
+	viper.SetDefault("server.pprof.port", 6060)
 	// H2C 默认配置
 	viper.SetDefault("server.h2c.enabled", false)
 	viper.SetDefault("server.h2c.max_concurrent_streams", uint32(50))      // 50 个并发流
@@ -2781,6 +2795,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Server.MaxRequestBodySize < 0 {
 		return fmt.Errorf("server.max_request_body_size must be non-negative")
+	}
+	if c.Server.Pprof.Enabled {
+		if strings.TrimSpace(c.Server.Pprof.Host) == "" {
+			return fmt.Errorf("server.pprof.host must not be empty when pprof is enabled")
+		}
+		if c.Server.Pprof.Port < 1 || c.Server.Pprof.Port > 65535 {
+			return fmt.Errorf("server.pprof.port must be between 1 and 65535")
+		}
 	}
 	if c.Server.H2C.Enabled {
 		if c.Server.H2C.MaxConcurrentStreams == 0 {

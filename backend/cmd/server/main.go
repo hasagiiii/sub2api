@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	appserver "github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/setup"
 	"github.com/Wei-Shaw/sub2api/internal/web"
@@ -167,6 +168,20 @@ func runMainServer() {
 			log.Printf("Prompt Audit started in degraded state: %v", err)
 		}
 	}
+
+	// pprof runs on a separate, opt-in diagnostics listener. The default
+	// address is loopback so profiling data is never exposed on the API port.
+	pprofServer := appserver.NewPprofServer(cfg.Server.Pprof)
+	if err := pprofServer.Start(); err != nil {
+		log.Fatalf("Failed to start pprof server: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := pprofServer.Shutdown(ctx); err != nil {
+			log.Printf("Failed to shutdown pprof server: %v", err)
+		}
+	}()
 
 	// 启动服务器
 	go func() {
