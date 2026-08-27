@@ -4,6 +4,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -144,4 +145,46 @@ func TestVideoFalStatusFromTaskMapsTerminalFailureToFailed(t *testing.T) {
 			require.Equal(t, fal.StatusFailed, videoFalStatusFromTask(&service.AsyncVideoTask{Status: status}))
 		})
 	}
+}
+
+func TestModelAPIResultPayloadAddsAuthoritativeActualCostWithoutMutation(t *testing.T) {
+	original := map[string]any{
+		"video":       map[string]any{"url": "https://cdn.example.test/video.mp4"},
+		"seed":        float64(42),
+		"actual_cost": float64(999),
+	}
+
+	result := modelAPIResultPayload(original, 1.25)
+
+	require.Equal(t, 1.25, result["actual_cost"])
+	require.Equal(t, float64(999), original["actual_cost"])
+	require.Equal(t, original["video"], result["video"])
+}
+
+func TestModelAPIStatusResponseIncludesActualCost(t *testing.T) {
+	raw, err := json.Marshal(modelAPIStatusResponse{
+		StatusResponse: fal.StatusResponse{Status: fal.StatusCompleted, RequestID: "request-1"},
+		ActualCost:     1.25,
+	})
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{"status":"COMPLETED","request_id":"request-1","actual_cost":1.25}`, string(raw))
+}
+
+func TestWriteAsyncImageResultIncludesActualCost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	task := &service.AsyncMediaTask{
+		FinalCost: 0.75,
+		ImageURLs: []string{"https://cdn.example.test/image.png"},
+	}
+
+	writeAsyncImageResult(ctx, task)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+	require.Equal(t, 0.75, body["actual_cost"])
+	require.Len(t, body["images"], 1)
 }

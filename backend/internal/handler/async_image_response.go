@@ -16,11 +16,15 @@ const (
 	publicVideoFailure       = "Video generation failed. Please try again later."
 )
 
-// writeAsyncImageResult writes the normalized image result shared by the
-// the protocol-neutral model facade.
+// writeAsyncImageResult writes the normalized image result for the
+// protocol-neutral model facade.
 func writeAsyncImageResult(c *gin.Context, task *service.AsyncMediaTask) {
-	response := &fal.Response{Images: make([]fal.Image, 0)}
+	response := struct {
+		Images     []fal.Image `json:"images"`
+		ActualCost float64     `json:"actual_cost"`
+	}{Images: make([]fal.Image, 0)}
 	if task != nil {
+		response.ActualCost = task.FinalCost
 		for i, imageURL := range task.ResultURLs() {
 			item := fal.Image{URL: imageURL}
 			if i < len(task.ImageMetadata) {
