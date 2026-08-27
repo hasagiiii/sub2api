@@ -26,7 +26,7 @@ import (
 //
 //	POST /api/v1/model/{slug}                         -> submit
 //	GET  /api/v1/model/{slug}/requests/{id}/status    -> status
-//	GET  /api/v1/model/{slug}/requests/{id}           -> result（透传上游 result payload）
+//	GET  /api/v1/model/{slug}/requests/{id}           -> result（上游 payload + actual_cost）
 //	PUT  /api/v1/model/{slug}/requests/{id}/cancel    -> cancel
 type ModelAPIGatewayHandler struct {
 	gatewayService *service.GatewayService
@@ -35,6 +35,11 @@ type ModelAPIGatewayHandler struct {
 	mediaService   *service.AsyncMediaService
 	videoService   *service.AsyncVideoService
 	settingService *service.SettingService
+}
+
+type modelAPIStatusResponse struct {
+	fal.StatusResponse
+	ActualCost float64 `json:"actual_cost"`
 }
 
 // NewModelAPIGatewayHandler creates the shared asynchronous model facade.
@@ -383,10 +388,19 @@ func (h *ModelAPIGatewayHandler) nativeStatus(c *gin.Context, reqID string) {
 		}
 		status = videoFalStatusFromTask(videoTask)
 	}
-	c.JSON(http.StatusOK, fal.StatusResponse{
-		Status:      status,
-		RequestID:   reqID,
-		ResponseURL: h.callbackBase(c, "", reqID),
+	actualCost := 0.0
+	if mediaTask != nil {
+		actualCost = mediaTask.FinalCost
+	} else {
+		actualCost = videoTask.FinalCost
+	}
+	c.JSON(http.StatusOK, modelAPIStatusResponse{
+		StatusResponse: fal.StatusResponse{
+			Status:      status,
+			RequestID:   reqID,
+			ResponseURL: h.callbackBase(c, "", reqID),
+		},
+		ActualCost: actualCost,
 	})
 }
 
@@ -410,18 +424,20 @@ func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string) {
 		}
 	}
 	if !videoTask.IsTerminal() {
-		c.JSON(http.StatusAccepted, fal.StatusResponse{Status: videoFalStatusFromTask(videoTask), RequestID: reqID})
+		c.JSON(http.StatusAccepted, modelAPIStatusResponse{
+			StatusResponse: fal.StatusResponse{Status: videoFalStatusFromTask(videoTask), RequestID: reqID},
+			ActualCost:     videoTask.FinalCost,
+		})
 		return
 	}
 	if videoTask.Status != service.AsyncVideoStatusSucceeded {
 		h.jsonError(c, http.StatusBadGateway, "api_error", publicVideoFailure)
 		return
 	}
-	// 原样透传 fal result payload（例如 { video: {url, ...}, seed, ... }）。
-	if videoTask.ResultPayload == nil {
-		videoTask.ResultPayload = map[string]any{}
-	}
-	c.JSON(http.StatusOK, videoTask.ResultPayload)
+	// Preserve the upstream result payload while appending the authoritative
+	// amount settled by Sub2API. Clone the map so the persisted task payload is
+	// not mutated by response decoration.
+	c.JSON(http.StatusOK, modelAPIResultPayload(videoTask.ResultPayload, videoTask.FinalCost))
 }
 
 func (h *ModelAPIGatewayHandler) nativeCancel(c *gin.Context, reqID string) {
@@ -489,7 +505,10 @@ func (h *ModelAPIGatewayHandler) loadTaskAndAccount(c *gin.Context, reqID string
 
 func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, task *service.AsyncMediaTask) {
 	if !task.IsTerminal() {
-		c.JSON(http.StatusAccepted, fal.StatusResponse{Status: imageStatusFromTask(task), RequestID: reqID})
+		c.JSON(http.StatusAccepted, modelAPIStatusResponse{
+			StatusResponse: fal.StatusResponse{Status: imageStatusFromTask(task), RequestID: reqID},
+			ActualCost:     task.FinalCost,
+		})
 		return
 	}
 	if task.Status != service.AsyncMediaStatusSucceeded {
@@ -497,6 +516,15 @@ func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, 
 		return
 	}
 	writeAsyncImageResult(c, task)
+}
+
+func modelAPIResultPayload(payload map[string]any, actualCost float64) map[string]any {
+	response := make(map[string]any, len(payload)+1)
+	for key, value := range payload {
+		response[key] = value
+	}
+	response["actual_cost"] = actualCost
+	return response
 }
 
 func (h *ModelAPIGatewayHandler) callbackBase(c *gin.Context, model, reqID string) string {

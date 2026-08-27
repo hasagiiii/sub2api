@@ -101,8 +101,8 @@ func TestBuildSubmitRequestEditUsesReferenceImages(t *testing.T) {
 	}, 8)
 
 	require.Equal(t, "image-to-image", request.Mode)
-	require.Equal(t, 1536, request.Input.Width)
-	require.Equal(t, 1024, request.Input.Height)
+	require.Equal(t, 1264, request.Input.Width)
+	require.Equal(t, 848, request.Input.Height)
 	require.Equal(t, []string{"https://cdn.example/input-1.png", "https://cdn.example/input-2.jpg"}, request.Input.ReferenceImageURLs)
 
 	raw, err := json.Marshal(request)
@@ -115,12 +115,44 @@ func TestBuildSubmitRequestEditUsesReferenceImages(t *testing.T) {
 		"input":{
 			"prompt":"edit this image",
 			"quality":"LOW",
-			"width":1536,
-			"height":1024,
+			"width":1264,
+			"height":848,
 			"reference_image_urls":["https://cdn.example/input-1.png","https://cdn.example/input-2.jpg"]
 		},
 		"estimated_credit_cost":8
 	}`, string(raw))
+}
+
+func TestBuildSubmitRequestNormalizesToLeonardoImageSizes(t *testing.T) {
+	tests := []struct {
+		name       string
+		size       string
+		wantWidth  int
+		wantHeight int
+	}{
+		{name: "exact supported size", size: "2048x1136", wantWidth: 2048, wantHeight: 1136},
+		{name: "closest landscape size", size: "1600x900", wantWidth: 1376, wantHeight: 768},
+		{name: "closest portrait size", size: "900x1600", wantWidth: 768, wantHeight: 1376},
+		{name: "closest square tier", size: "1900x1900", wantWidth: 2048, wantHeight: 2048},
+		{name: "invalid size uses default", size: "auto", wantWidth: 1024, wantHeight: 1024},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := BuildSubmitRequest("gpt-image-2", fal.ImageGenInput{Size: tt.size}, 8)
+			require.Equal(t, tt.wantWidth, request.Input.Width)
+			require.Equal(t, tt.wantHeight, request.Input.Height)
+		})
+	}
+}
+
+func TestLeonardoSupportedImageSizeTable(t *testing.T) {
+	require.Len(t, supportedImageSizeGroups, 10)
+	for _, group := range supportedImageSizeGroups {
+		for _, size := range group.sizes {
+			require.Equal(t, size, closestSupportedImageSize(size.width, size.height))
+		}
+	}
 }
 
 func TestBuildSubmitRequestTextToImageOmitsReferenceImages(t *testing.T) {
