@@ -270,6 +270,10 @@ const route = useRoute()
 const authStore = useAuthStore()
 const appStore = useAppStore()
 
+// 保存首次进入登录页时的回跳目标。登录会更新 Pinia 状态并触发路由守卫，
+// 此时再从 currentRoute 读取可能已经得到默认 dashboard。
+const loginRedirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+
 // ==================== State ====================
 
 const isLoading = ref<boolean>(false)
@@ -667,7 +671,7 @@ async function handleLogin(): Promise<void> {
     appStore.showSuccess(t('auth.loginSuccess'))
 
     // Redirect to dashboard or intended route
-    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
+    const redirectTo = loginRedirect || '/dashboard'
     await redirectAfterLogin(redirectTo)
   } catch (error: unknown) {
     errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', t('auth.loginFailed'))
@@ -708,8 +712,8 @@ async function handlePasskeyLogin(): Promise<void> {
     await authStore.loginWithPasskey(proof)
     clearAllAffiliateReferralCodes()
     appStore.showSuccess(t('auth.loginSuccess'))
-    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
-    await router.push(redirectTo)
+    const redirectTo = loginRedirect || '/dashboard'
+    await redirectAfterLogin(redirectTo)
   } catch (error: unknown) {
     const fallback = error instanceof DOMException && error.name === 'NotAllowedError'
       ? t('auth.passkeyCancelled')
@@ -777,7 +781,7 @@ async function handle2FAVerify(code: string): Promise<void> {
     appStore.showSuccess(t('auth.loginSuccess'))
 
     // Redirect to dashboard or intended route
-    const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
+    const redirectTo = loginRedirect || '/dashboard'
     await redirectAfterLogin(redirectTo)
   } catch (error: unknown) {
     const err = error as { message?: string; response?: { data?: { message?: string } } }

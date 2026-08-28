@@ -1143,6 +1143,16 @@ router.beforeEach(async (to, _from, next) => {
   if (!requiresAuth) {
     // If already authenticated and trying to access login/register, redirect to appropriate dashboard
     if (authStore.isAuthenticated && (to.path === '/login' || to.path === '/iam-login' || to.path === '/register')) {
+      // OIDC Provider 未登录时会把 authorize 请求带到 /login?redirect=...。
+      // 保留 OIDC authorize 的回跳参数，避免通用的“已登录跳 dashboard”规则截断流程。
+      const oidcRedirect = typeof to.query.redirect === 'string' ? to.query.redirect : ''
+      if (to.path === '/login' && /^\/oidc\/authorize\?/.test(oidcRedirect)) {
+        // localStorage 中的 JWT 不代表 HttpOnly 的 sub2api_sso 仍有效；
+        // 若直接跳回 authorize，SSO cookie 失效时会在 login/authorize 间死循环。
+        // 保留登录页，让用户重新登录并由正常登录流程签发新的 SSO cookie。
+        next()
+        return
+      }
       // In backend mode, non-admin users should NOT be redirected away from login
       // (they are blocked from all protected routes, so redirecting would cause a loop)
       if (appStore.backendModeEnabled && !authStore.isAdmin) {

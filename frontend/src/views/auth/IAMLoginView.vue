@@ -77,6 +77,8 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 const appStore = useAppStore()
+// 保存首次进入登录页时的回跳目标，避免登录状态更新后路由守卫改写 currentRoute。
+const loginRedirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
 const loading = ref(false)
 const publicSettingsLoaded = ref(false)
 
@@ -203,7 +205,7 @@ async function submit(): Promise<void> {
     // 与普通登录保持一致：优先回跳 route.query.redirect。
     // redirect 可能指向后端 API 路径（如 /oidc/authorize?...），非前端 SPA 路由，
     // 此时必须用整页跳转 window.location.href 才能真正打到后端。
-    const redirectTo = (route.query.redirect as string) || '/dashboard'
+    const redirectTo = loginRedirect || '/dashboard'
     await redirectAfterLogin(redirectTo)
   } catch (error: unknown) {
     appStore.showError(extractI18nErrorMessage(error, t, 'auth.errors', t('auth.loginFailed')))
