@@ -43,7 +43,11 @@ func TestPprofServerStartsAndShutsDown(t *testing.T) {
 		}
 		t.Fatalf("Start() returned error: %v", err)
 	}
-	defer s.Shutdown(context.Background())
+	defer func() {
+		if err := s.Shutdown(context.Background()); err != nil {
+			t.Errorf("deferred Shutdown() returned error: %v", err)
+		}
+	}()
 
 	// Port 0 asks the OS for an ephemeral port, which keeps this test isolated.
 	address := s.listener.Addr().String()
@@ -70,7 +74,11 @@ func TestPprofServerStartsAndShutsDown(t *testing.T) {
 
 func mustReadAndClose(t *testing.T, resp *http.Response) string {
 	t.Helper()
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("close response body: %v", err)
+		}
+	}()
 	var b strings.Builder
 	if _, err := io.Copy(&b, resp.Body); err != nil {
 		t.Fatalf("read response: %v", err)

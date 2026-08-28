@@ -17,6 +17,8 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -28,6 +30,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
+	"go.uber.org/zap"
 )
 
 // OidcProviderHandler 编排 OIDC OP 对外端点。
@@ -469,5 +473,40 @@ func (h *OidcProviderHandler) ListAPIKeys(c *gin.Context) {
 	for i := range keys {
 		out = append(out, *dto.APIKeyFromService(&keys[i]))
 	}
+	logOidcAPIKeysResponse(c, out, result.Total, page, pageSize, resolved.UserID)
 	response.Paginated(c, out, result.Total, page, pageSize)
+}
+
+func logOidcAPIKeysResponse(c *gin.Context, items []dto.APIKey, total int64, page, pageSize int, userID int64) {
+	pages := int(math.Ceil(float64(total) / float64(pageSize)))
+	if pages < 1 {
+		pages = 1
+	}
+
+	payload := response.Response{
+		Code:    0,
+		Message: "success",
+		Data: response.PaginatedData{
+			Items:    items,
+			Total:    total,
+			Page:     page,
+			PageSize: pageSize,
+			Pages:    pages,
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		requestLogger(c, "handler.oidc.resource.api_keys", zap.Int64("user_id", userID)).Debug(
+			"oidc.resource.api_keys.response",
+			zap.Int("item_count", len(items)),
+			zap.Int64("total", total),
+			zap.Error(err),
+		)
+		return
+	}
+
+	requestLogger(c, "handler.oidc.resource.api_keys", zap.Int64("user_id", userID)).Debug(
+		"oidc.resource.api_keys.response",
+		zap.String("response_body", logredact.RedactJSON(raw, "key")),
+	)
 }

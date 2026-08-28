@@ -1182,6 +1182,7 @@ func ProvideAsyncMediaService(
 	billing *BillingService,
 	resolver *ModelPricingResolver,
 	cos *COSImageTransferService,
+	statusCache AsyncMediaTaskStatusStore,
 	deferred *DeferredService,
 	billingContextResolver *BillingContextResolver,
 	billingCache *BillingCacheService,
@@ -1189,6 +1190,7 @@ func ProvideAsyncMediaService(
 	cfg *config.Config,
 ) *AsyncMediaService {
 	svc := NewAsyncMediaService(taskRepo, userRepo, groupRepo, billing, resolver, cos)
+	svc.SetStatusCache(statusCache)
 	svc.SetDeferredService(deferred)
 	svc.SetBillingContextResolver(billingContextResolver)
 	svc.SetOpsService(opsService)

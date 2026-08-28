@@ -108,6 +108,7 @@ func (c *responsesImageStatusCache) SetResponsesImageStatus(ctx context.Context,
 		return err
 	}
 	logger.L().Info("responses.image_status.redis_set",
+		zap.String("upstream", "redis"),
 		zap.String("component", "repository.responses_image_status_cache"),
 		zap.String("key", key),
 		zap.String("request_id", strings.TrimSpace(status.RequestID)),

@@ -121,6 +121,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any, 
 	}
 	log := logger.FromContext(ctx)
 	requestFields := []zap.Field{
+		zap.String("upstream", "leonardo"),
 		zap.String("method", method),
 		zap.String("url", endpoint),
 	}
@@ -156,6 +157,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any, 
 		return errors.New("leonardo: response body too large")
 	}
 	log.Debug("leonardo.http.response",
+		zap.String("upstream", "leonardo"),
 		zap.String("method", method),
 		zap.String("url", endpoint),
 		zap.Int("status_code", resp.StatusCode),

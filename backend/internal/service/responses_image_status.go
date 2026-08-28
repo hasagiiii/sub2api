@@ -216,6 +216,7 @@ func (s *OpenAIGatewayService) setResponsesImageStatusBestEffort(ctx context.Con
 	storeCtx := responsesImageStatusStoreContext(ctx)
 	if err := s.responsesImageStatusStore.SetResponsesImageStatus(storeCtx, status, ResponsesImageStatusTTL); err != nil {
 		logger.L().Warn("responses.image_status.set_failed",
+			zap.String("upstream", "redis"),
 			zap.String("component", "service.openai_gateway"),
 			zap.String("request_id", status.RequestID),
 			zap.String("status", status.Status),

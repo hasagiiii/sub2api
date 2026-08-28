@@ -12,10 +12,13 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/fal"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type modelAPINoAccountRepo struct {
@@ -122,6 +125,20 @@ func TestModelAPIGatewayExplicitVideoSkipsImageAccountProbe(t *testing.T) {
 	require.Zero(t, listCalls, "explicit video requests must not query the image account pool")
 }
 
+func TestModelAPIGatewayStatusEndpointRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := NewModelAPIGatewayHandler(nil, nil, nil, nil, nil, nil)
+	router := gin.New()
+	router.GET("/api/v1/model/*path", handler.Native)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/model/fal-ai/flux/requests/request-1/status", nil)
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusNotFound, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "Unsupported model endpoint")
+}
+
 func TestMediaFalStatusFromTaskMapsTerminalFailureToFailed(t *testing.T) {
 	for _, status := range []string{
 		service.AsyncMediaStatusFailed,
@@ -147,6 +164,19 @@ func TestVideoFalStatusFromTaskMapsTerminalFailureToFailed(t *testing.T) {
 	}
 }
 
+func TestModelAPIStatusMapsClientCancellationToCanceled(t *testing.T) {
+	reason := "cancelled by client"
+
+	require.Equal(t, fal.StatusCanceled, imageStatusFromTask(&service.AsyncMediaTask{
+		Status:      service.AsyncMediaStatusRefunded,
+		ErrorReason: &reason,
+	}))
+	require.Equal(t, fal.StatusCanceled, videoFalStatusFromTask(&service.AsyncVideoTask{
+		Status:      service.AsyncVideoStatusRefunded,
+		ErrorReason: &reason,
+	}))
+}
+
 func TestModelAPIResultPayloadAddsAuthoritativeActualCostWithoutMutation(t *testing.T) {
 	original := map[string]any{
 		"video":       map[string]any{"url": "https://cdn.example.test/video.mp4"},
@@ -163,7 +193,7 @@ func TestModelAPIResultPayloadAddsAuthoritativeActualCostWithoutMutation(t *test
 
 func TestModelAPIStatusResponseIncludesActualCost(t *testing.T) {
 	raw, err := json.Marshal(modelAPIStatusResponse{
-		StatusResponse: fal.StatusResponse{Status: fal.StatusCompleted, RequestID: "request-1"},
+		StatusResponse: fal.StatusResponse{Status: modelAPIStatusCompleted, RequestID: "request-1"},
 		ActualCost:     1.25,
 	})
 
@@ -171,20 +201,49 @@ func TestModelAPIStatusResponseIncludesActualCost(t *testing.T) {
 	require.JSONEq(t, `{"status":"COMPLETED","request_id":"request-1","actual_cost":1.25}`, string(raw))
 }
 
-func TestWriteAsyncImageResultIncludesActualCost(t *testing.T) {
-	gin.SetMode(gin.TestMode)
+func TestModelAPIStatusFailureResponseUsesPublicStatusAndTimeoutError(t *testing.T) {
+	response := modelAPIStatusFailureResponse("request-1", true, false, false)
+	raw, err := json.Marshal(response)
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{
+		"status":"FAILED",
+		"request_id":"request-1",
+		"actual_cost":0,
+		"error":{"type":"timeout_error","message":"Image generation timed out."}
+	}`, string(raw))
+}
+
+func TestLogModelAPIClientResponseIncludesUpstreamAndBody(t *testing.T) {
+	core, logs := observer.New(zap.DebugLevel)
+	requestLog := zap.New(core)
 	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/model/requests/task-1", nil).WithContext(
+		logger.IntoContext(context.Background(), requestLog),
+	)
+
+	logModelAPIClientResponse(c, service.PlatformLeonardo, http.StatusOK, modelAPIStatusResponse{
+		StatusResponse: fal.StatusResponse{Status: fal.StatusCompleted},
+		ActualCost:     1.25,
+	})
+
+	require.Len(t, logs.All(), 1)
+	entry := logs.All()[0]
+	require.Equal(t, "model_api.client_response", entry.Message)
+	fields := entry.ContextMap()
+	require.Equal(t, "leonardo", fields["upstream"])
+	require.Contains(t, fields["response_body"], `"status":"COMPLETED"`)
+	require.NotContains(t, fields, "request_id")
+}
+
+func TestBuildAsyncImageResultResponseIncludesActualCost(t *testing.T) {
 	task := &service.AsyncMediaTask{
 		FinalCost: 0.75,
 		ImageURLs: []string{"https://cdn.example.test/image.png"},
 	}
 
-	writeAsyncImageResult(ctx, task)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	var body map[string]any
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
-	require.Equal(t, 0.75, body["actual_cost"])
-	require.Len(t, body["images"], 1)
+	response := buildAsyncImageResultResponse(task)
+	require.Equal(t, 0.75, response.ActualCost)
+	require.Len(t, response.Images, 1)
 }

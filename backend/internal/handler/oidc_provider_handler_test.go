@@ -17,12 +17,16 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/enttest"
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	_ "modernc.org/sqlite"
 )
 
@@ -544,6 +548,27 @@ func TestOidcHandler_ListAPIKeys_ScopeOKButServiceMissingReturns500(t *testing.T
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, "server_error", body["error"])
+}
+
+func TestLogOidcAPIKeysResponse_RedactsAPIKey(t *testing.T) {
+	core, logs := observer.New(zap.DebugLevel)
+	requestLog := zap.New(core)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/oidc/resource/api-keys", nil).WithContext(
+		logger.IntoContext(context.Background(), requestLog),
+	)
+
+	logOidcAPIKeysResponse(c, []dto.APIKey{{Key: "sk-test-secret", Name: "test"}}, 1, 1, 20, 42)
+
+	require.Len(t, logs.All(), 1)
+	entry := logs.All()[0]
+	require.Equal(t, "oidc.resource.api_keys.response", entry.Message)
+	fields := entry.ContextMap()
+	responseBody, ok := fields["response_body"].(string)
+	require.True(t, ok)
+	require.Contains(t, responseBody, `"key":"***"`)
+	require.NotContains(t, responseBody, "sk-test-secret")
 }
 
 // ─── Resource: Balance ──────────────────────────────────────────────────────

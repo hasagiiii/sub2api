@@ -21,7 +21,12 @@ const (
 	defaultAsyncMediaPollInterval = 2 * time.Second
 	// defaultAsyncMediaFailTimeout 是任务从创建到强制判失（退费兜底）的最长时间。
 	// reconciler 在任务超过 fail_deadline_at 仍未出图时退费并置 expired。
-	defaultAsyncMediaFailTimeout = 30 * time.Minute
+	defaultAsyncMediaFailTimeout      = 30 * time.Minute
+	AsyncMediaTaskStatusProcessingTTL = 30 * time.Second
+	AsyncMediaTaskStatusTerminalTTL   = 7 * 24 * time.Hour
+	// AsyncMediaTaskStatusTTL is kept as the terminal TTL for callers that need
+	// the long-lived cache duration explicitly.
+	AsyncMediaTaskStatusTTL = AsyncMediaTaskStatusTerminalTTL
 )
 
 // AsyncMediaService 异步媒体任务执行内核。
@@ -48,6 +53,7 @@ type AsyncMediaService struct {
 	deferred               *DeferredService
 	billingContextResolver *BillingContextResolver
 	opsService             *OpsService
+	statusCache            AsyncMediaTaskStatusStore
 	balanceCache           interface {
 		InvalidateUserBalance(ctx context.Context, userID int64) error
 	}
@@ -75,6 +81,12 @@ func (s *AsyncMediaService) SetBillingContextResolver(resolver *BillingContextRe
 func (s *AsyncMediaService) SetOpsService(ops *OpsService) {
 	if s != nil {
 		s.opsService = ops
+	}
+}
+
+func (s *AsyncMediaService) SetStatusCache(cache AsyncMediaTaskStatusStore) {
+	if s != nil {
+		s.statusCache = cache
 	}
 }
 
@@ -248,6 +260,9 @@ func (s *AsyncMediaService) SubmitAsync(ctx context.Context, in *AsyncMediaSubmi
 	task.StatusURL = amStrPtr(statusURL)
 	task.ResponseURL = amStrPtr(responseURL)
 	task.Status = AsyncMediaStatusRunning
+	task.UpdatedAt = time.Now().UTC()
+	task.statusCacheUpstream = in.Account.Platform
+	s.cacheTaskStatus(ctx, task)
 
 	// 账号已成功向上游提交任务，视为本次被使用：记录 last_used_at（延迟批量刷库）。
 	if s.deferred != nil {
@@ -306,7 +321,57 @@ func (s *AsyncMediaService) ListByUserAndModel(ctx context.Context, userID int64
 
 // GetTaskByUpstreamID 按上游 request_id 查询任务（不存在返回 nil,nil）。
 func (s *AsyncMediaService) GetTaskByUpstreamID(ctx context.Context, upstreamRequestID string) (*AsyncMediaTask, error) {
-	return s.taskRepo.GetByUpstreamRequestID(ctx, upstreamRequestID)
+	upstreamRequestID = strings.TrimSpace(upstreamRequestID)
+	if upstreamRequestID == "" {
+		return nil, nil
+	}
+	if s != nil && s.statusCache != nil {
+		cached, err := s.statusCache.GetAsyncMediaTaskStatus(ctx, upstreamRequestID)
+		if err == nil && cached != nil {
+			return cached.toTask(), nil
+		}
+		if err != nil && !errors.Is(err, ErrAsyncMediaTaskStatusNotFound) {
+			logger.L().Warn("async_media.status_cache_get_failed",
+				zap.String("upstream", "redis"),
+				zap.String("request_id", upstreamRequestID),
+				zap.Error(err),
+			)
+		}
+	}
+	task, err := s.taskRepo.GetByUpstreamRequestID(ctx, upstreamRequestID)
+	if err == nil && task != nil {
+		s.cacheTaskStatus(ctx, task)
+	}
+	return task, err
+}
+
+func (s *AsyncMediaService) cacheTaskStatus(ctx context.Context, task *AsyncMediaTask) {
+	if s == nil || s.statusCache == nil || task == nil {
+		return
+	}
+	status := asyncMediaTaskStatusFromTask(task)
+	if status == nil {
+		return
+	}
+	ttl := AsyncMediaTaskStatusCacheTTL(status.Status)
+	if err := s.statusCache.SetAsyncMediaTaskStatus(ctx, status, ttl); err != nil {
+		logger.L().Warn("async_media.status_cache_set_failed",
+			zap.String("upstream", "redis"),
+			zap.String("request_id", status.RequestID),
+			zap.String("status", status.Status),
+			zap.Duration("ttl", ttl),
+			zap.Error(err),
+		)
+	}
+}
+
+func AsyncMediaTaskStatusCacheTTL(status string) time.Duration {
+	switch status {
+	case AsyncMediaStatusPending, AsyncMediaStatusRunning:
+		return AsyncMediaTaskStatusProcessingTTL
+	default:
+		return AsyncMediaTaskStatusTerminalTTL
+	}
 }
 
 // AdvanceTask 推进单个任务一轮轮询，并在终态时结算/退费（供原生门面 status/result 触发）。
@@ -331,6 +396,9 @@ func (s *AsyncMediaService) CancelTask(ctx context.Context, task *AsyncMediaTask
 	}
 	if task.IsTerminal() {
 		return nil
+	}
+	if account != nil {
+		task.statusCacheUpstream = account.Platform
 	}
 	if account != nil && account.Platform == PlatformFal && task.UpstreamRequestID != nil {
 		if client, err := s.newClient(account); err == nil {
@@ -370,6 +438,9 @@ func (s *AsyncMediaService) ReconcileTask(ctx context.Context, task *AsyncMediaT
 // pollOnce 执行一轮状态查询并在终态时结算/退费。
 // 返回 (最新任务, 是否终态, error)。
 func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, account *Account, billingType int8) (*AsyncMediaTask, bool, error) {
+	if task != nil && account != nil {
+		task.statusCacheUpstream = account.Platform
+	}
 	if account != nil && account.Platform == PlatformLeonardo {
 		return s.pollLeonardoOnce(ctx, task, account, billingType)
 	}
@@ -483,7 +554,9 @@ func (s *AsyncMediaService) markSucceeded(ctx context.Context, task *AsyncMediaT
 			logger.L().Info("async_media.mark_succeeded_skipped_terminal", zap.Int64("task_id", task.ID), zap.String("current_status", status))
 			return
 		}
+		upstream := task.statusCacheUpstream
 		*task = *current
+		task.statusCacheUpstream = upstream
 		repairTotalCost := finalTotalCost
 		repairCost := task.FinalCost
 		if repairCost <= 0 {
@@ -501,6 +574,7 @@ func (s *AsyncMediaService) markSucceeded(ctx context.Context, task *AsyncMediaT
 			repairCos = cosURLs
 		}
 		logger.L().Info("async_media.mark_succeeded_already_terminal", zap.Int64("task_id", task.ID), zap.String("request_id", task.InternalRequestID))
+		s.cacheTaskStatus(ctx, task)
 		s.writeTerminalUsageLog(ctx, task, billingType, repairTotalCost, repairCost, amFloat64Ptr(accountRateMultiplier), BillingStatusCharged, repairImages, repairCos, imageOutputSizes)
 		return
 	}
@@ -508,6 +582,8 @@ func (s *AsyncMediaService) markSucceeded(ctx context.Context, task *AsyncMediaT
 	task.ImageURLs = imageURLs
 	task.CosURLs = cosURLs
 	task.FinalCost = finalCost
+	task.UpdatedAt = time.Now().UTC()
+	s.cacheTaskStatus(ctx, task)
 
 	// 退还预扣与结算的差额。
 	if refundDelta := task.HeldCost - finalCost; refundDelta > 0 {
@@ -534,6 +610,8 @@ func (s *AsyncMediaService) markFailedAndRefund(ctx context.Context, task *Async
 	}
 	task.Status = status
 	task.ErrorReason = amStrPtr(reason)
+	task.UpdatedAt = time.Now().UTC()
+	s.cacheTaskStatus(ctx, task)
 	if task.HeldCost > 0 {
 		s.refund(ctx, billingType, asyncMediaBillingContext(task), task.HeldCost)
 	}
@@ -932,6 +1010,7 @@ func (s *AsyncMediaService) submitUpstream(ctx context.Context, in *AsyncMediaSu
 		request := leonardo.BuildSubmitRequest(upstreamModel, in.Input, in.Account.LeonardoEstimatedCreditCost())
 		idempotencyKey := "sub2api-" + strings.TrimSpace(in.InternalRequestID)
 		logger.FromContext(ctx).Debug("leonardo.image.submit_parameters",
+			zap.String("upstream", "leonardo"),
 			zap.Int64("account_id", in.Account.ID),
 			zap.Int64("group_id", derefGroupID(in.GroupID)),
 			zap.Int64("api_key_id", in.APIKeyID),
@@ -985,6 +1064,7 @@ func (s *AsyncMediaService) pollLeonardoOnce(ctx context.Context, task *AsyncMed
 	statusURL := client.BuildTaskURL(requestID)
 	statusLog := logger.FromContext(ctx)
 	statusLog.Debug("leonardo.image.status_parameters",
+		zap.String("upstream", "leonardo"),
 		zap.Int64("account_id", account.ID),
 		zap.Int64("task_id", task.ID),
 		zap.String("upstream_request_id", requestID),
@@ -993,6 +1073,7 @@ func (s *AsyncMediaService) pollLeonardoOnce(ctx context.Context, task *AsyncMed
 	upstreamTask, err := client.GetTask(ctx, requestID)
 	if err != nil {
 		responseFields := []zap.Field{
+			zap.String("upstream", "leonardo"),
 			zap.Int64("account_id", account.ID),
 			zap.Int64("task_id", task.ID),
 			zap.String("upstream_request_id", requestID),
@@ -1018,6 +1099,7 @@ func (s *AsyncMediaService) pollLeonardoOnce(ctx context.Context, task *AsyncMed
 		status = upstreamTask.Status
 	}
 	statusLog.Debug("leonardo.image.status_response",
+		zap.String("upstream", "leonardo"),
 		zap.Int64("account_id", account.ID),
 		zap.Int64("task_id", task.ID),
 		zap.String("upstream_request_id", requestID),

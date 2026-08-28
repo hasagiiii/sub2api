@@ -1,11 +1,8 @@
 package handler
 
 import (
-	"net/http"
-
 	"github.com/Wei-Shaw/sub2api/internal/pkg/fal"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -16,27 +13,29 @@ const (
 	publicVideoFailure       = "Video generation failed. Please try again later."
 )
 
-// writeAsyncImageResult writes the normalized image result for the
-// protocol-neutral model facade.
-func writeAsyncImageResult(c *gin.Context, task *service.AsyncMediaTask) {
-	response := struct {
-		Images     []fal.Image `json:"images"`
-		ActualCost float64     `json:"actual_cost"`
-	}{Images: make([]fal.Image, 0)}
-	if task != nil {
-		response.ActualCost = task.FinalCost
-		for i, imageURL := range task.ResultURLs() {
-			item := fal.Image{URL: imageURL}
-			if i < len(task.ImageMetadata) {
-				metadata := task.ImageMetadata[i]
-				item.ContentType = metadata.ContentType
-				item.FileName = metadata.FileName
-				item.FileSize = metadata.FileSize
-				item.Width = metadata.Width
-				item.Height = metadata.Height
-			}
-			response.Images = append(response.Images, item)
-		}
+type asyncImageResultResponse struct {
+	Images     []fal.Image `json:"images"`
+	ActualCost float64     `json:"actual_cost"`
+}
+
+func buildAsyncImageResultResponse(task *service.AsyncMediaTask) asyncImageResultResponse {
+	response := asyncImageResultResponse{Images: make([]fal.Image, 0)}
+	if task == nil {
+		return response
 	}
-	c.JSON(http.StatusOK, response)
+
+	response.ActualCost = task.FinalCost
+	for i, imageURL := range task.ResultURLs() {
+		item := fal.Image{URL: imageURL}
+		if i < len(task.ImageMetadata) {
+			metadata := task.ImageMetadata[i]
+			item.ContentType = metadata.ContentType
+			item.FileName = metadata.FileName
+			item.FileSize = metadata.FileSize
+			item.Width = metadata.Width
+			item.Height = metadata.Height
+		}
+		response.Images = append(response.Images, item)
+	}
+	return response
 }

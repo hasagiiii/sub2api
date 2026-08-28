@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -80,6 +81,105 @@ type AsyncMediaTask struct {
 
 	CreatedAt time.Time
 	UpdatedAt time.Time
+
+	statusCacheHit      bool
+	statusCacheUpstream string
+}
+
+// AsyncMediaTaskStatus is the Redis representation used by the public
+// asynchronous image result endpoint. It contains only the fields needed to
+// authorize and render the status/result response.
+type AsyncMediaTaskStatus struct {
+	RequestID     string                `json:"request_id"`
+	Status        string                `json:"status"`
+	APIKeyID      int64                 `json:"api_key_id"`
+	AccountID     *int64                `json:"account_id,omitempty"`
+	Upstream      string                `json:"upstream,omitempty"`
+	ImageURLs     []string              `json:"image_urls,omitempty"`
+	COSURLs       []string              `json:"cos_urls,omitempty"`
+	ImageMetadata []ImageOutputMetadata `json:"image_metadata,omitempty"`
+	ErrorReason   string                `json:"error_reason,omitempty"`
+	FinalCost     float64               `json:"final_cost"`
+	CreatedAt     time.Time             `json:"created_at"`
+	UpdatedAt     time.Time             `json:"updated_at"`
+	Version       int64                 `json:"version"`
+}
+
+// AsyncMediaTaskStatusStore stores the read model for async image status/result
+// queries. Implementations should treat failures as cache misses at call sites.
+type AsyncMediaTaskStatusStore interface {
+	GetAsyncMediaTaskStatus(ctx context.Context, requestID string) (*AsyncMediaTaskStatus, error)
+	SetAsyncMediaTaskStatus(ctx context.Context, status *AsyncMediaTaskStatus, ttl time.Duration) error
+}
+
+var ErrAsyncMediaTaskStatusNotFound = errors.New("async media task status not found")
+
+func asyncMediaTaskStatusFromTask(task *AsyncMediaTask) *AsyncMediaTaskStatus {
+	if task == nil || task.UpstreamRequestID == nil || *task.UpstreamRequestID == "" {
+		return nil
+	}
+	return &AsyncMediaTaskStatus{
+		RequestID:     *task.UpstreamRequestID,
+		Status:        task.Status,
+		APIKeyID:      task.APIKeyID,
+		AccountID:     task.AccountID,
+		Upstream:      task.statusCacheUpstream,
+		ImageURLs:     append([]string(nil), task.ImageURLs...),
+		COSURLs:       append([]string(nil), task.CosURLs...),
+		ImageMetadata: append([]ImageOutputMetadata(nil), task.ImageMetadata...),
+		ErrorReason:   amDerefStr(task.ErrorReason),
+		FinalCost:     task.FinalCost,
+		CreatedAt:     task.CreatedAt,
+		UpdatedAt:     task.UpdatedAt,
+		Version:       asyncMediaTaskStatusVersion(task),
+	}
+}
+
+func asyncMediaTaskStatusVersion(task *AsyncMediaTask) int64 {
+	if task == nil {
+		return 0
+	}
+	version := task.UpdatedAt.UnixNano()
+	if version <= 0 {
+		version = task.CreatedAt.UnixNano()
+	}
+	if version <= 0 {
+		version = time.Now().UTC().UnixNano()
+	}
+	return version
+}
+
+func (status *AsyncMediaTaskStatus) toTask() *AsyncMediaTask {
+	if status == nil || status.RequestID == "" {
+		return nil
+	}
+	requestID := status.RequestID
+	return &AsyncMediaTask{
+		UpstreamRequestID:   &requestID,
+		APIKeyID:            status.APIKeyID,
+		AccountID:           status.AccountID,
+		Status:              status.Status,
+		ImageURLs:           append([]string(nil), status.ImageURLs...),
+		CosURLs:             append([]string(nil), status.COSURLs...),
+		ImageMetadata:       append([]ImageOutputMetadata(nil), status.ImageMetadata...),
+		ErrorReason:         amStrPtr(status.ErrorReason),
+		FinalCost:           status.FinalCost,
+		CreatedAt:           status.CreatedAt,
+		UpdatedAt:           status.UpdatedAt,
+		statusCacheHit:      true,
+		statusCacheUpstream: status.Upstream,
+	}
+}
+
+func (t *AsyncMediaTask) IsStatusCacheHit() bool {
+	return t != nil && t.statusCacheHit
+}
+
+func (t *AsyncMediaTask) StatusCacheUpstream() string {
+	if t == nil {
+		return ""
+	}
+	return t.statusCacheUpstream
 }
 
 type ImageOutputMetadata struct {

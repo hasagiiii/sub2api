@@ -23,6 +23,7 @@ const (
 	StatusInProgress = "IN_PROGRESS"
 	StatusCompleted  = "COMPLETED"
 	StatusFailed     = "FAILED"
+	StatusCanceled   = "CANCELED"
 )
 
 // Named image_size enums supported by fal.

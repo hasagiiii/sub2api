@@ -25,8 +25,7 @@ import (
 // 路径形态：
 //
 //	POST /api/v1/model/{slug}                         -> submit
-//	GET  /api/v1/model/{slug}/requests/{id}/status    -> status
-//	GET  /api/v1/model/{slug}/requests/{id}           -> result（上游 payload + actual_cost）
+//	GET  /api/v1/model/{slug}/requests/{id}           -> status or result
 //	PUT  /api/v1/model/{slug}/requests/{id}/cancel    -> cancel
 type ModelAPIGatewayHandler struct {
 	gatewayService *service.GatewayService
@@ -39,8 +38,22 @@ type ModelAPIGatewayHandler struct {
 
 type modelAPIStatusResponse struct {
 	fal.StatusResponse
-	ActualCost float64 `json:"actual_cost"`
+	ActualCost float64                `json:"actual_cost"`
+	Error      *modelAPIResponseError `json:"error,omitempty"`
 }
+
+type modelAPIResponseError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+const (
+	modelAPIStatusProcessing = fal.StatusInQueue
+	modelAPIStatusCompleted  = fal.StatusCompleted
+	modelAPIStatusFailed     = fal.StatusFailed
+)
+
+const modelAPIUpstreamContextKey = "model_api_upstream"
 
 // NewModelAPIGatewayHandler creates the shared asynchronous model facade.
 func NewModelAPIGatewayHandler(
@@ -62,12 +75,16 @@ func NewModelAPIGatewayHandler(
 }
 
 func (h *ModelAPIGatewayHandler) jsonError(c *gin.Context, status int, errType, message string) {
-	c.JSON(status, gin.H{
+	response := gin.H{
 		"error": gin.H{
 			"type":    errType,
 			"message": message,
 		},
-	})
+	}
+	if c.Request != nil && c.Request.Method == http.MethodGet {
+		logModelAPIClientResponse(c, modelAPIUpstreamFromContext(c), status, response)
+	}
+	c.JSON(status, response)
 }
 
 // Native is the /api/v1/model/*path entry point.
@@ -78,11 +95,9 @@ func (h *ModelAPIGatewayHandler) Native(c *gin.Context) {
 	switch {
 	case method == http.MethodPost && strings.HasSuffix(path, "/estimate_pricing"):
 		h.estimatePricing(c, path)
-	case method == http.MethodGet && strings.HasSuffix(path, "/status"):
-		h.nativeStatus(c, modelAPIRequestIDFromPath(path))
 	case method == http.MethodPut && strings.HasSuffix(path, "/cancel"):
 		h.nativeCancel(c, modelAPIRequestIDFromPath(path))
-	case method == http.MethodGet && strings.Contains(path, "/requests/"):
+	case method == http.MethodGet && strings.Contains(path, "/requests/") && !strings.HasSuffix(path, "/status"):
 		h.nativeResult(c, modelAPIRequestIDFromPath(path))
 	case method == http.MethodPost:
 		h.nativeSubmit(c, path)
@@ -263,8 +278,8 @@ func (h *ModelAPIGatewayHandler) nativeImageSubmit(
 	base := h.callbackBase(c, model, reqID)
 	c.JSON(http.StatusOK, fal.SubmitResponse{
 		RequestID:   reqID,
-		Status:      fal.StatusInQueue,
-		StatusURL:   base + "/status",
+		Status:      modelAPIStatusProcessing,
+		StatusURL:   base,
 		ResponseURL: base,
 		CancelURL:   base + "/cancel",
 	})
@@ -360,47 +375,10 @@ func (h *ModelAPIGatewayHandler) nativeVideoSubmit(
 	base := h.callbackBase(c, model, reqID)
 	c.JSON(http.StatusOK, fal.SubmitResponse{
 		RequestID:   reqID,
-		Status:      fal.StatusInQueue,
-		StatusURL:   base + "/status",
+		Status:      modelAPIStatusProcessing,
+		StatusURL:   base,
 		ResponseURL: base,
 		CancelURL:   base + "/cancel",
-	})
-}
-
-func (h *ModelAPIGatewayHandler) nativeStatus(c *gin.Context, reqID string) {
-	mediaTask, videoTask, account := h.loadTaskAndAccount(c, reqID)
-	if mediaTask == nil && videoTask == nil {
-		return
-	}
-	status := ""
-	if mediaTask != nil {
-		if account != nil {
-			if updated, _, _ := h.mediaService.AdvanceTask(c.Request.Context(), mediaTask, account); updated != nil {
-				mediaTask = updated
-			}
-		}
-		status = imageStatusFromTask(mediaTask)
-	} else {
-		if account != nil {
-			if updated, _, _ := h.videoService.AdvanceTask(c.Request.Context(), videoTask, account); updated != nil {
-				videoTask = updated
-			}
-		}
-		status = videoFalStatusFromTask(videoTask)
-	}
-	actualCost := 0.0
-	if mediaTask != nil {
-		actualCost = mediaTask.FinalCost
-	} else {
-		actualCost = videoTask.FinalCost
-	}
-	c.JSON(http.StatusOK, modelAPIStatusResponse{
-		StatusResponse: fal.StatusResponse{
-			Status:      status,
-			RequestID:   reqID,
-			ResponseURL: h.callbackBase(c, "", reqID),
-		},
-		ActualCost: actualCost,
 	})
 }
 
@@ -409,13 +387,20 @@ func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string) {
 	if mediaTask == nil && videoTask == nil {
 		return
 	}
+	upstream := modelAPIUpstream(account)
+	if mediaTask != nil && mediaTask.IsStatusCacheHit() {
+		if cachedUpstream := strings.TrimSpace(mediaTask.StatusCacheUpstream()); cachedUpstream != "" {
+			upstream = cachedUpstream
+		}
+	}
+	c.Set(modelAPIUpstreamContextKey, upstream)
 	if mediaTask != nil {
 		if account != nil && !mediaTask.IsTerminal() {
 			if updated, _, _ := h.mediaService.AdvanceTask(c.Request.Context(), mediaTask, account); updated != nil {
 				mediaTask = updated
 			}
 		}
-		h.writeMediaResult(c, reqID, mediaTask)
+		h.writeMediaResult(c, reqID, mediaTask, upstream)
 		return
 	}
 	if account != nil && !videoTask.IsTerminal() {
@@ -424,20 +409,26 @@ func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string) {
 		}
 	}
 	if !videoTask.IsTerminal() {
-		c.JSON(http.StatusAccepted, modelAPIStatusResponse{
+		response := modelAPIStatusResponse{
 			StatusResponse: fal.StatusResponse{Status: videoFalStatusFromTask(videoTask), RequestID: reqID},
 			ActualCost:     videoTask.FinalCost,
-		})
+		}
+		logModelAPIClientResponse(c, upstream, http.StatusAccepted, response)
+		c.JSON(http.StatusAccepted, response)
 		return
 	}
 	if videoTask.Status != service.AsyncVideoStatusSucceeded {
-		h.jsonError(c, http.StatusBadGateway, "api_error", publicVideoFailure)
+		response := modelAPIStatusFailureResponse(reqID, videoTask.Status == service.AsyncVideoStatusExpired, isCanceledReason(videoTask.ErrorReason), true)
+		logModelAPIClientResponse(c, upstream, http.StatusOK, response)
+		c.JSON(http.StatusOK, response)
 		return
 	}
 	// Preserve the upstream result payload while appending the authoritative
 	// amount settled by Sub2API. Clone the map so the persisted task payload is
 	// not mutated by response decoration.
-	c.JSON(http.StatusOK, modelAPIResultPayload(videoTask.ResultPayload, videoTask.FinalCost))
+	response := modelAPIResultPayload(videoTask.ResultPayload, videoTask.FinalCost)
+	logModelAPIClientResponse(c, upstream, http.StatusOK, response)
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *ModelAPIGatewayHandler) nativeCancel(c *gin.Context, reqID string) {
@@ -455,7 +446,7 @@ func (h *ModelAPIGatewayHandler) nativeCancel(c *gin.Context, reqID string) {
 		h.jsonError(c, http.StatusBadGateway, "api_error", "Failed to cancel task")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "CANCELLED", "request_id": reqID})
+	c.JSON(http.StatusOK, gin.H{"status": fal.StatusCanceled, "request_id": reqID})
 }
 
 func (h *ModelAPIGatewayHandler) loadTaskAndAccount(c *gin.Context, reqID string) (*service.AsyncMediaTask, *service.AsyncVideoTask, *service.Account) {
@@ -495,6 +486,9 @@ func (h *ModelAPIGatewayHandler) loadTaskAndAccount(c *gin.Context, reqID string
 		return nil, nil, nil
 	}
 	var account *service.Account
+	if mediaTask != nil && mediaTask.IsStatusCacheHit() {
+		return mediaTask, videoTask, nil
+	}
 	if accountID != nil && h.accountService != nil {
 		if acc, accErr := h.accountService.GetByID(c.Request.Context(), *accountID); accErr == nil {
 			account = acc
@@ -503,19 +497,56 @@ func (h *ModelAPIGatewayHandler) loadTaskAndAccount(c *gin.Context, reqID string
 	return mediaTask, videoTask, account
 }
 
-func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, task *service.AsyncMediaTask) {
+func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, task *service.AsyncMediaTask, upstream string) {
 	if !task.IsTerminal() {
-		c.JSON(http.StatusAccepted, modelAPIStatusResponse{
+		response := modelAPIStatusResponse{
 			StatusResponse: fal.StatusResponse{Status: imageStatusFromTask(task), RequestID: reqID},
 			ActualCost:     task.FinalCost,
-		})
+		}
+		logModelAPIClientResponse(c, upstream, http.StatusAccepted, response)
+		c.JSON(http.StatusAccepted, response)
 		return
 	}
 	if task.Status != service.AsyncMediaStatusSucceeded {
-		h.jsonError(c, http.StatusBadGateway, "api_error", publicImageFailure)
+		response := modelAPIStatusFailureResponse(reqID, task.Status == service.AsyncMediaStatusExpired, isCanceledReason(task.ErrorReason), false)
+		logModelAPIClientResponse(c, upstream, http.StatusOK, response)
+		c.JSON(http.StatusOK, response)
 		return
 	}
-	writeAsyncImageResult(c, task)
+	response := buildAsyncImageResultResponse(task)
+	logModelAPIClientResponse(c, upstream, http.StatusOK, response)
+	c.JSON(http.StatusOK, response)
+}
+
+func logModelAPIClientResponse(c *gin.Context, upstream string, statusCode int, response any) {
+	fields := []zap.Field{
+		zap.String("upstream", upstream),
+		zap.Int("status_code", statusCode),
+	}
+	if raw, err := json.Marshal(response); err != nil {
+		fields = append(fields, zap.Error(err))
+	} else {
+		fields = append(fields, zap.ByteString("response_body", raw))
+	}
+	logger.FromContext(c.Request.Context()).Debug("model_api.client_response", fields...)
+}
+
+func modelAPIUpstream(account *service.Account) string {
+	if account == nil || strings.TrimSpace(account.Platform) == "" {
+		return "unknown"
+	}
+	return account.Platform
+}
+
+func modelAPIUpstreamFromContext(c *gin.Context) string {
+	if c != nil {
+		if upstream, ok := c.Get(modelAPIUpstreamContextKey); ok {
+			if value, ok := upstream.(string); ok && strings.TrimSpace(value) != "" {
+				return value
+			}
+		}
+	}
+	return "unknown"
 }
 
 func modelAPIResultPayload(payload map[string]any, actualCost float64) map[string]any {
@@ -525,6 +556,37 @@ func modelAPIResultPayload(payload map[string]any, actualCost float64) map[strin
 	}
 	response["actual_cost"] = actualCost
 	return response
+}
+
+func modelAPIStatusFailureResponse(reqID string, timeout, canceled, video bool) modelAPIStatusResponse {
+	message := "Image generation failed; please check the error field."
+	if video {
+		message = "Video generation failed; please check the error field."
+	}
+	errorType := "api_error"
+	status := modelAPIStatusFailed
+	if canceled {
+		status = fal.StatusCanceled
+		errorType = "canceled"
+		if video {
+			message = "Video generation was canceled."
+		} else {
+			message = "Image generation was canceled."
+		}
+	}
+	if timeout {
+		status = modelAPIStatusFailed
+		errorType = "timeout_error"
+		if video {
+			message = "Video generation timed out."
+		} else {
+			message = "Image generation timed out."
+		}
+	}
+	return modelAPIStatusResponse{
+		StatusResponse: fal.StatusResponse{Status: status, RequestID: reqID},
+		Error:          &modelAPIResponseError{Type: errorType, Message: message},
+	}
 }
 
 func (h *ModelAPIGatewayHandler) callbackBase(c *gin.Context, model, reqID string) string {
@@ -566,7 +628,6 @@ func modelAPIRequestIDFromPath(path string) string {
 	if !ok {
 		return ""
 	}
-	rest = strings.TrimSuffix(rest, "/status")
 	rest = strings.TrimSuffix(rest, "/cancel")
 	return strings.Trim(rest, "/")
 }
@@ -614,9 +675,14 @@ func modelAPIIsExplicitVideoModel(model string) bool {
 func imageStatusFromTask(task *service.AsyncMediaTask) string {
 	switch task.Status {
 	case service.AsyncMediaStatusSucceeded:
-		return fal.StatusCompleted
-	case service.AsyncMediaStatusFailed, service.AsyncMediaStatusRefunded, service.AsyncMediaStatusExpired:
-		return fal.StatusFailed
+		return modelAPIStatusCompleted
+	case service.AsyncMediaStatusRefunded:
+		if isCanceledReason(task.ErrorReason) {
+			return fal.StatusCanceled
+		}
+		return modelAPIStatusFailed
+	case service.AsyncMediaStatusFailed, service.AsyncMediaStatusExpired:
+		return modelAPIStatusFailed
 	case service.AsyncMediaStatusPending:
 		return fal.StatusInQueue
 	default:
@@ -627,12 +693,21 @@ func imageStatusFromTask(task *service.AsyncMediaTask) string {
 func videoFalStatusFromTask(task *service.AsyncVideoTask) string {
 	switch task.Status {
 	case service.AsyncVideoStatusSucceeded:
-		return fal.StatusCompleted
-	case service.AsyncVideoStatusFailed, service.AsyncVideoStatusRefunded, service.AsyncVideoStatusExpired, service.AsyncVideoStatusRefundFailed:
-		return fal.StatusFailed
+		return modelAPIStatusCompleted
+	case service.AsyncVideoStatusRefunded:
+		if isCanceledReason(task.ErrorReason) {
+			return fal.StatusCanceled
+		}
+		return modelAPIStatusFailed
+	case service.AsyncVideoStatusFailed, service.AsyncVideoStatusExpired, service.AsyncVideoStatusRefundFailed:
+		return modelAPIStatusFailed
 	case service.AsyncVideoStatusPending:
 		return fal.StatusInQueue
 	default:
 		return fal.StatusInProgress
 	}
+}
+
+func isCanceledReason(reason *string) bool {
+	return reason != nil && strings.EqualFold(strings.TrimSpace(*reason), "cancelled by client")
 }
