@@ -14,12 +14,13 @@ const (
 )
 
 type asyncImageResultResponse struct {
+	Status     string      `json:"status"`
 	Images     []fal.Image `json:"images"`
 	ActualCost float64     `json:"actual_cost"`
 }
 
 func buildAsyncImageResultResponse(task *service.AsyncMediaTask) asyncImageResultResponse {
-	response := asyncImageResultResponse{Images: make([]fal.Image, 0)}
+	response := asyncImageResultResponse{Status: modelAPIStatusCompleted, Images: make([]fal.Image, 0)}
 	if task == nil {
 		return response
 	}
