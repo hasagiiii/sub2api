@@ -12,7 +12,10 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/fal"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -58,15 +61,35 @@ func TestClientSubmitAndGetTask(t *testing.T) {
 		}
 	})}
 	request := BuildSubmitRequest("gpt-image-2", fal.ImageGenInput{Prompt: "studio photo", Quality: "low", Size: "1024x1024"}, 8)
-	task, err := client.Submit(context.Background(), request, "readme-gpt-image-2-0001")
+	task, err := client.Submit(context.Background(), request, "readme-gpt-image-2-0001", "internal-req-1")
 	require.NoError(t, err)
 	require.Equal(t, "readme-gpt-image-2-0001", gotKey)
 	require.Equal(t, "task-123", task.TaskUUID)
 
-	task, err = client.GetTask(context.Background(), task.TaskUUID)
+	task, err = client.GetTask(context.Background(), task.TaskUUID, "internal-req-1")
 	require.NoError(t, err)
 	require.True(t, task.IsCompleted())
 	require.Len(t, task.Output.Media, 1)
+}
+
+func TestClientGetTaskLogsRequestID(t *testing.T) {
+	core, logs := observer.New(zap.DebugLevel)
+	ctx := logger.IntoContext(context.Background(), zap.New(core))
+	client, err := NewClient(Config{APIKey: "leo-proxy-api-key", BaseURL: "https://leonardo.example.test"})
+	require.NoError(t, err)
+	client.httpClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return jsonResponse(http.StatusOK, Task{TaskUUID: "task-123", Status: StatusCompleted}), nil
+	})}
+
+	_, err = client.GetTask(ctx, "task-123", "internal-req-1")
+	require.NoError(t, err)
+
+	requestLog := logs.FilterMessage("leonardo.http.request").All()
+	require.Len(t, requestLog, 1)
+	require.Equal(t, "internal-req-1", requestLog[0].ContextMap()["request_id"])
+	responseLog := logs.FilterMessage("leonardo.http.response").All()
+	require.Len(t, responseLog, 1)
+	require.Equal(t, "internal-req-1", responseLog[0].ContextMap()["request_id"])
 }
 
 func TestTruncatePromptInJSONOnlyTruncatesPrompt(t *testing.T) {

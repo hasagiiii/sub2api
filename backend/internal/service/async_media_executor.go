@@ -1028,7 +1028,7 @@ func (s *AsyncMediaService) submitUpstream(ctx context.Context, in *AsyncMediaSu
 			zap.Float64("estimated_credit_cost", request.EstimatedCreditCost),
 			zap.String("idempotency_key", idempotencyKey),
 		)
-		task, err := client.Submit(ctx, request, idempotencyKey)
+		task, err := client.Submit(ctx, request, idempotencyKey, in.InternalRequestID)
 		if err != nil {
 			return "", "", "", err
 		}
@@ -1067,15 +1067,17 @@ func (s *AsyncMediaService) pollLeonardoOnce(ctx context.Context, task *AsyncMed
 		zap.String("upstream", "leonardo"),
 		zap.Int64("account_id", account.ID),
 		zap.Int64("task_id", task.ID),
+		zap.String("request_id", task.InternalRequestID),
 		zap.String("upstream_request_id", requestID),
 		zap.String("url", statusURL),
 	)
-	upstreamTask, err := client.GetTask(ctx, requestID)
+	upstreamTask, err := client.GetTask(ctx, requestID, task.InternalRequestID)
 	if err != nil {
 		responseFields := []zap.Field{
 			zap.String("upstream", "leonardo"),
 			zap.Int64("account_id", account.ID),
 			zap.Int64("task_id", task.ID),
+			zap.String("request_id", task.InternalRequestID),
 			zap.String("upstream_request_id", requestID),
 			zap.String("url", statusURL),
 			zap.String("error", err.Error()),
@@ -1102,6 +1104,7 @@ func (s *AsyncMediaService) pollLeonardoOnce(ctx context.Context, task *AsyncMed
 		zap.String("upstream", "leonardo"),
 		zap.Int64("account_id", account.ID),
 		zap.Int64("task_id", task.ID),
+		zap.String("request_id", task.InternalRequestID),
 		zap.String("upstream_request_id", requestID),
 		zap.String("url", statusURL),
 		zap.String("status", status),
