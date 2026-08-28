@@ -61,6 +61,7 @@ func Logger() gin.HandlerFunc {
 			zap.String("protocol", protocol),
 			zap.String("method", method),
 			zap.String("path", path),
+			zap.String("header_x_request_id", c.GetHeader(requestIDHeader)),
 		}
 		if rejected {
 			fields = append(fields,

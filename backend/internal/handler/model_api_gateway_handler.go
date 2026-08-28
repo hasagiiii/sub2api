@@ -550,10 +550,11 @@ func modelAPIUpstreamFromContext(c *gin.Context) string {
 }
 
 func modelAPIResultPayload(payload map[string]any, actualCost float64) map[string]any {
-	response := make(map[string]any, len(payload)+1)
+	response := make(map[string]any, len(payload)+2)
 	for key, value := range payload {
 		response[key] = value
 	}
+	response["status"] = modelAPIStatusCompleted
 	response["actual_cost"] = actualCost
 	return response
 }

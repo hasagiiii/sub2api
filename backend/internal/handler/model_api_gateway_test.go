@@ -187,6 +187,7 @@ func TestModelAPIResultPayloadAddsAuthoritativeActualCostWithoutMutation(t *test
 	result := modelAPIResultPayload(original, 1.25)
 
 	require.Equal(t, 1.25, result["actual_cost"])
+	require.Equal(t, modelAPIStatusCompleted, result["status"])
 	require.Equal(t, float64(999), original["actual_cost"])
 	require.Equal(t, original["video"], result["video"])
 }
@@ -244,6 +245,7 @@ func TestBuildAsyncImageResultResponseIncludesActualCost(t *testing.T) {
 	}
 
 	response := buildAsyncImageResultResponse(task)
+	require.Equal(t, modelAPIStatusCompleted, response.Status)
 	require.Equal(t, 0.75, response.ActualCost)
 	require.Len(t, response.Images, 1)
 }

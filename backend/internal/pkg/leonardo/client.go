@@ -74,12 +74,12 @@ func NewClient(cfg Config) (*Client, error) {
 	return &Client{httpClient: httpClient, apiKey: strings.TrimSpace(cfg.APIKey), baseURL: baseURL}, nil
 }
 
-func (c *Client) Submit(ctx context.Context, request *SubmitRequest, idempotencyKey string) (*Task, error) {
+func (c *Client) Submit(ctx context.Context, request *SubmitRequest, idempotencyKey, requestID string) (*Task, error) {
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return nil, errors.New("leonardo: idempotency key is required")
 	}
 	var task Task
-	if err := c.doJSON(ctx, http.MethodPost, c.baseURL+"/v1/tasks", request, idempotencyKey, &task); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, c.baseURL+"/v1/tasks", request, idempotencyKey, requestID, &task); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(task.TaskUUID) == "" {
@@ -88,12 +88,12 @@ func (c *Client) Submit(ctx context.Context, request *SubmitRequest, idempotency
 	return &task, nil
 }
 
-func (c *Client) GetTask(ctx context.Context, taskUUID string) (*Task, error) {
+func (c *Client) GetTask(ctx context.Context, taskUUID, requestID string) (*Task, error) {
 	if strings.TrimSpace(taskUUID) == "" {
 		return nil, errors.New("leonardo: task uuid is required")
 	}
 	var task Task
-	if err := c.doJSON(ctx, http.MethodGet, c.BuildTaskURL(taskUUID), nil, "", &task); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, c.BuildTaskURL(taskUUID), nil, "", requestID, &task); err != nil {
 		return nil, err
 	}
 	if task.TaskUUID == "" {
@@ -108,7 +108,7 @@ func (c *Client) BuildTaskURL(taskUUID string) string {
 
 func (c *Client) TasksURL() string { return c.baseURL + "/v1/tasks" }
 
-func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any, idempotencyKey string, out any) error {
+func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any, idempotencyKey, requestID string, out any) error {
 	var reader io.Reader
 	var requestBody []byte
 	if body != nil {
@@ -124,6 +124,9 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any, 
 		zap.String("upstream", "leonardo"),
 		zap.String("method", method),
 		zap.String("url", endpoint),
+	}
+	if requestID != "" {
+		requestFields = append(requestFields, zap.String("request_id", requestID))
 	}
 	if idempotencyKey != "" {
 		requestFields = append(requestFields, zap.String("idempotency_key", idempotencyKey))
@@ -156,13 +159,17 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any, 
 	if int64(len(raw)) > responseBodyLimit {
 		return errors.New("leonardo: response body too large")
 	}
-	log.Debug("leonardo.http.response",
+	responseFields := []zap.Field{
 		zap.String("upstream", "leonardo"),
 		zap.String("method", method),
 		zap.String("url", endpoint),
 		zap.Int("status_code", resp.StatusCode),
 		zap.String("response_body", string(raw)),
-	)
+	}
+	if requestID != "" {
+		responseFields = append(responseFields, zap.String("request_id", requestID))
+	}
+	log.Debug("leonardo.http.response", responseFields...)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return &APIError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
 	}

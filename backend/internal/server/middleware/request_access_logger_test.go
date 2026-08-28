@@ -152,6 +152,7 @@ func TestLogger_AccessLogIncludesCoreFields(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.Header.Set(requestIDHeader, "header-request-123")
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status=%d", w.Code)
@@ -193,6 +194,9 @@ func TestLogger_AccessLogIncludesCoreFields(t *testing.T) {
 		}
 		if event.Fields["platform"] != "openai" || event.Fields["model"] != "gpt-5" {
 			t.Fatalf("platform/model mismatch: %+v", event.Fields)
+		}
+		if event.Fields["header_x_request_id"] != "header-request-123" {
+			t.Fatalf("header_x_request_id mismatch: %+v", event.Fields)
 		}
 	}
 	if !found {
