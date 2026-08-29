@@ -293,6 +293,17 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 						}
 					}
 				}
+				// Once the bound enterprise subscription is exhausted, fall back to
+				// normal balance billing for this request. The API key preference is
+				// resolved later by BillingContextResolver; the DB binding is kept.
+				if validateErr != nil && (errors.Is(validateErr, service.ErrDailyLimitExceeded) ||
+					errors.Is(validateErr, service.ErrWeeklyLimitExceeded) ||
+					errors.Is(validateErr, service.ErrMonthlyLimitExceeded)) {
+					apiKey.OrganizationSubscriptionID = nil
+					isEnterpriseKey = false
+					setGroupContext(c, apiKey.Group)
+					validateErr = nil
+				}
 				if validateErr != nil {
 					// DIAG_USAGE_LIMIT: 记录企业订阅命中日/周/月限额的原因，便于排查 IAM 侧误判
 					orgSubIDForLog := int64(0)
@@ -420,7 +431,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 					//     余额预检，让企业钱包承担后续消费；
 					//   - 若返回 Self/Allocated：说明没有企业代付能力，维持 403。
 					// 非 IAM 用户 resolver 恒返回 Self，等价于原逻辑。
-					if billingCtx := apiKeyService.ResolveBillingContextForUser(c.Request.Context(), apiKey.User.ID); billingCtx != nil && billingCtx.BalanceSource == service.BalanceSourceCompany {
+					if billingCtx := apiKeyService.ResolveBillingContextForAPIKey(c.Request.Context(), apiKey); billingCtx != nil && billingCtx.BalanceSource == service.BalanceSourceCompany {
 						logger.LegacyPrintf(
 							"middleware.api_key_auth",
 							"DIAG_BILLING_BYPASS auth_balance_gate_allow_company user_id=%d api_key_id=%d user_balance=%f payer_user_id=%d balance_source=%s",

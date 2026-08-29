@@ -159,6 +159,20 @@ func (_u *APIKeyUpdate) ClearOrganizationSubscriptionID() *APIKeyUpdate {
 	return _u
 }
 
+// SetPreferCompanyBalance sets the "prefer_company_balance" field.
+func (_u *APIKeyUpdate) SetPreferCompanyBalance(v bool) *APIKeyUpdate {
+	_u.mutation.SetPreferCompanyBalance(v)
+	return _u
+}
+
+// SetNillablePreferCompanyBalance sets the "prefer_company_balance" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillablePreferCompanyBalance(v *bool) *APIKeyUpdate {
+	if v != nil {
+		_u.SetPreferCompanyBalance(*v)
+	}
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *APIKeyUpdate) SetStatus(v string) *APIKeyUpdate {
 	_u.mutation.SetStatus(v)
@@ -649,6 +663,9 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.OrganizationSubscriptionIDCleared() {
 		_spec.ClearField(apikey.FieldOrganizationSubscriptionID, field.TypeInt64)
 	}
+	if value, ok := _u.mutation.PreferCompanyBalance(); ok {
+		_spec.SetField(apikey.FieldPreferCompanyBalance, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
 	}
@@ -999,6 +1016,20 @@ func (_u *APIKeyUpdateOne) AddOrganizationSubscriptionID(v int64) *APIKeyUpdateO
 // ClearOrganizationSubscriptionID clears the value of the "organization_subscription_id" field.
 func (_u *APIKeyUpdateOne) ClearOrganizationSubscriptionID() *APIKeyUpdateOne {
 	_u.mutation.ClearOrganizationSubscriptionID()
+	return _u
+}
+
+// SetPreferCompanyBalance sets the "prefer_company_balance" field.
+func (_u *APIKeyUpdateOne) SetPreferCompanyBalance(v bool) *APIKeyUpdateOne {
+	_u.mutation.SetPreferCompanyBalance(v)
+	return _u
+}
+
+// SetNillablePreferCompanyBalance sets the "prefer_company_balance" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillablePreferCompanyBalance(v *bool) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetPreferCompanyBalance(*v)
+	}
 	return _u
 }
 
@@ -1521,6 +1552,9 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if _u.mutation.OrganizationSubscriptionIDCleared() {
 		_spec.ClearField(apikey.FieldOrganizationSubscriptionID, field.TypeInt64)
+	}
+	if value, ok := _u.mutation.PreferCompanyBalance(); ok {
+		_spec.SetField(apikey.FieldPreferCompanyBalance, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)

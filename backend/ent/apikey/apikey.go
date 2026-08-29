@@ -33,6 +33,8 @@ const (
 	FieldFallbackGroupIds = "fallback_group_ids"
 	// FieldOrganizationSubscriptionID holds the string denoting the organization_subscription_id field in the database.
 	FieldOrganizationSubscriptionID = "organization_subscription_id"
+	// FieldPreferCompanyBalance holds the string denoting the prefer_company_balance field in the database.
+	FieldPreferCompanyBalance = "prefer_company_balance"
 	// FieldStatus holds the string denoting the status field in the database.
 	FieldStatus = "status"
 	// FieldLastUsedAt holds the string denoting the last_used_at field in the database.
@@ -108,6 +110,7 @@ var Columns = []string{
 	FieldGroupID,
 	FieldFallbackGroupIds,
 	FieldOrganizationSubscriptionID,
+	FieldPreferCompanyBalance,
 	FieldStatus,
 	FieldLastUsedAt,
 	FieldIPWhitelist,
@@ -156,6 +159,8 @@ var (
 	NameValidator func(string) error
 	// DefaultFallbackGroupIds holds the default value on creation for the "fallback_group_ids" field.
 	DefaultFallbackGroupIds []int64
+	// DefaultPreferCompanyBalance holds the default value on creation for the "prefer_company_balance" field.
+	DefaultPreferCompanyBalance bool
 	// DefaultStatus holds the default value on creation for the "status" field.
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -224,6 +229,11 @@ func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 // ByOrganizationSubscriptionID orders the results by the organization_subscription_id field.
 func ByOrganizationSubscriptionID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldOrganizationSubscriptionID, opts...).ToFunc()
+}
+
+// ByPreferCompanyBalance orders the results by the prefer_company_balance field.
+func ByPreferCompanyBalance(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPreferCompanyBalance, opts...).ToFunc()
 }
 
 // ByStatus orders the results by the status field.

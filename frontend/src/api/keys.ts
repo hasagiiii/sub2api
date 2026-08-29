@@ -70,7 +70,8 @@ export async function create(
   expiresInDays?: number,
   rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
   organizationSubscriptionId?: number | null,
-  fallbackGroupIds?: number[]
+  fallbackGroupIds?: number[],
+  preferCompanyBalance = false
 ): Promise<ApiKey> {
   const payload: CreateApiKeyRequest = { name }
   if (organizationSubscriptionId !== undefined && organizationSubscriptionId !== null) {
@@ -78,6 +79,9 @@ export async function create(
   } else if (groupId !== undefined) {
     payload.group_id = groupId
     payload.fallback_group_ids = fallbackGroupIds ?? []
+  }
+  if (preferCompanyBalance) {
+    payload.prefer_company_balance = true
   }
   if (customKey) {
     payload.custom_key = customKey

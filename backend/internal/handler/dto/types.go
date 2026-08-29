@@ -69,6 +69,7 @@ type APIKey struct {
 	// OrganizationSubscriptionID is set for enterprise API keys bound to a
 	// company subscription.
 	OrganizationSubscriptionID *int64     `json:"organization_subscription_id,omitempty"`
+	PreferCompanyBalance       bool       `json:"prefer_company_balance"`
 	Status                     string     `json:"status"`
 	IPWhitelist                []string   `json:"ip_whitelist"`
 	IPBlacklist                []string   `json:"ip_blacklist"`

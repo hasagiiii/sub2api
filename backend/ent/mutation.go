@@ -184,6 +184,7 @@ type APIKeyMutation struct {
 	appendfallback_group_ids        []int64
 	organization_subscription_id    *int64
 	addorganization_subscription_id *int64
+	prefer_company_balance          *bool
 	status                          *string
 	last_used_at                    *time.Time
 	ip_whitelist                    *[]string
@@ -718,6 +719,42 @@ func (m *APIKeyMutation) ResetOrganizationSubscriptionID() {
 	m.organization_subscription_id = nil
 	m.addorganization_subscription_id = nil
 	delete(m.clearedFields, apikey.FieldOrganizationSubscriptionID)
+}
+
+// SetPreferCompanyBalance sets the "prefer_company_balance" field.
+func (m *APIKeyMutation) SetPreferCompanyBalance(b bool) {
+	m.prefer_company_balance = &b
+}
+
+// PreferCompanyBalance returns the value of the "prefer_company_balance" field in the mutation.
+func (m *APIKeyMutation) PreferCompanyBalance() (r bool, exists bool) {
+	v := m.prefer_company_balance
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPreferCompanyBalance returns the old "prefer_company_balance" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldPreferCompanyBalance(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPreferCompanyBalance is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPreferCompanyBalance requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPreferCompanyBalance: %w", err)
+	}
+	return oldValue.PreferCompanyBalance, nil
+}
+
+// ResetPreferCompanyBalance resets all changes to the "prefer_company_balance" field.
+func (m *APIKeyMutation) ResetPreferCompanyBalance() {
+	m.prefer_company_balance = nil
 }
 
 // SetStatus sets the "status" field.
@@ -1721,7 +1758,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 25)
+	fields := make([]string, 0, 26)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1748,6 +1785,9 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.organization_subscription_id != nil {
 		fields = append(fields, apikey.FieldOrganizationSubscriptionID)
+	}
+	if m.prefer_company_balance != nil {
+		fields = append(fields, apikey.FieldPreferCompanyBalance)
 	}
 	if m.status != nil {
 		fields = append(fields, apikey.FieldStatus)
@@ -1823,6 +1863,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.FallbackGroupIds()
 	case apikey.FieldOrganizationSubscriptionID:
 		return m.OrganizationSubscriptionID()
+	case apikey.FieldPreferCompanyBalance:
+		return m.PreferCompanyBalance()
 	case apikey.FieldStatus:
 		return m.Status()
 	case apikey.FieldLastUsedAt:
@@ -1882,6 +1924,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldFallbackGroupIds(ctx)
 	case apikey.FieldOrganizationSubscriptionID:
 		return m.OldOrganizationSubscriptionID(ctx)
+	case apikey.FieldPreferCompanyBalance:
+		return m.OldPreferCompanyBalance(ctx)
 	case apikey.FieldStatus:
 		return m.OldStatus(ctx)
 	case apikey.FieldLastUsedAt:
@@ -1985,6 +2029,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetOrganizationSubscriptionID(v)
+		return nil
+	case apikey.FieldPreferCompanyBalance:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPreferCompanyBalance(v)
 		return nil
 	case apikey.FieldStatus:
 		v, ok := value.(string)
@@ -2347,6 +2398,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldOrganizationSubscriptionID:
 		m.ResetOrganizationSubscriptionID()
+		return nil
+	case apikey.FieldPreferCompanyBalance:
+		m.ResetPreferCompanyBalance()
 		return nil
 	case apikey.FieldStatus:
 		m.ResetStatus()

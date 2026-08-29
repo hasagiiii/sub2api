@@ -79,7 +79,8 @@ type APIKeyUpdateFields struct {
 	// 仅供"重置限流用量"路径声明；常规计费走 IncrementRateLimitUsage。
 	RateLimitUsage bool
 	// IPRules 覆盖 ip_whitelist 与 ip_blacklist。
-	IPRules bool
+	IPRules              bool
+	PreferCompanyBalance bool
 }
 
 // IsEmpty 报告该次 Update 是否不写任何列。
@@ -222,6 +223,7 @@ type CreateAPIKeyRequest struct {
 	// subscription's group and consumption is charged against the organization
 	// subscription instead of a personal subscription.
 	OrganizationSubscriptionID *int64   `json:"organization_subscription_id"`
+	PreferCompanyBalance       bool     `json:"prefer_company_balance"`
 	CustomKey                  *string  `json:"custom_key"`   // 可选的自定义key
 	IPWhitelist                []string `json:"ip_whitelist"` // IP 白名单
 	IPBlacklist                []string `json:"ip_blacklist"` // IP 黑名单
@@ -245,6 +247,7 @@ type UpdateAPIKeyRequest struct {
 	// subscription (enterprise key). Selecting a normal GroupID clears the
 	// enterprise binding.
 	OrganizationSubscriptionID *int64    `json:"organization_subscription_id"`
+	PreferCompanyBalance       *bool     `json:"prefer_company_balance"`
 	Status                     *string   `json:"status"`
 	IPWhitelist                *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
 	IPBlacklist                *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
@@ -405,6 +408,26 @@ func (s *APIKeyService) ResolveBillingContextForUser(ctx context.Context, userID
 	ctxResult, err := s.organizationRepo.ResolveBillingContext(ctx, userID, 0)
 	if err != nil {
 		return nil
+	}
+	return ctxResult
+}
+
+// ResolveBillingContextForAPIKey is the authentication-time variant that
+// preserves API-key wallet preferences for the low-balance gate.
+func (s *APIKeyService) ResolveBillingContextForAPIKey(ctx context.Context, apiKey *APIKey) *BillingContext {
+	if apiKey == nil {
+		return nil
+	}
+	if s == nil || s.organizationRepo == nil {
+		return nil
+	}
+	ctxResult, err := s.organizationRepo.ResolveBillingContext(WithBillingAPIKey(ctx, apiKey), apiKey.UserID, 0)
+	if err != nil {
+		return nil
+	}
+	if apiKey.PreferCompanyBalance && ctxResult != nil && ctxResult.OrganizationID != nil && ctxResult.BalanceSource == BalanceSourceSelf {
+		ctxResult.PayerUserID = ctxResult.ConsumerUserID
+		ctxResult.BalanceSource = BalanceSourceCompany
 	}
 	return ctxResult
 }
@@ -784,6 +807,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		GroupID:                    req.GroupID,
 		FallbackGroupIDs:           append([]int64(nil), req.FallbackGroupIDs...),
 		OrganizationSubscriptionID: req.OrganizationSubscriptionID,
+		PreferCompanyBalance:       req.PreferCompanyBalance,
 		Status:                     StatusActive,
 		IPWhitelist:                req.IPWhitelist,
 		IPBlacklist:                req.IPBlacklist,
@@ -1081,6 +1105,10 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.GroupID = req.GroupID
 		apiKey.OrganizationSubscriptionID = nil
 		fields.GroupID = true
+	}
+	if req.PreferCompanyBalance != nil {
+		apiKey.PreferCompanyBalance = *req.PreferCompanyBalance
+		fields.PreferCompanyBalance = true
 	}
 
 	if req.FallbackGroupIDs != nil {

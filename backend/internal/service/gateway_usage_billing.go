@@ -381,6 +381,9 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 
 	billingCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
+	if p.APIKey != nil {
+		billingCtx = WithBillingAPIKey(billingCtx, p.APIKey)
+	}
 
 	resolved := p.BillingContext
 	if resolved == nil {
@@ -389,7 +392,7 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 			requiredAmount = p.Cost.ActualCost
 		}
 		var err error
-		resolved, err = resolveAndSnapshotBillingContext(billingCtx, usageLog, p.User, deps.billingContextResolver, requiredAmount)
+		resolved, err = resolveAndSnapshotBillingContext(billingCtx, usageLog, p.User, p.APIKey, deps.billingContextResolver, requiredAmount)
 		if err != nil {
 			return false, err
 		}
@@ -446,14 +449,14 @@ func snapshotEnterpriseSubscriptionSource(usageLog *UsageLog, p *postUsageBillin
 	}
 }
 
-func resolveAndSnapshotBillingContext(ctx context.Context, usageLog *UsageLog, user *User, resolver *BillingContextResolver, requiredAmount float64) (*BillingContext, error) {
+func resolveAndSnapshotBillingContext(ctx context.Context, usageLog *UsageLog, user *User, apiKey *APIKey, resolver *BillingContextResolver, requiredAmount float64) (*BillingContext, error) {
 	if user == nil {
 		return nil, ErrUserNotFound
 	}
 	resolved := &BillingContext{ConsumerUserID: user.ID, PayerUserID: user.ID, BalanceSource: BalanceSourceSelf}
 	if resolver != nil {
 		var err error
-		resolved, err = resolver.ResolveForSettlement(ctx, user.ID, requiredAmount)
+		resolved, err = resolver.ResolveForSettlement(WithBillingAPIKey(ctx, apiKey), user.ID, requiredAmount)
 		if err != nil {
 			return nil, err
 		}
@@ -1027,7 +1030,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 			cost.TotalCost,
 		)
 	}
-	resolvedBillingContext, err := resolveAndSnapshotBillingContext(ctx, usageLog, user, s.billingContextResolver, cost.ActualCost)
+	resolvedBillingContext, err := resolveAndSnapshotBillingContext(ctx, usageLog, user, apiKey, s.billingContextResolver, cost.ActualCost)
 	if err != nil {
 		return err
 	}

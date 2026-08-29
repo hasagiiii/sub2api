@@ -161,7 +161,7 @@ func TestApplyUsageBillingPersistsCompletedUsageAfterLimitWasReached(t *testing.
 func TestResolveAndSnapshotBillingContextPopulatesNonBillableUsage(t *testing.T) {
 	organizationID := int64(8)
 	usageLog := &UsageLog{}
-	resolved, err := resolveAndSnapshotBillingContext(context.Background(), usageLog, &User{ID: 22}, NewBillingContextResolver(&organizationRepoStub{resolved: &BillingContext{
+	resolved, err := resolveAndSnapshotBillingContext(context.Background(), usageLog, &User{ID: 22}, nil, NewBillingContextResolver(&organizationRepoStub{resolved: &BillingContext{
 		ConsumerUserID: 22, OrganizationID: &organizationID, PayerUserID: 99,
 		BalanceSource: BalanceSourceCompany, AuthzGeneration: 7,
 	}}), 0)

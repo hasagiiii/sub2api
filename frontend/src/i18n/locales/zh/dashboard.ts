@@ -105,6 +105,8 @@ export default {
     orgSubscriptionLabel: '企业订阅',
     orgSubscriptionNone: '不绑定（使用个人分组）',
     orgSubscriptionHint: '绑定后该密钥将消耗所选企业订阅的额度，分组由订阅自动关联。',
+    preferCompanyBalanceLabel: '企业订阅用完后优先使用企业余额',
+    preferCompanyBalanceHint: '关闭时优先使用主账号个人余额。',
     orgSubscriptionType: { daily: '日', weekly: '周', monthly: '月' },
     statusLabel: '状态',
     selectStatus: '选择状态',

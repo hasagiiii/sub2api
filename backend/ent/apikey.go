@@ -38,6 +38,8 @@ type APIKey struct {
 	FallbackGroupIds []int64 `json:"fallback_group_ids,omitempty"`
 	// Bound organization subscription id for enterprise API keys (organization_subscriptions.id)
 	OrganizationSubscriptionID *int64 `json:"organization_subscription_id,omitempty"`
+	// Prefer company balance after enterprise subscription is exhausted
+	PreferCompanyBalance bool `json:"prefer_company_balance,omitempty"`
 	// Status holds the value of the "status" field.
 	Status string `json:"status,omitempty"`
 	// Last usage time of this API key
@@ -127,6 +129,8 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case apikey.FieldFallbackGroupIds, apikey.FieldIPWhitelist, apikey.FieldIPBlacklist:
 			values[i] = new([]byte)
+		case apikey.FieldPreferCompanyBalance:
+			values[i] = new(sql.NullBool)
 		case apikey.FieldQuota, apikey.FieldQuotaUsed, apikey.FieldRateLimit5h, apikey.FieldRateLimit1d, apikey.FieldRateLimit7d, apikey.FieldUsage5h, apikey.FieldUsage1d, apikey.FieldUsage7d:
 			values[i] = new(sql.NullFloat64)
 		case apikey.FieldID, apikey.FieldUserID, apikey.FieldGroupID, apikey.FieldOrganizationSubscriptionID:
@@ -214,6 +218,12 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.OrganizationSubscriptionID = new(int64)
 				*_m.OrganizationSubscriptionID = value.Int64
+			}
+		case apikey.FieldPreferCompanyBalance:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field prefer_company_balance", values[i])
+			} else if value.Valid {
+				_m.PreferCompanyBalance = value.Bool
 			}
 		case apikey.FieldStatus:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -403,6 +413,9 @@ func (_m *APIKey) String() string {
 		builder.WriteString("organization_subscription_id=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("prefer_company_balance=")
+	builder.WriteString(fmt.Sprintf("%v", _m.PreferCompanyBalance))
 	builder.WriteString(", ")
 	builder.WriteString("status=")
 	builder.WriteString(_m.Status)

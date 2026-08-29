@@ -181,6 +181,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 		isEnterpriseKey := apiKey.OrganizationSubscriptionID != nil
+		enterpriseSubscriptionFallback := false
 		if isEnterpriseKey {
 			validateErr := apiKeyService.ValidateEnterpriseSubscription(c.Request.Context(), apiKey)
 			if validateErr != nil {
@@ -205,6 +206,15 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 					}
 				}
 			}
+			if validateErr != nil && (errors.Is(validateErr, service.ErrDailyLimitExceeded) ||
+				errors.Is(validateErr, service.ErrWeeklyLimitExceeded) ||
+				errors.Is(validateErr, service.ErrMonthlyLimitExceeded)) {
+				apiKey.OrganizationSubscriptionID = nil
+				isEnterpriseKey = false
+				enterpriseSubscriptionFallback = true
+				setGroupContext(c, apiKey.Group)
+				validateErr = nil
+			}
 			if validateErr != nil {
 				status := 403
 				if errors.Is(validateErr, service.ErrDailyLimitExceeded) ||
@@ -215,7 +225,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				abortWithGoogleError(c, status, validateErr.Error())
 				return
 			}
-		} else if routingState == nil && isSubscriptionType && subscriptionService != nil {
+		} else if !enterpriseSubscriptionFallback && routingState == nil && isSubscriptionType && subscriptionService != nil {
 			subscription, err := subscriptionService.GetActiveSubscription(
 				c.Request.Context(),
 				apiKey.User.ID,
@@ -257,7 +267,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				// IAM 用户若归属企业组织且有 SharedBalanceUse 权限，可由企业钱包代付；
 				// resolver 返回 BalanceSourceCompany 则放行，交由 BillingCacheService
 				// 做企业余额预检。
-				if billingCtx := apiKeyService.ResolveBillingContextForUser(c.Request.Context(), apiKey.User.ID); billingCtx != nil && billingCtx.BalanceSource == service.BalanceSourceCompany {
+				if billingCtx := apiKeyService.ResolveBillingContextForAPIKey(c.Request.Context(), apiKey); billingCtx != nil && billingCtx.BalanceSource == service.BalanceSourceCompany {
 					// pass through
 				} else {
 					abortWithGoogleError(c, 403, "Insufficient account balance")

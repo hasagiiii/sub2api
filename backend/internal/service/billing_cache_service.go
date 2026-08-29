@@ -841,7 +841,7 @@ func (s *BillingCacheService) checkBillingEligibility(ctx context.Context, user 
 		var resolved *BillingContext
 		if s.billingContextResolver != nil {
 			var err error
-			resolved, err = s.billingContextResolver.ResolveForAmount(ctx, user.ID, s.minimumBalanceReserve())
+			resolved, err = s.billingContextResolver.ResolveForAmount(WithBillingAPIKey(ctx, apiKey), user.ID, s.minimumBalanceReserve())
 			if err != nil {
 				logger.LegacyPrintf("service.billing_cache", "ALERT: billing payer resolution failed for user %d: %v", user.ID, err)
 				return err

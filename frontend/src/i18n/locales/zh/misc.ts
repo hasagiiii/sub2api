@@ -496,6 +496,7 @@ export default {
     },
     subscribeNow: '立即开通',
     renewNow: '续费',
+    renewalQuotaWarning: '续期说明：本次购买不会立即重置当前订阅额度，仅会延长订阅有效期；当前订阅周期结束后，额度才会刷新。',
     selectPlan: '选择套餐',
     planFeatures: '功能特性',
     planCard: {

@@ -472,6 +472,7 @@ export default {
     },
     subscribeNow: 'Subscribe Now',
     renewNow: 'Renew',
+    renewalQuotaWarning: 'Renewal notice: This purchase will not reset your current quota immediately. It only extends the subscription period; your quota will refresh after the current subscription period ends.',
     selectPlan: 'Select Plan',
     planFeatures: 'Features',
     planCard: {

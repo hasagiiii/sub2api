@@ -5,6 +5,7 @@ import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 import { formatPaymentAmount } from '@/components/payment/currency'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import type { CheckoutInfoResponse, MethodLimit, SubscriptionPlan } from '@/types/payment'
+import type { UserSubscription } from '@/types'
 
 const routeState = vi.hoisted(() => ({
   path: '/purchase',
@@ -17,6 +18,7 @@ const routerResolve = vi.hoisted(() => vi.fn(() => ({ href: '/payment/stripe?moc
 const createOrder = vi.hoisted(() => vi.fn())
 const refreshUser = vi.hoisted(() => vi.fn())
 const fetchActiveSubscriptions = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const mockActiveSubscriptions = vi.hoisted(() => [] as UserSubscription[])
 const showError = vi.hoisted(() => vi.fn())
 const showInfo = vi.hoisted(() => vi.fn())
 const showWarning = vi.hoisted(() => vi.fn())
@@ -67,7 +69,7 @@ vi.mock('@/stores/payment', () => ({
 
 vi.mock('@/stores/subscriptions', () => ({
   useSubscriptionStore: () => ({
-    activeSubscriptions: [],
+    activeSubscriptions: mockActiveSubscriptions,
     fetchActiveSubscriptions,
   }),
 }))
@@ -203,8 +205,13 @@ function oauthOrderFixture() {
   }
 }
 
-async function mountSubscriptionConfirm(options: Parameters<typeof checkoutInfoWithPlansFixture>[0] = {}) {
+async function mountSubscriptionConfirm(
+  options: Parameters<typeof checkoutInfoWithPlansFixture>[0] = {},
+  subscriptions: UserSubscription[] = [],
+) {
   vi.useRealTimers()
+  mockActiveSubscriptions.length = 0
+  mockActiveSubscriptions.push(...subscriptions)
   routeState.path = '/purchase'
   routeState.query = {
     tab: 'subscription',
@@ -240,8 +247,40 @@ async function mountSubscriptionConfirm(options: Parameters<typeof checkoutInfoW
   return wrapper
 }
 
+describe('PaymentView subscription renewal notice', () => {
+  const activeSubscription: UserSubscription = {
+    id: 21,
+    user_id: 1,
+    group_id: 3,
+    status: 'active',
+    starts_at: '2026-01-01T00:00:00Z',
+    daily_usage_usd: 0,
+    weekly_usage_usd: 0,
+    monthly_usage_usd: 0,
+    daily_window_start: null,
+    weekly_window_start: null,
+    monthly_window_start: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+    expires_at: '2026-12-31T00:00:00Z',
+  }
+
+  it('shows the quota warning when the selected plan renews an active subscription', async () => {
+    const wrapper = await mountSubscriptionConfirm({}, [activeSubscription])
+
+    expect(wrapper.find('[data-test="renewal-quota-warning"]').exists()).toBe(true)
+  })
+
+  it('does not show the quota warning for a new subscription group', async () => {
+    const wrapper = await mountSubscriptionConfirm({}, [{ ...activeSubscription, group_id: 99 }])
+
+    expect(wrapper.find('[data-test="renewal-quota-warning"]').exists()).toBe(false)
+  })
+})
+
 async function mountSubscriptionPlanList(planCount: number) {
   vi.useRealTimers()
+  mockActiveSubscriptions.length = 0
   routeState.path = '/purchase'
   routeState.query = { tab: 'subscription' }
   routerReplace.mockReset().mockResolvedValue(undefined)

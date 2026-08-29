@@ -718,6 +718,14 @@
           </div>
         </div>
 
+        <label class="flex items-start gap-2 text-sm text-gray-700 dark:text-dark-200">
+          <input v-model="formData.prefer_company_balance" type="checkbox" class="mt-0.5" />
+          <span>
+            <span class="font-medium">{{ t('keys.preferCompanyBalanceLabel') }}</span>
+            <span class="mt-0.5 block text-xs text-gray-500 dark:text-dark-400">{{ t('keys.preferCompanyBalanceHint') }}</span>
+          </span>
+        </label>
+
         <div v-if="!formData.organization_subscription_id">
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
@@ -1711,6 +1719,7 @@ const formData = ref({
   group_id: null as number | null,
   fallback_group_ids: [] as number[],
   organization_subscription_id: null as number | null,
+  prefer_company_balance: false,
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
   custom_key: '',
@@ -2183,6 +2192,7 @@ const editKey = (key: ApiKey) => {
     group_id: key.group_id,
     fallback_group_ids: [...(key.fallback_group_ids ?? [])],
     organization_subscription_id: key.organization_subscription_id ?? null,
+    prefer_company_balance: key.prefer_company_balance ?? false,
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
@@ -2374,6 +2384,7 @@ const handleSubmit = async () => {
         rate_limit_5h: rateLimitData.rate_limit_5h,
         rate_limit_1d: rateLimitData.rate_limit_1d,
         rate_limit_7d: rateLimitData.rate_limit_7d,
+        prefer_company_balance: formData.value.prefer_company_balance,
       }
       if (shouldSubmitEditStatus(selectedKey.value, formData.value.status)) {
         updates.status = formData.value.status
@@ -2382,7 +2393,7 @@ const handleSubmit = async () => {
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
-      await keysAPI.create(
+      const createArgs = [
         formData.value.name,
         formData.value.group_id,
         customKey,
@@ -2393,7 +2404,12 @@ const handleSubmit = async () => {
         rateLimitData,
         orgSubscriptionId,
         orgSubscriptionId ? [] : normalizeFallbackGroups(formData.value.group_id, formData.value.fallback_group_ids)
-      )
+      ] as const
+      if (formData.value.prefer_company_balance) {
+        await keysAPI.create(...createArgs, true)
+      } else {
+        await keysAPI.create(...createArgs)
+      }
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
       if (onboardingStore.isCurrentStep('[data-tour="key-form-submit"]')) {
@@ -2440,6 +2456,7 @@ const closeModals = () => {
     group_id: null,
     fallback_group_ids: [],
     organization_subscription_id: null,
+    prefer_company_balance: false,
     status: 'active',
     use_custom_key: false,
     custom_key: '',

@@ -105,6 +105,8 @@ export default {
     orgSubscriptionLabel: 'Enterprise Subscription',
     orgSubscriptionNone: 'None (use personal group)',
     orgSubscriptionHint: 'When bound, this key consumes the selected enterprise subscription quota; the group is linked automatically.',
+    preferCompanyBalanceLabel: 'Prefer company balance after subscription is exhausted',
+    preferCompanyBalanceHint: 'When disabled, the key uses the owner personal balance first.',
     orgSubscriptionType: { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' },
     statusLabel: 'Status',
     selectStatus: 'Select status',

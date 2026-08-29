@@ -37,6 +37,7 @@ type CreateAPIKeyRequest struct {
 	FallbackGroupIDs []int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID 绑定公司订阅，创建企业 API Key（消费走公司订阅）
 	OrganizationSubscriptionID *int64   `json:"organization_subscription_id"`
+	PreferCompanyBalance       bool     `json:"prefer_company_balance"`
 	CustomKey                  *string  `json:"custom_key"`      // 可选的自定义key
 	IPWhitelist                []string `json:"ip_whitelist"`    // IP 白名单
 	IPBlacklist                []string `json:"ip_blacklist"`    // IP 黑名单
@@ -56,6 +57,7 @@ type UpdateAPIKeyRequest struct {
 	FallbackGroupIDs *[]int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID 重新绑定公司订阅（企业 API Key）
 	OrganizationSubscriptionID *int64    `json:"organization_subscription_id"`
+	PreferCompanyBalance       *bool     `json:"prefer_company_balance"`
 	Status                     string    `json:"status" binding:"omitempty,oneof=active inactive"`
 	IPWhitelist                *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
 	IPBlacklist                *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
@@ -207,6 +209,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 		GroupID:                    req.GroupID,
 		FallbackGroupIDs:           req.FallbackGroupIDs,
 		OrganizationSubscriptionID: req.OrganizationSubscriptionID,
+		PreferCompanyBalance:       req.PreferCompanyBalance,
 		CustomKey:                  req.CustomKey,
 		IPWhitelist:                req.IPWhitelist,
 		IPBlacklist:                req.IPBlacklist,
@@ -275,6 +278,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	}
 	svcReq.GroupID = req.GroupID
 	svcReq.OrganizationSubscriptionID = req.OrganizationSubscriptionID
+	svcReq.PreferCompanyBalance = req.PreferCompanyBalance
 	if req.Status != "" {
 		svcReq.Status = &req.Status
 	}

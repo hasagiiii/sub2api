@@ -789,6 +789,7 @@ export interface ApiKey {
   group_id: number | null
   fallback_group_ids: number[]
   organization_subscription_id: number | null
+  prefer_company_balance: boolean
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
   ip_blacklist: string[]
@@ -820,6 +821,7 @@ export interface CreateApiKeyRequest {
   group_id?: number | null
   fallback_group_ids?: number[]
   organization_subscription_id?: number | null
+  prefer_company_balance?: boolean
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -835,6 +837,7 @@ export interface UpdateApiKeyRequest {
   group_id?: number | null
   fallback_group_ids?: number[]
   organization_subscription_id?: number | null
+  prefer_company_balance?: boolean
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
