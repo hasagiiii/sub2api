@@ -52,4 +52,11 @@ describe('VideoPlaygroundView output payload fallback', () => {
     expect(viewSource).not.toContain('fetch(normalized)')
     expect(viewSource).toContain('<Icon name="download" size="xs" />')
   })
+
+  it('shows download and material actions below completed images', () => {
+    expect(viewSource).toContain("resultType !== 'video' && primaryPreview.source === 'payload' && playground.phase.value === 'completed'")
+    expect(viewSource).toContain(':download="imageDownloadFileName(primaryPreview.url)"')
+    expect(viewSource).toContain('@click="saveImageToMaterials(primaryPreview.url)"')
+    expect(viewSource).toContain("t('videoModels.playground.downloadImage')")
+  })
 })

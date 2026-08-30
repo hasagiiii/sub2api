@@ -48,6 +48,21 @@
               />
             </div>
 
+            <!-- Enterprise identity filter -->
+            <div v-if="visibleFilters.has('enterpriseIdentity')" class="w-full sm:w-40">
+              <Select
+                v-model="filters.enterpriseIdentity"
+                :options="[
+                  { value: '', label: t('admin.users.allEnterpriseIdentities') },
+                  { value: 'enterprise', label: t('admin.users.enterpriseAccount') },
+                  { value: 'personal', label: t('admin.users.personalAccount') },
+                  { value: 'owner', label: t('admin.users.enterpriseIdentity.owner') },
+                  { value: 'member', label: t('admin.users.enterpriseIdentity.member') }
+                ]"
+                @change="applyFilter"
+              />
+            </div>
+
             <!-- Group Filter (visible when enabled) -->
             <div v-if="visibleFilters.has('group')" class="w-full sm:w-44">
               <Select
@@ -1187,14 +1202,15 @@ const apiKeyGroupFilterOptions = computed(() =>
 const filters = reactive({
   role: '',
   status: '',
+  enterpriseIdentity: '',
   group: '',  // group name for fuzzy match, '' = all
   apiKeyGroup: null as number | null  // group id bound to the user's API keys, null = all
 })
 const activeAttributeFilters = reactive<Record<number, string>>({})
 
 // Visible filters tracking (which filters are shown in the UI)
-// Keys: 'role', 'status', 'attr_${id}'
-const visibleFilters = reactive<Set<string>>(new Set())
+// Keys: 'role', 'status', 'enterpriseIdentity', 'attr_${id}'
+const visibleFilters = reactive<Set<string>>(new Set(['enterpriseIdentity']))
 
 // Dropdown states
 const showFilterDropdown = ref(false)
@@ -1207,6 +1223,8 @@ const columnDropdownRef = ref<HTMLElement | null>(null)
 // localStorage keys
 const FILTER_VALUES_KEY = 'user-filter-values'
 const VISIBLE_FILTERS_KEY = 'user-visible-filters'
+const VISIBLE_FILTERS_VERSION_KEY = 'user-visible-filters-version'
+const VISIBLE_FILTERS_VERSION = 1
 
 // All filterable attribute definitions (enabled attributes)
 const filterableAttributes = computed(() =>
@@ -1217,6 +1235,7 @@ const filterableAttributes = computed(() =>
 const builtInFilters = computed(() => [
   { key: 'role', name: t('admin.users.columns.role'), type: 'select' as const },
   { key: 'status', name: t('admin.users.columns.status'), type: 'select' as const },
+  { key: 'enterpriseIdentity', name: t('admin.users.enterpriseIdentityFilter'), type: 'select' as const },
   { key: 'group', name: t('admin.users.authorizedGroupFilter'), type: 'select' as const },
   { key: 'apiKeyGroup', name: t('admin.users.apiKeyGroupFilter'), type: 'select' as const }
 ])
@@ -1227,6 +1246,8 @@ const loadSavedFilters = () => {
     // Load visible filters
     const savedVisible = localStorage.getItem(VISIBLE_FILTERS_KEY)
     if (savedVisible) {
+      // Respect a previously saved visibility choice, including an explicit empty list.
+      visibleFilters.clear()
       const parsed = JSON.parse(savedVisible) as string[]
       parsed.forEach(key => visibleFilters.add(key))
     }
@@ -1236,11 +1257,20 @@ const loadSavedFilters = () => {
       const parsed = JSON.parse(savedValues)
       if (parsed.role) filters.role = parsed.role
       if (parsed.status) filters.status = parsed.status
+      if (parsed.enterpriseIdentity) filters.enterpriseIdentity = parsed.enterpriseIdentity
       if (parsed.group) filters.group = parsed.group
       if (typeof parsed.apiKeyGroup === 'number') filters.apiKeyGroup = parsed.apiKeyGroup
       if (parsed.attributes) {
         Object.assign(activeAttributeFilters, parsed.attributes)
       }
+    }
+
+    // Make the new enterprise identity filter visible once for existing admins;
+    // later visibility changes are preserved through the normal saved settings.
+    const storedVersion = Number(localStorage.getItem(VISIBLE_FILTERS_VERSION_KEY) ?? '0')
+    if (storedVersion < VISIBLE_FILTERS_VERSION) {
+      visibleFilters.add('enterpriseIdentity')
+      localStorage.setItem(VISIBLE_FILTERS_VERSION_KEY, String(VISIBLE_FILTERS_VERSION))
     }
   } catch (e) {
     console.error('Failed to load saved filters:', e)
@@ -1252,10 +1282,12 @@ const saveFiltersToStorage = () => {
   try {
     // Save visible filters
     localStorage.setItem(VISIBLE_FILTERS_KEY, JSON.stringify([...visibleFilters]))
+    localStorage.setItem(VISIBLE_FILTERS_VERSION_KEY, String(VISIBLE_FILTERS_VERSION))
     // Save filter values
     const values = {
       role: filters.role,
       status: filters.status,
+      enterpriseIdentity: filters.enterpriseIdentity,
       group: filters.group,
       apiKeyGroup: filters.apiKeyGroup,
       attributes: activeAttributeFilters
@@ -1658,6 +1690,7 @@ const loadUsers = async () => {
       {
         role: filters.role as any,
         status: filters.status as any,
+        enterprise_identity: filters.enterpriseIdentity as any,
         search: searchQuery.value || undefined,
         group_name: filters.group || undefined,
         api_key_group_id: filters.apiKeyGroup ?? undefined,
@@ -1750,6 +1783,7 @@ const toggleBuiltInFilter = (key: string) => {
     visibleFilters.delete(key)
     if (key === 'role') filters.role = ''
     if (key === 'status') filters.status = ''
+    if (key === 'enterpriseIdentity') filters.enterpriseIdentity = ''
     if (key === 'group') filters.group = ''
     if (key === 'apiKeyGroup') filters.apiKeyGroup = null
   } else {

@@ -666,6 +666,10 @@ func toMediaTaskItem(t *service.AsyncMediaTask) videoTaskItem {
 		}
 		images = append(images, entry)
 	}
+	resultPayload := t.ResultPayload
+	if resultPayload == nil {
+		resultPayload = map[string]any{"images": images}
+	}
 	item := videoTaskItem{
 		ID:                t.ID,
 		InternalRequestID: t.InternalRequestID,
@@ -680,7 +684,7 @@ func toMediaTaskItem(t *service.AsyncMediaTask) videoTaskItem {
 		ImageURLs:         imageURLs,
 		CosURLs:           cosURLs,
 		MediaType:         "image",
-		ResultPayload:     map[string]any{"images": images},
+		ResultPayload:     resultPayload,
 		CreatedAt:         t.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 	if imageURLs == nil {

@@ -683,6 +683,29 @@
               loading="lazy"
               class="w-full max-h-[520px] rounded border border-gray-200 object-contain dark:border-gray-700"
             />
+            <div
+              v-if="resultType !== 'video' && primaryPreview.source === 'payload' && playground.phase.value === 'completed'"
+              class="flex flex-wrap justify-start gap-2"
+            >
+              <a
+                :href="primaryPreview.url"
+                :download="imageDownloadFileName(primaryPreview.url)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <Icon name="download" size="xs" />
+                {{ t('videoModels.playground.downloadImage') }}
+              </a>
+              <button
+                type="button"
+                class="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-600"
+                :disabled="savingMaterialURLs.has(primaryPreview.url) || savedMaterialURLs.has(primaryPreview.url)"
+                @click="saveImageToMaterials(primaryPreview.url)"
+              >
+                {{ savedMaterialURLs.has(primaryPreview.url) ? t('videoModels.playground.savedToMaterials') : savingMaterialURLs.has(primaryPreview.url) ? t('videoModels.playground.savingToMaterials') : t('videoModels.playground.saveToMaterials') }}
+              </button>
+            </div>
             <a
               :href="primaryPreview.url"
               target="_blank"
@@ -969,6 +992,17 @@ function videoDownloadFileName(url: string): string {
   return `video-${Date.now()}.mp4`
 }
 
+function imageDownloadFileName(url: string): string {
+  try {
+    const parsed = new URL(url, window.location.href)
+    const segment = parsed.pathname.split('/').filter(Boolean).pop()
+    if (segment) return decodeURIComponent(segment)
+  } catch {
+    // Use the stable fallback below for malformed or non-standard URLs.
+  }
+  return `image-${Date.now()}.png`
+}
+
 async function saveVideoToMaterials(url: string) {
   const normalized = url.trim()
   if (!normalized || savingMaterialURLs.has(normalized) || savedMaterialURLs.has(normalized)) return
@@ -980,6 +1014,22 @@ async function saveVideoToMaterials(url: string) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     appStore.showError(t('videoModels.playground.saveToMaterialsFailed', { msg: message }))
+  } finally {
+    savingMaterialURLs.delete(normalized)
+  }
+}
+
+async function saveImageToMaterials(url: string) {
+  const normalized = url.trim()
+  if (!normalized || savingMaterialURLs.has(normalized) || savedMaterialURLs.has(normalized)) return
+  savingMaterialURLs.add(normalized)
+  try {
+    await userMaterialsAPI.importFromUrl(normalized)
+    savedMaterialURLs.add(normalized)
+    appStore.showSuccess(t('videoModels.playground.saveImageToMaterialsSuccess'))
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    appStore.showError(t('videoModels.playground.saveImageToMaterialsFailed', { msg: message }))
   } finally {
     savingMaterialURLs.delete(normalized)
   }
@@ -1541,7 +1591,10 @@ const resolvedOutputs = computed<ResolvedOutput[]>(() => {
   const specs = outputFields.value
   const rf = (resultField.value || '').trim()
   const rt: 'video' | 'image' = resultType.value
-  const matchedByResultField = rf.length > 0 && specs.some((s) => s.key === rf)
+  const primarySpec = rf
+    ? specs.find((s) => rf === s.key || rf.startsWith(`${s.key}.`) || rf.startsWith(`${s.key}[`))
+    : undefined
+  const matchedByResultField = Boolean(primarySpec)
 
   let fallbackPrimaryKey = ''
   if (!matchedByResultField) {
@@ -1556,11 +1609,11 @@ const resolvedOutputs = computed<ResolvedOutput[]>(() => {
 
   const out: ResolvedOutput[] = []
   for (const spec of specs) {
-    const values = pickByPath(payload, spec.key)
+    const values = pickByPath(payload, primarySpec === spec ? rf : spec.key)
     if (values.length === 0) continue
     let isPrimary = false
     let effectiveType: string = spec.type
-    if (matchedByResultField && spec.key === rf) {
+    if (matchedByResultField && primarySpec === spec) {
       isPrimary = true
       effectiveType = rt
     } else if (!matchedByResultField && spec.key === fallbackPrimaryKey) {
@@ -2044,7 +2097,16 @@ watch(
 function adaptOutputFieldToNode(key: string, raw: unknown): SchemaNode {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>
-    const rawType = normalizeNodeType(obj.type)
+    let rawType = normalizeNodeType(obj.type)
+    // Nested schemas written by the admin editor omit `type` for backwards
+    // compatibility. Infer scalar types from their example value so numeric
+    // fields such as image width/height are not rendered as strings.
+    if (!obj.type) {
+      if ('items' in obj) rawType = 'array'
+      else if ('properties' in obj) rawType = 'object'
+      else if (typeof obj.value === 'number') rawType = 'number'
+      else if (typeof obj.value === 'boolean') rawType = 'boolean'
+    }
     const required = obj.required === true
     const description = typeof obj.description === 'string' ? obj.description : ''
     // description_en：中英双文字段说明的英文版；渲染层按 locale 选。
@@ -2187,6 +2249,8 @@ function outputValueFor(spec: OutputFieldSpec): unknown {
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const v = (payload as Record<string, unknown>)[spec.key]
     if (v !== undefined) return v
+    const nested = pickByPath(payload, spec.key)
+    if (nested.length > 0) return nested.length === 1 ? nested[0] : nested
   }
   return schemaExampleValue(spec)
 }
@@ -2200,6 +2264,7 @@ function outputValueSourceFor(spec: OutputFieldSpec): 'payload' | 'example' | 'n
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const v = (payload as Record<string, unknown>)[spec.key]
     if (v !== undefined) return 'payload'
+    if (pickByPath(payload, spec.key).length > 0) return 'payload'
   }
   const ex = schemaExampleValue(spec)
   return ex === undefined ? 'none' : 'example'

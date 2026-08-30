@@ -9,7 +9,7 @@ import {
   normalizeValueForSchemaRow,
   rowsToMap,
 } from '@/components/common/paramSchemaRow'
-import { buildDefaultBody } from '@/components/video/paramSpec'
+import { buildDefaultBody, pickByPath } from '@/components/video/paramSpec'
 
 const componentSource = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), '../common/ParamSchemaEditor.vue'),
@@ -17,6 +17,17 @@ const componentSource = readFileSync(
 )
 
 describe('paramSchemaRow: typed array defaults', () => {
+  it('extracts wildcard URL paths from image arrays', () => {
+    const payload = {
+      status: 'COMPLETED',
+      images: [{ url: 'https://cdn.example.com/result.jpg', width: 944, height: 640 }],
+    }
+
+    expect(pickByPath(payload, 'images[*].url')).toEqual(['https://cdn.example.com/result.jpg'])
+    expect(pickByPath(payload, 'images[\\*].url')).toEqual(['https://cdn.example.com/result.jpg'])
+    expect(pickByPath(payload, 'images[].url')).toEqual(['https://cdn.example.com/result.jpg'])
+  })
+
   it('preserves number, boolean, object, and nested array defaults', () => {
     const cases = [
       { type: 'number' as const, defaults: [1, 2.5] },

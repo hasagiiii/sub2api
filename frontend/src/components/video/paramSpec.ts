@@ -478,7 +478,9 @@ export function extractUrlsByPath(
   path: string
 ): string[] {
   if (!payload || typeof payload !== 'object') return []
-  const p = (path || '').trim()
+  // Accept the canonical wildcard form and tolerate values imported from
+  // escaped JSON/Markdown ("[\\*]") or legacy empty brackets ("[]").
+  const p = (path || '').trim().replace(/\[\\\*\]/g, '[*]').replace(/\[\]/g, '[*]')
   if (!p) return []
 
   // 把 "a.b[0].c" / "a[*].b" 切成 tokens: ['a','b','0','c'] / ['a','*','b']
@@ -554,7 +556,9 @@ export function extractUrlsByPath(
  */
 export function pickByPath(payload: unknown, path: string): unknown[] {
   if (!payload || typeof payload !== 'object') return []
-  const p = (path || '').trim()
+  // Keep path handling identical to extractUrlsByPath, including wildcard
+  // aliases commonly produced by imported model schemas.
+  const p = (path || '').trim().replace(/\[\\\*\]/g, '[*]').replace(/\[\]/g, '[*]')
   if (!p) return []
 
   const tokens: string[] = []

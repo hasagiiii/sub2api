@@ -26,7 +26,7 @@ const asyncMediaTaskColumns = `
 	facade, requested_model, upstream_model,
 	image_size, quality, num_images, request_parameters,
 	status, held_cost, final_cost, rate_multiplier, size_tier,
-	image_urls, cos_urls, image_metadata,
+	image_urls, cos_urls, image_metadata, result_payload,
 	error_reason, fail_deadline_at, finished_at,
 	client_ip, user_agent, inbound_endpoint, upstream_endpoint,
 	created_at, updated_at`
@@ -57,6 +57,10 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 	if err != nil {
 		return fmt.Errorf("marshal image_metadata: %w", err)
 	}
+	resultPayloadJSON, err := marshalAnyMap(task.ResultPayload)
+	if err != nil {
+		return fmt.Errorf("marshal result_payload: %w", err)
+	}
 	requestParametersJSON, err := marshalAnyMap(task.RequestParameters)
 	if err != nil {
 		return fmt.Errorf("marshal request_parameters: %w", err)
@@ -69,7 +73,7 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 			facade, requested_model, upstream_model,
 			image_size, quality, num_images, request_parameters,
 			status, held_cost, final_cost, rate_multiplier, size_tier,
-			image_urls, cos_urls, image_metadata,
+			image_urls, cos_urls, image_metadata, result_payload,
 			error_reason, fail_deadline_at, finished_at,
 			client_ip, user_agent, inbound_endpoint, upstream_endpoint
 		) VALUES (
@@ -78,9 +82,9 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 			$14, $15, $16,
 			$17, $18, $19, $20,
 			$21, $22, $23, $24, $25,
-			$26, $27, $28,
-			$29, $30, $31,
-			$32, $33, $34, $35
+			$26, $27, $28, $29,
+			$30, $31, $32,
+			$33, $34, $35, $36
 		) RETURNING id, created_at, updated_at`
 
 	return scanSingleRow(ctx, r.sql, query, []any{
@@ -89,7 +93,7 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 		task.Facade, task.RequestedModel, task.UpstreamModel,
 		task.ImageSize, task.Quality, task.NumImages, requestParametersJSON,
 		task.Status, task.HeldCost, task.FinalCost, task.RateMultiplier, task.SizeTier,
-		imageURLsJSON, cosURLsJSON, imageMetadataJSON,
+		imageURLsJSON, cosURLsJSON, imageMetadataJSON, resultPayloadJSON,
 		task.ErrorReason, task.FailDeadlineAt, task.FinishedAt,
 		task.ClientIP, task.UserAgent, task.InboundEndpoint, task.UpstreamEndpoint,
 	}, &task.ID, &task.CreatedAt, &task.UpdatedAt)
@@ -169,7 +173,7 @@ func (r *asyncMediaTaskRepository) UpdateUpstreamRef(ctx context.Context, id int
 	return err
 }
 
-func (r *asyncMediaTaskRepository) MarkSucceeded(ctx context.Context, id int64, imageURLs, cosURLs []string, imageMetadata []service.ImageOutputMetadata, finalCost float64) (bool, error) {
+func (r *asyncMediaTaskRepository) MarkSucceeded(ctx context.Context, id int64, imageURLs, cosURLs []string, imageMetadata []service.ImageOutputMetadata, resultPayload map[string]any, finalCost float64) (bool, error) {
 	imageURLsJSON, err := marshalStringSlice(imageURLs)
 	if err != nil {
 		return false, fmt.Errorf("marshal image_urls: %w", err)
@@ -182,24 +186,30 @@ func (r *asyncMediaTaskRepository) MarkSucceeded(ctx context.Context, id int64, 
 	if err != nil {
 		return false, fmt.Errorf("marshal image_metadata: %w", err)
 	}
+	resultPayloadJSON, err := marshalAnyMap(resultPayload)
+	if err != nil {
+		return false, fmt.Errorf("marshal result_payload: %w", err)
+	}
 	query := `
 		UPDATE async_media_tasks
 		SET status = $2,
 			image_urls = $3,
 			cos_urls = $4,
 			image_metadata = $5,
-			final_cost = $6,
+			result_payload = $6,
+			final_cost = $7,
 			error_reason = NULL,
 			finished_at = NOW(),
 			updated_at = NOW()
 		WHERE id = $1
-			AND status NOT IN ($7, $8, $9)`
+			AND status NOT IN ($8, $9, $10)`
 	res, err := r.sql.ExecContext(ctx, query,
 		id,
 		service.AsyncMediaStatusSucceeded,
 		imageURLsJSON,
 		cosURLsJSON,
 		imageMetadataJSON,
+		resultPayloadJSON,
 		finalCost,
 		service.AsyncMediaStatusSucceeded,
 		service.AsyncMediaStatusRefunded,
@@ -433,14 +443,14 @@ func (r *asyncMediaTaskRepository) queryOne(ctx context.Context, query string, a
 
 func scanAsyncMediaTask(rows *sql.Rows) (*service.AsyncMediaTask, error) {
 	task := &service.AsyncMediaTask{}
-	var imageURLsJSON, cosURLsJSON, imageMetadataJSON, requestParametersJSON []byte
+	var imageURLsJSON, cosURLsJSON, imageMetadataJSON, resultPayloadJSON, requestParametersJSON []byte
 	if err := rows.Scan(
 		&task.ID, &task.InternalRequestID, &task.UpstreamRequestID, &task.StatusURL, &task.ResponseURL,
 		&task.AccountID, &task.APIKeyID, &task.UserID, &task.OrganizationID, &task.PayerUserID, &task.BalanceSource, &task.AuthzGeneration, &task.GroupID, &task.ChannelID,
 		&task.Facade, &task.RequestedModel, &task.UpstreamModel,
 		&task.ImageSize, &task.Quality, &task.NumImages, &requestParametersJSON,
 		&task.Status, &task.HeldCost, &task.FinalCost, &task.RateMultiplier, &task.SizeTier,
-		&imageURLsJSON, &cosURLsJSON, &imageMetadataJSON,
+		&imageURLsJSON, &cosURLsJSON, &imageMetadataJSON, &resultPayloadJSON,
 		&task.ErrorReason, &task.FailDeadlineAt, &task.FinishedAt,
 		&task.ClientIP, &task.UserAgent, &task.InboundEndpoint, &task.UpstreamEndpoint,
 		&task.CreatedAt, &task.UpdatedAt,
@@ -454,6 +464,7 @@ func scanAsyncMediaTask(rows *sql.Rows) (*service.AsyncMediaTask, error) {
 			return nil, fmt.Errorf("unmarshal image_metadata: %w", err)
 		}
 	}
+	task.ResultPayload = unmarshalAnyMap(resultPayloadJSON)
 	task.RequestParameters = unmarshalAnyMap(requestParametersJSON)
 	return task, nil
 }

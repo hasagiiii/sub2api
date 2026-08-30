@@ -25,6 +25,7 @@ import (
 // 路径形态：
 //
 //	POST /api/v1/model/{slug}                         -> submit
+//	POST /api/v1/model/estimate_pricing               -> batch price estimate
 //	GET  /api/v1/model/{slug}/requests/{id}           -> status or result
 //	PUT  /api/v1/model/{slug}/requests/{id}/cancel    -> cancel
 type ModelAPIGatewayHandler struct {
@@ -93,12 +94,14 @@ func (h *ModelAPIGatewayHandler) Native(c *gin.Context) {
 	method := c.Request.Method
 
 	switch {
+	case method == http.MethodPost && path == "estimate_pricing":
+		h.estimatePricingBatch(c)
 	case method == http.MethodPost && strings.HasSuffix(path, "/estimate_pricing"):
 		h.estimatePricing(c, path)
 	case method == http.MethodPut && strings.HasSuffix(path, "/cancel"):
 		h.nativeCancel(c, modelAPIRequestIDFromPath(path))
-	case method == http.MethodGet && strings.Contains(path, "/requests/") && !strings.HasSuffix(path, "/status"):
-		h.nativeResult(c, modelAPIRequestIDFromPath(path))
+	case method == http.MethodGet && strings.Contains(path, "/requests/"):
+		h.nativeResult(c, modelAPIRequestIDFromPath(path), strings.HasSuffix(path, "/status"))
 	case method == http.MethodPost:
 		h.nativeSubmit(c, path)
 	default:
@@ -165,7 +168,16 @@ func (h *ModelAPIGatewayHandler) nativeSubmit(c *gin.Context, model string) {
 	}
 	if knownImageModel {
 		reqLog.Warn("model_api.no_available_image_account", zap.Error(imageErr))
-		h.jsonError(c, http.StatusServiceUnavailable, "api_error", "no available image account")
+		h.jsonError(c, http.StatusInternalServerError, "api_error", "Internal server error")
+		return
+	}
+	// Image account selection is authoritative for every non-explicit-video
+	// model. Do not reinterpret a failed image selection as a video request;
+	// that used to expose misleading validation errors such as missing
+	// resolution for native FAL image endpoints (e.g. imageutils/rembg).
+	if errors.Is(imageErr, service.ErrNoAvailableAccounts) {
+		reqLog.Warn("model_api.no_available_image_account", zap.Error(imageErr))
+		h.jsonError(c, http.StatusInternalServerError, "api_error", "Internal server error")
 		return
 	}
 	if imageErr != nil && !errors.Is(imageErr, service.ErrNoAvailableAccounts) {
@@ -208,28 +220,50 @@ func (h *ModelAPIGatewayHandler) nativeImageSubmit(
 		h.jsonError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
-	var request fal.Request
-	if err := json.Unmarshal(body, &request); err != nil {
-		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "Invalid image request body")
-		return
-	}
-	input := fal.FalRequestToInput(&request)
-	if strings.EqualFold(modelAPIImageAPI(model), service.FalAPIEdit) {
-		input.IsEdit = true
-	}
-	requestParameters := map[string]any{
-		"prompt":        service.TruncateUsageRequestPrompt(request.Prompt),
-		"image_size":    request.ImageSize,
-		"quality":       request.Quality,
-		"num_images":    request.NumImages,
-		"output_format": request.OutputFormat,
-		"sync_mode":     request.SyncMode,
-	}
-	if len(request.ImageURLs) > 0 {
-		requestParameters["image_urls"] = request.ImageURLs
-	}
-	if request.MaskURL != "" {
-		requestParameters["mask_url"] = request.MaskURL
+	var input fal.ImageGenInput
+	var requestParameters map[string]any
+	var upscaleRequest *fal.UpscaleRequest
+	var rawRequestBody []byte
+	if service.IsSeedVRUpscaleModel(model) {
+		var request fal.UpscaleRequest
+		if err := json.Unmarshal(body, &request); err != nil {
+			h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "Invalid image request body")
+			return
+		}
+		upscaleRequest = &request
+		// SeedVR has no prompt/image_size fields. Keep a single image input so
+		// the shared billing path can still estimate and settle the task.
+		input = fal.ImageGenInput{Size: "auto", N: 1, OutputFormat: request.OutputFormat}
+		requestParameters = map[string]any{
+			"upscale_mode":   request.UpscaleMode,
+			"upscale_factor": request.UpscaleFactor,
+			"output_format":  request.OutputFormat,
+		}
+	} else {
+		rawRequestBody = append([]byte(nil), body...)
+		var request fal.Request
+		if err := json.Unmarshal(body, &request); err != nil {
+			h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "Invalid image request body")
+			return
+		}
+		input = fal.FalRequestToInput(&request)
+		if strings.EqualFold(modelAPIImageAPI(model), service.FalAPIEdit) {
+			input.IsEdit = true
+		}
+		requestParameters = map[string]any{
+			"prompt":        service.TruncateUsageRequestPrompt(request.Prompt),
+			"image_size":    request.ImageSize,
+			"quality":       request.Quality,
+			"num_images":    request.NumImages,
+			"output_format": request.OutputFormat,
+			"sync_mode":     request.SyncMode,
+		}
+		if len(request.ImageURLs) > 0 {
+			requestParameters["image_urls"] = request.ImageURLs
+		}
+		if request.MaskURL != "" {
+			requestParameters["mask_url"] = request.MaskURL
+		}
 	}
 
 	billingType := service.BillingTypeBalance
@@ -251,6 +285,8 @@ func (h *ModelAPIGatewayHandler) nativeImageSubmit(
 		InternalRequestID: modelAPIInternalRequestID(c),
 		RequestedModel:    model,
 		Input:             input,
+		RawRequestBody:    rawRequestBody,
+		UpscaleRequest:    upscaleRequest,
 		RequestParameters: requestParameters,
 		BillingType:       billingType,
 		RateMultiplier:    rateMultiplier,
@@ -382,7 +418,7 @@ func (h *ModelAPIGatewayHandler) nativeVideoSubmit(
 	})
 }
 
-func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string) {
+func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string, statusRequest bool) {
 	mediaTask, videoTask, account := h.loadTaskAndAccount(c, reqID)
 	if mediaTask == nil && videoTask == nil {
 		return
@@ -400,7 +436,7 @@ func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string) {
 				mediaTask = updated
 			}
 		}
-		h.writeMediaResult(c, reqID, mediaTask, upstream)
+		h.writeMediaResult(c, reqID, mediaTask, upstream, statusRequest)
 		return
 	}
 	if account != nil && !videoTask.IsTerminal() {
@@ -415,6 +451,15 @@ func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string) {
 		}
 		logModelAPIClientResponse(c, upstream, http.StatusAccepted, response)
 		c.JSON(http.StatusAccepted, response)
+		return
+	}
+	if statusRequest {
+		response := modelAPIStatusResponse{
+			StatusResponse: fal.StatusResponse{Status: videoFalStatusFromTask(videoTask), RequestID: reqID},
+			ActualCost:     videoTask.FinalCost,
+		}
+		logModelAPIClientResponse(c, upstream, http.StatusOK, response)
+		c.JSON(http.StatusOK, response)
 		return
 	}
 	if videoTask.Status != service.AsyncVideoStatusSucceeded {
@@ -454,13 +499,21 @@ func (h *ModelAPIGatewayHandler) loadTaskAndAccount(c *gin.Context, reqID string
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "Missing request id")
 		return nil, nil, nil
 	}
-	mediaTask, mediaErr := h.mediaService.GetTaskByUpstreamID(c.Request.Context(), reqID)
-	if mediaErr != nil {
-		h.jsonError(c, http.StatusInternalServerError, "api_error", "Failed to load request")
+	if h.mediaService == nil && h.videoService == nil {
+		h.jsonError(c, http.StatusInternalServerError, "api_error", "Internal server error")
 		return nil, nil, nil
 	}
+	var mediaTask *service.AsyncMediaTask
+	if h.mediaService != nil {
+		var mediaErr error
+		mediaTask, mediaErr = h.mediaService.GetTaskByUpstreamID(c.Request.Context(), reqID)
+		if mediaErr != nil {
+			h.jsonError(c, http.StatusInternalServerError, "api_error", "Failed to load request")
+			return nil, nil, nil
+		}
+	}
 	var videoTask *service.AsyncVideoTask
-	if mediaTask == nil {
+	if mediaTask == nil && h.videoService != nil {
 		var videoErr error
 		videoTask, videoErr = h.videoService.GetTaskByUpstreamID(c.Request.Context(), reqID)
 		if videoErr != nil {
@@ -487,6 +540,11 @@ func (h *ModelAPIGatewayHandler) loadTaskAndAccount(c *gin.Context, reqID string
 	}
 	var account *service.Account
 	if mediaTask != nil && mediaTask.IsStatusCacheHit() {
+		logger.FromContext(c.Request.Context()).Debug("model_api.status_cache_hit",
+			zap.String("upstream_request_id", reqID),
+			zap.String("upstream", mediaTask.StatusCacheUpstream()),
+			zap.String("status", mediaTask.Status),
+		)
 		return mediaTask, videoTask, nil
 	}
 	if accountID != nil && h.accountService != nil {
@@ -497,7 +555,7 @@ func (h *ModelAPIGatewayHandler) loadTaskAndAccount(c *gin.Context, reqID string
 	return mediaTask, videoTask, account
 }
 
-func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, task *service.AsyncMediaTask, upstream string) {
+func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, task *service.AsyncMediaTask, upstream string, statusRequest bool) {
 	if !task.IsTerminal() {
 		response := modelAPIStatusResponse{
 			StatusResponse: fal.StatusResponse{Status: imageStatusFromTask(task), RequestID: reqID},
@@ -513,7 +571,16 @@ func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, 
 		c.JSON(http.StatusOK, response)
 		return
 	}
-	response := buildAsyncImageResultResponse(task)
+	if statusRequest {
+		response := modelAPIStatusResponse{
+			StatusResponse: fal.StatusResponse{Status: imageStatusFromTask(task), RequestID: reqID},
+			ActualCost:     task.FinalCost,
+		}
+		logModelAPIClientResponse(c, upstream, http.StatusOK, response)
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	response := buildAsyncImageResultPayload(task)
 	logModelAPIClientResponse(c, upstream, http.StatusOK, response)
 	c.JSON(http.StatusOK, response)
 }
@@ -550,11 +617,10 @@ func modelAPIUpstreamFromContext(c *gin.Context) string {
 }
 
 func modelAPIResultPayload(payload map[string]any, actualCost float64) map[string]any {
-	response := make(map[string]any, len(payload)+2)
+	response := make(map[string]any, len(payload)+1)
 	for key, value := range payload {
 		response[key] = value
 	}
-	response["status"] = modelAPIStatusCompleted
 	response["actual_cost"] = actualCost
 	return response
 }
@@ -630,6 +696,7 @@ func modelAPIRequestIDFromPath(path string) string {
 		return ""
 	}
 	rest = strings.TrimSuffix(rest, "/cancel")
+	rest = strings.TrimSuffix(rest, "/status")
 	return strings.Trim(rest, "/")
 }
 
@@ -644,6 +711,11 @@ func modelAPIImageAPI(model string) string {
 func modelAPIIsKnownImageModel(model string) bool {
 	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(model), "/"))
 	normalized = strings.TrimPrefix(normalized, "fal-ai/")
+	// SeedVR upscale is an image-facade endpoint even though its multi-segment
+	// slug also matches the generic video-model naming convention.
+	if normalized == "seedvr/upscale/image" {
+		return true
+	}
 	for _, segment := range strings.Split(normalized, "/") {
 		if service.IsGPTImageGenerationModel(segment) {
 			return true

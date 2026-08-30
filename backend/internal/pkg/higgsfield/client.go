@@ -16,16 +16,19 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/fal"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyutil"
+	"github.com/google/uuid"
 )
 
 const (
@@ -33,6 +36,8 @@ const (
 	proxyTLSHandshakeTimeout       = 10 * time.Second
 	defaultClientTimeout           = 120 * time.Second
 	bodyLimit                int64 = 32 << 20
+	higgsfieldLogBodyLimit         = 4 << 10
+	higgsfieldLogStringLimit       = 1 << 10
 )
 
 type Config struct {
@@ -181,11 +186,13 @@ func (c *Client) buildStatusURL(requestID string) string {
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any) (map[string]any, error) {
 	var reader io.Reader
+	var rawBody []byte
 	if body != nil {
 		encoded, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("higgsfield: marshal request: %w", err)
 		}
+		rawBody = encoded
 		reader = bytes.NewReader(encoded)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, reader)
@@ -195,6 +202,16 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any) 
 	req.Header.Set("Authorization", "Key "+c.apiKey)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
+	requestID := uuid.NewString()
+	if slog.Default().Enabled(ctx, slog.LevelDebug) {
+		slog.DebugContext(ctx, "higgsfield_http_request_dump",
+			"request_id", requestID,
+			"method", method,
+			"endpoint", endpoint,
+			"body", higgsfieldBodyForLog(rawBody),
+			"body_bytes", len(rawBody),
+		)
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("higgsfield: do request: %w", err)
@@ -204,8 +221,18 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any) 
 	if err != nil {
 		return nil, fmt.Errorf("higgsfield: read response: %w", err)
 	}
+	if slog.Default().Enabled(ctx, slog.LevelDebug) {
+		slog.DebugContext(ctx, "higgsfield_http_response_dump",
+			"request_id", requestID,
+			"method", method,
+			"endpoint", endpoint,
+			"status", resp.StatusCode,
+			"body", higgsfieldBodyForLog(raw),
+			"body_bytes", len(raw),
+		)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, &fal.APIError{StatusCode: resp.StatusCode, Body: string(raw)}
+		return nil, &fal.APIError{StatusCode: resp.StatusCode, Body: string(raw), RequestID: requestID}
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return map[string]any{}, nil
@@ -215,6 +242,51 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, body any) 
 		return nil, fmt.Errorf("higgsfield: decode response: %w", err)
 	}
 	return decoded, nil
+}
+
+func higgsfieldBodyForLog(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err == nil {
+		truncateHiggsfieldLogStrings(&value)
+		if encoded, err := json.Marshal(value); err == nil {
+			raw = encoded
+		}
+	}
+	if len(raw) <= higgsfieldLogBodyLimit {
+		return string(raw)
+	}
+	text := strings.ToValidUTF8(string(raw[:higgsfieldLogBodyLimit]), "")
+	return text + "...(truncated)"
+}
+
+func truncateHiggsfieldLogStrings(value *any) {
+	switch current := (*value).(type) {
+	case map[string]any:
+		for key, child := range current {
+			truncateHiggsfieldLogStrings(&child)
+			current[key] = child
+		}
+	case []any:
+		for i := range current {
+			truncateHiggsfieldLogStrings(&current[i])
+		}
+	case string:
+		trimmed := strings.TrimSpace(current)
+		if strings.HasPrefix(strings.ToLower(trimmed), "data:") {
+			*value = fmt.Sprintf("[redacted data URI, bytes=%d]", len(current))
+			return
+		}
+		if len(current) > higgsfieldLogStringLimit {
+			cut := higgsfieldLogStringLimit - len("...(truncated)")
+			for cut > 0 && !utf8.ValidString(current[:cut]) {
+				cut--
+			}
+			*value = current[:cut] + "...(truncated)"
+		}
+	}
 }
 
 func firstString(value map[string]any, keys ...string) string {

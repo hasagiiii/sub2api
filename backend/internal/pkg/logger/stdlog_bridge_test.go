@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestInferStdLogLevel(t *testing.T) {
@@ -139,7 +142,10 @@ func TestLegacyPrintfRoutesLevels(t *testing.T) {
 	LegacyPrintf("service.test", "request started")
 	LegacyPrintf("service.test", "Warning: queue full")
 	LegacyPrintf("service.test", "forward failed: timeout")
-	LegacyPrintfNoStack("service.test", "DIAG_USAGE_LIMIT branch=enterprise validate_err=error: code=429")
+	L().WithOptions(zap.AddStacktrace(zapcore.PanicLevel)).Error(
+		"DIAG_USAGE_LIMIT branch=enterprise validate_err=error: code=429",
+		zap.Bool("legacy_printf", true),
+	)
 	// Skip Sync() — on Windows, fsync on pipes deadlocks (FlushFileBuffers).
 
 	_ = stdoutW.Close()

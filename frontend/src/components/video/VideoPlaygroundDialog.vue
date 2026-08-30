@@ -442,7 +442,10 @@ const resolvedOutputs = computed<ResolvedOutput[]>(() => {
   const specs = outputFields.value
   const rf = (props.resultField || '').trim()
   const rt: 'video' | 'image' = props.resultType === 'image' ? 'image' : 'video'
-  const matchedByResultField = rf.length > 0 && specs.some((s) => s.key === rf)
+  const primarySpec = rf
+    ? specs.find((s) => rf === s.key || rf.startsWith(`${s.key}.`) || rf.startsWith(`${s.key}[`))
+    : undefined
+  const matchedByResultField = Boolean(primarySpec)
 
   // 若 resultField 未配置或未匹配到，预先找出默认主结果：第一个 object/array
   // 字段（新语义）；同时兼容旧数据里遗留的 video/image 类型。
@@ -459,11 +462,11 @@ const resolvedOutputs = computed<ResolvedOutput[]>(() => {
 
   const out: ResolvedOutput[] = []
   for (const spec of specs) {
-    const values = pickByPath(payload, spec.key)
+    const values = pickByPath(payload, primarySpec === spec ? rf : spec.key)
     if (values.length === 0) continue
     let isPrimary = false
     let effectiveType: string = spec.type
-    if (matchedByResultField && spec.key === rf) {
+    if (matchedByResultField && primarySpec === spec) {
       isPrimary = true
       effectiveType = rt
     } else if (!matchedByResultField && spec.key === fallbackPrimaryKey) {

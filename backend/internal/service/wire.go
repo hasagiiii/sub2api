@@ -1187,6 +1187,7 @@ func ProvideAsyncMediaService(
 	billingContextResolver *BillingContextResolver,
 	billingCache *BillingCacheService,
 	opsService *OpsService,
+	modelIntroService *ModelIntroService,
 	cfg *config.Config,
 ) *AsyncMediaService {
 	svc := NewAsyncMediaService(taskRepo, userRepo, groupRepo, billing, resolver, cos)
@@ -1194,6 +1195,7 @@ func ProvideAsyncMediaService(
 	svc.SetDeferredService(deferred)
 	svc.SetBillingContextResolver(billingContextResolver)
 	svc.SetOpsService(opsService)
+	svc.SetModelIntroService(modelIntroService)
 	svc.SetBalanceCache(billingCache)
 	if cfg != nil {
 		if cfg.AsyncMedia.PollIntervalSeconds > 0 {

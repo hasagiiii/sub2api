@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 )
@@ -65,6 +66,9 @@ type AsyncMediaTask struct {
 
 	ImageURLs []string
 	CosURLs   []string
+	// ResultPayload preserves the provider's native result shape for the final
+	// result endpoint. ImageURLs/CosURLs remain the normalized billing/read model.
+	ResultPayload map[string]any
 	// ImageMetadata is populated from provider output and persisted with the task
 	// so later result requests preserve dimensions, type, and file metadata.
 	ImageMetadata []ImageOutputMetadata
@@ -98,6 +102,7 @@ type AsyncMediaTaskStatus struct {
 	ImageURLs     []string              `json:"image_urls,omitempty"`
 	COSURLs       []string              `json:"cos_urls,omitempty"`
 	ImageMetadata []ImageOutputMetadata `json:"image_metadata,omitempty"`
+	ResultPayload map[string]any        `json:"result_payload,omitempty"`
 	ErrorReason   string                `json:"error_reason,omitempty"`
 	FinalCost     float64               `json:"final_cost"`
 	CreatedAt     time.Time             `json:"created_at"`
@@ -114,6 +119,21 @@ type AsyncMediaTaskStatusStore interface {
 
 var ErrAsyncMediaTaskStatusNotFound = errors.New("async media task status not found")
 
+func cloneAsyncMediaPayload(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	var clone map[string]any
+	if json.Unmarshal(encoded, &clone) != nil {
+		return nil
+	}
+	return clone
+}
+
 func asyncMediaTaskStatusFromTask(task *AsyncMediaTask) *AsyncMediaTaskStatus {
 	if task == nil || task.UpstreamRequestID == nil || *task.UpstreamRequestID == "" {
 		return nil
@@ -127,6 +147,7 @@ func asyncMediaTaskStatusFromTask(task *AsyncMediaTask) *AsyncMediaTaskStatus {
 		ImageURLs:     append([]string(nil), task.ImageURLs...),
 		COSURLs:       append([]string(nil), task.CosURLs...),
 		ImageMetadata: append([]ImageOutputMetadata(nil), task.ImageMetadata...),
+		ResultPayload: cloneAsyncMediaPayload(task.ResultPayload),
 		ErrorReason:   amDerefStr(task.ErrorReason),
 		FinalCost:     task.FinalCost,
 		CreatedAt:     task.CreatedAt,
@@ -162,6 +183,7 @@ func (status *AsyncMediaTaskStatus) toTask() *AsyncMediaTask {
 		ImageURLs:           append([]string(nil), status.ImageURLs...),
 		CosURLs:             append([]string(nil), status.COSURLs...),
 		ImageMetadata:       append([]ImageOutputMetadata(nil), status.ImageMetadata...),
+		ResultPayload:       cloneAsyncMediaPayload(status.ResultPayload),
 		ErrorReason:         amStrPtr(status.ErrorReason),
 		FinalCost:           status.FinalCost,
 		CreatedAt:           status.CreatedAt,
@@ -281,7 +303,7 @@ type AsyncMediaTaskRepository interface {
 	UpdateUpstreamRef(ctx context.Context, id int64, upstreamRequestID, statusURL, responseURL string) error
 	// MarkSucceeded 成功终态：写入图片地址、转存地址、结算费用，并将状态置 succeeded。
 	// 仅当当前状态非终态时才更新（幂等：返回是否实际更新）。
-	MarkSucceeded(ctx context.Context, id int64, imageURLs, cosURLs []string, imageMetadata []ImageOutputMetadata, finalCost float64) (bool, error)
+	MarkSucceeded(ctx context.Context, id int64, imageURLs, cosURLs []string, imageMetadata []ImageOutputMetadata, resultPayload map[string]any, finalCost float64) (bool, error)
 	// MarkRefunded 退费终态：将状态由 fromStatus 集合迁移到 refunded/expired，并清零 final_cost。
 	// 仅当当前状态非终态时才更新（幂等：返回是否实际更新，供退费动作去重）。
 	MarkRefunded(ctx context.Context, id int64, status, errorReason string) (bool, error)

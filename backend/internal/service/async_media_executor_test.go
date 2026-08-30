@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"image"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -109,6 +110,16 @@ func TestAsyncMediaFailedRefundUsesSnapshottedPayer(t *testing.T) {
 	require.Equal(t, []int64{payerID}, userRepo.refundUserIDs)
 	require.Empty(t, taskRepo.usageLog)
 	require.Equal(t, []int64{payerID}, cache.userIDs)
+}
+
+func TestAsyncMediaPollSkipsPendingTaskBeforeUpstreamSubmit(t *testing.T) {
+	task := &AsyncMediaTask{ID: 1, Status: AsyncMediaStatusPending}
+	svc := &AsyncMediaService{}
+
+	got, done, err := svc.pollOnce(context.Background(), task, nil, BillingTypeBalance)
+	require.NoError(t, err)
+	require.False(t, done)
+	require.Same(t, task, got)
 }
 
 func TestAsyncMediaCompanyBalanceChargeAndRefundSkipsOwnerWallet(t *testing.T) {
@@ -261,7 +272,7 @@ func (r *fakeTaskRepo) UpdateUpstreamRef(_ context.Context, id int64, upstreamID
 	return nil
 }
 
-func (r *fakeTaskRepo) MarkSucceeded(_ context.Context, id int64, imageURLs, cosURLs []string, imageMetadata []ImageOutputMetadata, finalCost float64) (bool, error) {
+func (r *fakeTaskRepo) MarkSucceeded(_ context.Context, id int64, imageURLs, cosURLs []string, imageMetadata []ImageOutputMetadata, resultPayload map[string]any, finalCost float64) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	t, ok := r.byID[id]
@@ -272,6 +283,7 @@ func (r *fakeTaskRepo) MarkSucceeded(_ context.Context, id int64, imageURLs, cos
 	t.ImageURLs = imageURLs
 	t.CosURLs = cosURLs
 	t.ImageMetadata = imageMetadata
+	t.ResultPayload = resultPayload
 	t.FinalCost = finalCost
 	return true, nil
 }
@@ -339,6 +351,7 @@ type falTestServer struct {
 	imageWidth  int
 	imageHeight int
 	submitPath  string
+	submitBody  []byte
 	statusHits  int32
 }
 
@@ -353,6 +366,7 @@ func newFalTestServer(t *testing.T) *falTestServer {
 		switch {
 		case req.Method == http.MethodPost && !strings.Contains(path, "/requests/"):
 			fs.submitPath = path
+			fs.submitBody, _ = io.ReadAll(req.Body)
 			reqID := "req-test-1"
 			base := fs.URL + path + "/requests/" + reqID
 			writeJSON(w, http.StatusOK, fal.SubmitResponse{
@@ -376,6 +390,12 @@ func newFalTestServer(t *testing.T) *falTestServer {
 		case req.Method == http.MethodPut && strings.HasSuffix(path, "/cancel"):
 			w.WriteHeader(http.StatusOK)
 		case req.Method == http.MethodGet:
+			if strings.Contains(path, "seedvr/upscale/image") {
+				writeJSON(w, http.StatusOK, fal.UpscaleResponse{Image: fal.UpscaleImage{
+					URL: "https://fal.media/upscaled.png", ContentType: "image/png", Width: 2048, Height: 1536,
+				}})
+				return
+			}
 			resp := fal.Response{}
 			for _, u := range fs.images {
 				resp.Images = append(resp.Images, fal.Image{URL: u, Width: fs.imageWidth, Height: fs.imageHeight})
@@ -800,7 +820,7 @@ func TestAsyncMediaMarkSucceededReloadsAlreadySucceededTaskAndRepairsUsageLog(t 
 	stale.CosURLs = nil
 	stale.FinalCost = 0
 
-	svc.markSucceeded(context.Background(), &stale, 1, BillingTypeBalance, []string{"https://fal.media/out.png"}, []string{"1024x1024"})
+	svc.markSucceeded(context.Background(), &stale, 1, BillingTypeBalance, []string{"https://fal.media/out.png"}, []string{"1024x1024"}, nil)
 
 	require.Equal(t, AsyncMediaStatusSucceeded, stale.Status)
 	require.Equal(t, []string{"https://fal.media/out.png"}, stale.ImageURLs)
@@ -824,6 +844,26 @@ func TestResolveFalUpstreamModelUsesEditEndpointForImagesEdits(t *testing.T) {
 
 	require.Equal(t, "openai/gpt-image-2", resolveFalUpstreamModel(account, "gpt-image-2", false))
 	require.Equal(t, "openai/gpt-image-2/edit", resolveFalUpstreamModel(account, "gpt-image-2", true))
+}
+
+func TestResolveFalUpstreamModelPreservesNativeMultiSegmentEndpoint(t *testing.T) {
+	account := &Account{
+		Platform: PlatformFal,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"imageutils/rembg": "fal-ai/imageutils/rembg"},
+		},
+	}
+	require.Equal(t, "fal-ai/imageutils/rembg", resolveFalUpstreamModel(account, "imageutils/rembg", false))
+}
+
+func TestResolveFalUpstreamModelMatchesMappingWithoutFalAIPrefix(t *testing.T) {
+	account := &Account{
+		Platform: PlatformFal,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"fal-ai/imageutils/rembg": "fal-ai/imageutils/rembg"},
+		},
+	}
+	require.Equal(t, "fal-ai/imageutils/rembg", resolveFalUpstreamModel(account, "imageutils/rembg", false))
 }
 
 func TestResolveFalUpstreamModelAppendsEditToCustomBaseEndpoint(t *testing.T) {
@@ -858,4 +898,53 @@ func TestAsyncMediaEditSubmitsToFalEditEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.FalSlugImageEdit, amDerefStr(task.UpstreamModel))
 	require.Equal(t, "/openai/gpt-image-2/edit", fs.submitPath)
+}
+
+func TestAsyncMediaSeedVRUpscaleUsesNativeEndpointAndResponse(t *testing.T) {
+	fs := newFalTestServer(t)
+	defer fs.Close()
+
+	groupID := int64(1)
+	resolver := newImageBillingResolver(t, groupID, defaultFalUpscaleEndpoint, 0.05)
+	userRepo := &fakeUserRepo{balance: 100}
+	taskRepo := newFakeTaskRepo()
+	svc := NewAsyncMediaService(taskRepo, userRepo, nil, newTestBillingService(), resolver, nil)
+
+	in := newSubmitInput(newFalAccount(fs.URL), groupID, 1)
+	in.RequestedModel = "seedvr/upscale/image"
+	in.Input = fal.ImageGenInput{Size: "auto", N: 1, OutputFormat: "png"}
+	in.UpscaleRequest = &fal.UpscaleRequest{
+		ImageURL: "https://example.test/input.png", UpscaleMode: "factor", UpscaleFactor: 2, OutputFormat: "png",
+	}
+
+	task, err := svc.SubmitAsync(context.Background(), in)
+	require.NoError(t, err)
+	require.Equal(t, defaultFalUpscaleEndpoint, amDerefStr(task.UpstreamModel))
+	require.Equal(t, "/fal-ai/seedvr/upscale/image", fs.submitPath)
+	var submitted fal.UpscaleRequest
+	require.NoError(t, json.Unmarshal(fs.submitBody, &submitted))
+	require.Equal(t, *in.UpscaleRequest, submitted)
+
+	final, err := svc.WaitForTerminal(context.Background(), task, in)
+	require.NoError(t, err)
+	require.Equal(t, AsyncMediaStatusSucceeded, final.Status)
+	require.Equal(t, []string{"https://fal.media/upscaled.png"}, final.ImageURLs)
+}
+
+func TestAsyncMediaNativeFalSubmitsRawRequestBody(t *testing.T) {
+	fs := newFalTestServer(t)
+	defer fs.Close()
+
+	groupID := int64(1)
+	resolver := newImageBillingResolver(t, groupID, domain.FalSlugTextToImage, 0.05)
+	userRepo := &fakeUserRepo{balance: 100}
+	taskRepo := newFakeTaskRepo()
+	svc := NewAsyncMediaService(taskRepo, userRepo, nil, newTestBillingService(), resolver, nil)
+
+	in := newSubmitInput(newFalAccount(fs.URL), groupID, 1)
+	in.RawRequestBody = []byte(`{"image_url":"https://example.test/input.png","threshold":0.4}`)
+
+	_, err := svc.SubmitAsync(context.Background(), in)
+	require.NoError(t, err)
+	require.JSONEq(t, string(in.RawRequestBody), string(fs.submitBody))
 }

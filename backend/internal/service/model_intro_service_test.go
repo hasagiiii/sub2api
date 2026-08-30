@@ -1,6 +1,29 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestNormalizeResultRefAcceptsWildcardPathForUntypedArrayObject(t *testing.T) {
+	in := &UpsertModelIntroInput{
+		OutputFields: []OutputFieldSpec{{
+			Key:  "images",
+			Type: "array",
+			Items: map[string]any{
+				"properties": map[string]any{
+					"url": map[string]any{"value": "https://example.test/image.png"},
+				},
+			},
+		}},
+		ResultField: "images[*].url",
+		ResultType:  "image",
+	}
+
+	require.NoError(t, normalizeOutputFields(in.OutputFields))
+	require.NoError(t, normalizeResultRef(in))
+}
 
 func TestNormalizeOutputFieldsMaxChars(t *testing.T) {
 	limit := 12

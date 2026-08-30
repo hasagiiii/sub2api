@@ -58,6 +58,9 @@ func TestDoJSONDebugLogSanitizesFileContent(t *testing.T) {
 	if !strings.Contains(logText, `"body":`) {
 		t.Fatalf("debug log should contain sanitized body field: %s", logText)
 	}
+	if !strings.Contains(logText, `"request_id":"fal-`) {
+		t.Fatalf("fal request dump should contain a request_id for correlation: %s", logText)
+	}
 	if !strings.Contains(logText, "ordinary prompt should stay visible") {
 		t.Fatalf("debug log should keep ordinary body fields, got: %s", logText)
 	}
@@ -98,5 +101,35 @@ func TestSanitizeRequestBodyForLogTruncatesLongSanitizedBody(t *testing.T) {
 	}
 	if !strings.Contains(body, "...(truncated, bytes=") {
 		t.Fatalf("truncated body should include byte summary, got: %s", body)
+	}
+}
+
+func TestSubmitRawPreservesNativeBodyAndQueueURLs(t *testing.T) {
+	var gotBody []byte
+	client := &Client{
+		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotBody, _ = io.ReadAll(req.Body)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader(`{"request_id":"req-1","status_url":"https://queue.fal.run/fal-ai/imageutils/requests/req-1/status","response_url":"https://queue.fal.run/fal-ai/imageutils/requests/req-1","cancel_url":"https://queue.fal.run/fal-ai/imageutils/requests/req-1/cancel"}`)),
+				Request:    req,
+			}, nil
+		})},
+		apiKey:       "test-key",
+		queueBaseURL: "https://queue.fal.run",
+	}
+	raw := []byte(`{"image_url":"https://example.test/input.png","threshold":0.4,"custom":{"enabled":true}}`)
+	resp, err := client.SubmitRaw(context.Background(), "fal-ai/imageutils/rembg", raw)
+	if err != nil {
+		t.Fatalf("SubmitRaw returned error: %v", err)
+	}
+	if string(gotBody) != string(raw) {
+		t.Fatalf("native request body changed: got %s want %s", gotBody, raw)
+	}
+	wantStatus := "https://queue.fal.run/fal-ai/imageutils/requests/req-1/status"
+	wantResponse := "https://queue.fal.run/fal-ai/imageutils/requests/req-1"
+	if resp.StatusURL != wantStatus || resp.ResponseURL != wantResponse {
+		t.Fatalf("queue URLs changed unexpectedly: status=%s response=%s", resp.StatusURL, resp.ResponseURL)
 	}
 }

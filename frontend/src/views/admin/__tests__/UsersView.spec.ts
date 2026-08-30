@@ -300,6 +300,21 @@ describe('admin UsersView', () => {
     expect(identities[1].text()).toContain('admin.users.enterpriseIdentity.member')
   })
 
+  it('shows the enterprise identity filter by default and sends its value to the API', async () => {
+    const wrapper = mountUsersView()
+    await flushPromises()
+
+    expect(listUsers).toHaveBeenLastCalledWith(
+      1,
+      20,
+      expect.objectContaining({ enterprise_identity: '' }),
+      expect.any(Object)
+    )
+
+    await wrapper.get('button[title="admin.users.filterSettings"]').trigger('click')
+    expect(wrapper.text()).toContain('admin.users.enterpriseIdentityFilter')
+  })
+
   it('lists Kiro usage in column settings while keeping it hidden by default', async () => {
     const wrapper = mountUsersView()
 

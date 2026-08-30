@@ -25,6 +25,11 @@ import (
 func (c *Client) SubmitRaw(ctx context.Context, model string, body any) (*SubmitResponse, error) {
 	endpoint := fmt.Sprintf("%s/%s", c.queueBaseURL, strings.TrimLeft(model, "/"))
 	var out SubmitResponse
+	// []byte is already validated JSON from the inbound request. Wrap it as
+	// RawMessage so json.Marshal does not turn it into a base64 string.
+	if raw, ok := body.([]byte); ok {
+		body = json.RawMessage(raw)
+	}
 	if err := c.doJSON(ctx, http.MethodPost, endpoint, body, &out); err != nil {
 		return nil, err
 	}

@@ -14,6 +14,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 const maxAPIKeyAuthorizationHeaderBytes = service.MaxAPIKeyCredentialBytes + 128
@@ -316,17 +318,21 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 					if apiKey.OrganizationSubscriptionID != nil {
 						orgSubIDForLog = *apiKey.OrganizationSubscriptionID
 					}
-					logger.LegacyPrintfNoStack(
-						"middleware.api_key_auth",
-						"DIAG_USAGE_LIMIT branch=enterprise user_id=%d api_key_id=%d org_sub_id=%d group=%s validate_err=%v",
-						apiKey.User.ID, apiKey.ID, orgSubIDForLog,
-						func() string {
-							if apiKey.Group != nil {
-								return apiKey.Group.Name
-							}
-							return ""
-						}(),
-						validateErr,
+					logger.L().With(
+						zap.String("component", "middleware.api_key_auth"),
+					).WithOptions(zap.AddStacktrace(zapcore.PanicLevel)).Error(
+						fmt.Sprintf(
+							"DIAG_USAGE_LIMIT branch=enterprise user_id=%d api_key_id=%d org_sub_id=%d group=%s validate_err=%v",
+							apiKey.User.ID, apiKey.ID, orgSubIDForLog,
+							func() string {
+								if apiKey.Group != nil {
+									return apiKey.Group.Name
+								}
+								return ""
+							}(),
+							validateErr,
+						),
+						zap.Bool("legacy_printf", true),
 					)
 					code := "SUBSCRIPTION_INVALID"
 					status := 403
