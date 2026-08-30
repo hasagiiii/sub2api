@@ -904,6 +904,37 @@ func TestOrganizationUsageFiltersCannotCrossOrganizationAndHistoricalNullsRemain
 	require.Nil(t, historical.PayerUserID)
 }
 
+func TestOrganizationUsageExcludesOwnerSelfBalanceWithEnterpriseAPIKey(t *testing.T) {
+	isolateOrganizationIntegrationTest(t)
+	ctx := context.Background()
+	repo := NewOrganizationRepository(integrationDB)
+	owner := createOrganizationRoot(t, integrationEntClient, 100, service.RoleUser)
+	organizationID := createActiveOrganization(t, owner, 20)
+	groupID := createOrgSubscriptionGroup(t, 30, "100")
+	enterpriseSubscription, err := repo.CreateOrganizationSubscription(ctx, owner.ID, groupID, 0, "owner subscription")
+	require.NoError(t, err)
+	ownerKey := mustCreateApiKey(t, integrationEntClient, &service.APIKey{UserID: owner.ID, GroupID: &groupID})
+	_, err = integrationDB.ExecContext(ctx, `UPDATE api_keys SET organization_subscription_id=$1 WHERE id=$2`, enterpriseSubscription.ID, ownerKey.ID)
+	require.NoError(t, err)
+	prefix := "owner-self-" + uuid.NewString()
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), `DELETE FROM usage_logs WHERE request_id LIKE $1`, prefix+"%")
+	})
+	_, err = integrationDB.ExecContext(ctx, `
+		INSERT INTO usage_logs(user_id,organization_id,payer_user_id,balance_source,billing_type,api_key_id,account_id,request_id,model,input_tokens,output_tokens,total_cost,actual_cost,billing_status,created_at)
+		VALUES($1,$2,$1,'self',1,$3,NULL,$4,'gpt-owner-self',10,5,1,1,'charged',NOW())`,
+		owner.ID, organizationID, ownerKey.ID, prefix+"-balance")
+	require.NoError(t, err)
+
+	rows, total, err := repo.ListUsage(ctx, owner.ID, service.OrganizationUsageFilter{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	require.Zero(t, total)
+	require.Empty(t, rows)
+	stats, err := repo.UsageStats(ctx, owner.ID, service.OrganizationUsageFilter{})
+	require.NoError(t, err)
+	require.Zero(t, stats.Requests)
+}
+
 func TestOrganizationSpendingRankingIAMPrincipalAndModelDrillDown(t *testing.T) {
 	isolateOrganizationIntegrationTest(t)
 	ctx := context.Background()

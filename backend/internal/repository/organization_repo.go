@@ -2178,10 +2178,11 @@ func (r *organizationRepository) organizationUsageScope(ctx context.Context, use
 		args = append(args, value)
 		conditions = append(conditions, fmt.Sprintf(sqlCondition, len(args)))
 	}
-	// 排除主账号(owner)使用个人余额或个人套餐（即 balance_source='self'/NULL 且
-	// api_key 未绑定企业订阅）的消费记录，避免个人消费混入企业记录。
+	// 排除主账号(owner)使用个人余额或个人套餐的消费记录，避免个人消费混入企业记录。
+	// 仅对 balance_source 为空的历史记录保留企业订阅 API Key 兼容判断；显式
+	// balance_source='self' 始终代表主账号个人余额，不应因为 API Key 仍绑定企业订阅而混入。
 	args = append(args, org.OwnerUserID)
-	conditions = append(conditions, fmt.Sprintf("(l.user_id <> $%d OR (l.balance_source IS NOT NULL AND l.balance_source <> 'self') OR EXISTS(SELECT 1 FROM api_keys ak WHERE ak.id=l.api_key_id AND ak.organization_subscription_id IS NOT NULL))", len(args)))
+	conditions = append(conditions, fmt.Sprintf("(l.user_id <> $%d OR (l.balance_source IS NOT NULL AND l.balance_source <> 'self') OR (l.balance_source IS NULL AND l.billing_type=1 AND EXISTS(SELECT 1 FROM api_keys ak WHERE ak.id=l.api_key_id AND ak.organization_subscription_id IS NOT NULL)))", len(args)))
 	if !filter.Start.IsZero() && filter.Start.After(org.EffectiveAt) {
 		args[1] = filter.Start
 	}
@@ -2241,7 +2242,7 @@ func (r *organizationRepository) ListUsage(ctx context.Context, userID int64, fi
 		       l.video_count,l.video_resolution,l.video_duration_seconds,
 		       COALESCE(l.image_urls,'[]'::jsonb),COALESCE(l.cos_url,'[]'::jsonb),COALESCE(l.ip_address,''),COALESCE(l.user_agent,''),
 		       COALESCE(l.billing_status,'charged'),l.first_token_ms,l.duration_ms,l.created_at,
-		       CASE WHEN l.balance_source='subscription' OR (l.billing_type=1 AND k.organization_subscription_id IS NOT NULL)
+		       CASE WHEN l.balance_source='subscription' OR (l.balance_source IS NULL AND l.billing_type=1 AND k.organization_subscription_id IS NOT NULL)
 		            THEN 'subscription' ELSE COALESCE(l.balance_source,'self') END,
 		       l.task_id
 		FROM usage_logs l JOIN users u ON u.id=l.user_id LEFT JOIN api_keys k ON k.id=l.api_key_id LEFT JOIN groups g ON g.id=l.group_id
@@ -2382,8 +2383,9 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 		todayStart = org.EffectiveAt
 	}
 	// 主账号(owner) 使用个人余额/个人套餐的消费不应计入企业统计。
-	// 使用 usage_logs 别名 l 时统一附加此过滤条件。
-	excludeOwnerSelfSpend := "(l.user_id <> $3 OR (l.balance_source IS NOT NULL AND l.balance_source <> 'self') OR EXISTS(SELECT 1 FROM api_keys ak WHERE ak.id=l.api_key_id AND ak.organization_subscription_id IS NOT NULL))"
+	// 使用 usage_logs 别名 l 时统一附加此过滤条件。对 balance_source 为空的历史
+	// 企业订阅记录保留 API Key 绑定判断，但显式 self 始终排除。
+	excludeOwnerSelfSpend := "(l.user_id <> $3 OR (l.balance_source IS NOT NULL AND l.balance_source <> 'self') OR (l.balance_source IS NULL AND l.billing_type=1 AND EXISTS(SELECT 1 FROM api_keys ak WHERE ak.id=l.api_key_id AND ak.organization_subscription_id IS NOT NULL)))"
 	var totalIAMUsers, activeIAMUsers int64
 	if err := r.db.QueryRowContext(ctx, `
 		SELECT count(*), count(*) FILTER (WHERE created_at >= $2),
