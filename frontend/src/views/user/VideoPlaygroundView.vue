@@ -2036,37 +2036,12 @@ const estimateBreakdown = computed<EstimateBreakdown | null>(() => {
   }
 })
 
-// actualCost：任务终态后通过 GET /user/video-models/tasks/by-request/:rid 拉取。
-// null → 未拉到（仍在加载或未终态）。
-const actualCost = ref<number | null>(null)
-
-// 每次任务终态时拉一次实扣；phase 从终态回退（reset）时清空。
-watch(
-  () => playground.phase.value,
-  async (p) => {
-    if (p === 'completed') {
-      const rid = playground.internalRequestId.value
-      if (!rid) return
-      try {
-        const resp = await videoModelsAPI.getTaskByRequestId(rid)
-        const t = resp.data
-        // 优先 final_cost；未终结前 finalCost=0，held_cost 作为兜底展示。
-        if (t.final_cost > 0) {
-          actualCost.value = t.final_cost
-        } else if (t.held_cost > 0) {
-          actualCost.value = t.held_cost
-        } else {
-          actualCost.value = null
-        }
-      } catch {
-        // 静默失败，仅不展示实扣；不打扰用户主流程。
-        actualCost.value = null
-      }
-    } else if (p === 'idle') {
-      actualCost.value = null
-    }
-  }
-)
+// 统一任务查询接口完成时把实际费用放在 data.actual_cost 中，直接从已查询
+// 的结果读取，避免额外调用 /user/video-models/tasks/by-request/:rid。
+const actualCost = computed(() => {
+  const value = playground.resultPayload.value?.actual_cost
+  return typeof value === 'number' && value > 0 ? value : null
+})
 
 // ============ 输出结构 + 值（右下卡片） ============
 // 需求：右栏底部要固定展示"管理端声明的输出参数"的结构树，并在每个字段旁给出

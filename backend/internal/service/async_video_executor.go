@@ -718,65 +718,11 @@ func (s *AsyncVideoService) ListByUserAndSlug(ctx context.Context, userID int64,
 	return s.taskRepo.ListByUserAndSlug(ctx, userID, slug, offset, limit)
 }
 
-func (s *AsyncVideoService) pollFalResultOnce(ctx context.Context, task *AsyncVideoTask, account *Account, billingType int8) (*AsyncVideoTask, bool, error) {
-	client, err := s.newClient(account)
-	if err != nil {
-		return task, false, err
-	}
-	responseURL := amDerefStr(task.ResponseURL)
-	result, err := client.ResultRaw(ctx, responseURL)
-	if err != nil {
-		var apiErr *fal.APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
-			s.markFailedAndRefund(ctx, task, billingType, fmt.Sprintf("result %d: %s", apiErr.StatusCode, compactUpstreamBody(apiErr.Body)))
-			return task, true, nil
-		}
-		return task, false, nil
-	}
-	status := ""
-	if raw, ok := result["status"].(string); ok {
-		status = strings.ToUpper(strings.TrimSpace(raw))
-	}
-	switch status {
-	case fal.StatusInQueue, fal.StatusInProgress, "PENDING", "PROCESSING":
-		return task, false, nil
-	case fal.StatusFailed, fal.StatusCanceled:
-		s.markFailedAndRefund(ctx, task, billingType, "upstream status: "+status)
-		return task, true, nil
-	}
-	delete(result, "status")
-	if len(result) == 0 {
-		s.markFailedAndRefund(ctx, task, billingType, "upstream returned empty result")
-		return task, true, nil
-	}
-	return s.finishVideoResult(ctx, task, billingType, result)
-}
-
-func (s *AsyncVideoService) finishVideoResult(ctx context.Context, task *AsyncVideoTask, billingType int8, result map[string]any) (*AsyncVideoTask, bool, error) {
-	videoURLs := fal.ExtractVideoURLs(result)
-	var upstreamCost float64
-	if raw, ok := result[apiz.UpstreamCostFieldKey]; ok {
-		if f, ok := raw.(float64); ok && f > 0 {
-			upstreamCost = f
-		}
-		delete(result, apiz.UpstreamCostFieldKey)
-	}
-	videoURLs, result, probedDuration := s.transferVideosToCOS(ctx, task, videoURLs, result)
-	if ExtractActualDurationSeconds(result) <= 0 && probedDuration <= 0 && len(videoURLs) > 0 && s.cosService != nil {
-		probedDuration, _ = s.cosService.ProbeVideoDuration(ctx, videoURLs[0])
-	}
-	s.markSucceeded(ctx, task, billingType, videoURLs, result, upstreamCost, probedDuration)
-	return task, true, nil
-}
-
 // pollOnce 执行一轮状态查询并在终态时结算/退费。
 func (s *AsyncVideoService) pollOnce(ctx context.Context, task *AsyncVideoTask, account *Account, billingType int8) (*AsyncVideoTask, bool, error) {
 	client, err := s.newClient(account)
 	if err != nil {
 		return task, false, fmt.Errorf("async video poll: build client: %w", err)
-	}
-	if account != nil && account.Platform == PlatformFal {
-		return s.pollFalResultOnce(ctx, task, account, billingType)
 	}
 	statusURL := ""
 	if task.StatusURL != nil {
