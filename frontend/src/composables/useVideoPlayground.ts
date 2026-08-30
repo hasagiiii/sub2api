@@ -3,8 +3,8 @@
  *
  * 视频演练台的任务状态机 composable，封装：
  *   1. submit → 拿 request_id
- *   2. 每 3 秒轮询 status（IN_QUEUE / IN_PROGRESS / COMPLETED / FAILED / CANCELED）
- *   3. status=COMPLETED 时 fetch result 并抽视频 URL
+ *   2. 每 3 秒查询统一的 /requests/{id} 接口
+ *   3. status=COMPLETED 时直接读取响应 data
  *   4. reset 本地状态（已提交任务仍在服务端继续执行）
  *
  * 不做超时兜底（视频渲染可以跑几分钟）。
@@ -132,16 +132,12 @@ export function useVideoPlayground() {
     if (st === 'COMPLETED') {
       phase.value = 'completed'
       stopPolling()
-      // fetch 最终结果
-      try {
-        const r = await videoPlaygroundAPI.result(slug, requestId.value, apiKey)
-        resultPayload.value = r
-      } catch (err) {
+      resultPayload.value = s.data ?? null
+      if (!resultPayload.value) {
         phase.value = 'failed'
-        errorMessage.value = extractErrorMessage(err, 'Failed to fetch result.')
-      } finally {
-        stopTickTimer()
+        errorMessage.value = 'Completed task did not include a result.'
       }
+      stopTickTimer()
       return
     }
 

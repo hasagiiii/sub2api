@@ -56,6 +56,7 @@ type AsyncMediaService struct {
 	opsService             *OpsService
 	modelIntroService      *ModelIntroService
 	statusCache            AsyncMediaTaskStatusStore
+	backgroundPolling      bool
 	balanceCache           interface {
 		InvalidateUserBalance(ctx context.Context, userID int64) error
 	}
@@ -97,6 +98,15 @@ func (s *AsyncMediaService) SetModelIntroService(intros *ModelIntroService) {
 func (s *AsyncMediaService) SetStatusCache(cache AsyncMediaTaskStatusStore) {
 	if s != nil {
 		s.statusCache = cache
+	}
+}
+
+// SetBackgroundPollingEnabled enables the server-owned polling loop. It is
+// enabled by production wiring; unit tests may leave it disabled and advance a
+// task explicitly.
+func (s *AsyncMediaService) SetBackgroundPollingEnabled(enabled bool) {
+	if s != nil {
+		s.backgroundPolling = enabled
 	}
 }
 
@@ -279,6 +289,9 @@ func (s *AsyncMediaService) SubmitAsync(ctx context.Context, in *AsyncMediaSubmi
 	task.UpdatedAt = time.Now().UTC()
 	task.statusCacheUpstream = in.Account.Platform
 	s.cacheTaskStatus(ctx, task)
+	if s.backgroundPolling {
+		s.startBackgroundPolling(task, in.Account, in.BillingType)
+	}
 
 	// 账号已成功向上游提交任务，视为本次被使用：记录 last_used_at（延迟批量刷库）。
 	if s.deferred != nil {
@@ -370,6 +383,12 @@ func (s *AsyncMediaService) cacheTaskStatus(ctx context.Context, task *AsyncMedi
 		return
 	}
 	ttl := AsyncMediaTaskStatusCacheTTL(status.Status)
+	if status.Status == AsyncMediaStatusPending || status.Status == AsyncMediaStatusRunning {
+		ttl = s.pollInterval + 5*time.Second
+		if ttl < 5*time.Second {
+			ttl = 5 * time.Second
+		}
+	}
 	if err := s.statusCache.SetAsyncMediaTaskStatus(ctx, status, ttl); err != nil {
 		logger.L().Warn("async_media.status_cache_set_failed",
 			zap.String("upstream", "redis"),
@@ -379,6 +398,72 @@ func (s *AsyncMediaService) cacheTaskStatus(ctx context.Context, task *AsyncMedi
 			zap.Error(err),
 		)
 	}
+}
+
+func (s *AsyncMediaService) startBackgroundPolling(task *AsyncMediaTask, account *Account, billingType int8) {
+	if s == nil || task == nil || account == nil || task.IsTerminal() {
+		return
+	}
+	go s.backgroundPollLoop(context.Background(), task, account, billingType)
+}
+
+func (s *AsyncMediaService) backgroundPollLoop(ctx context.Context, task *AsyncMediaTask, account *Account, billingType int8) {
+	if task == nil || account == nil {
+		return
+	}
+	for {
+		if task.IsTerminal() || ctx.Err() != nil {
+			return
+		}
+		token := uuid.NewString()
+		locked := true
+		if lockStore, ok := s.statusCache.(AsyncMediaTaskLockStore); ok {
+			var err error
+			locked, err = lockStore.TryAcquireAsyncMediaTaskLock(ctx, amDerefStr(task.UpstreamRequestID), token, s.pollInterval+5*time.Second)
+			if err != nil {
+				locked = false
+			}
+		}
+		if locked {
+			updated, done, err := s.pollOnce(ctx, task, account, billingType)
+			if lockStore, ok := s.statusCache.(AsyncMediaTaskLockStore); ok {
+				_ = lockStore.ReleaseAsyncMediaTaskLock(ctx, amDerefStr(task.UpstreamRequestID), token)
+			}
+			if err != nil {
+				logger.L().Warn("async_media.background_poll_failed", zap.Int64("task_id", task.ID), zap.Error(err))
+			}
+			if updated != nil {
+				task = updated
+			}
+			if done {
+				return
+			}
+		}
+		timer := time.NewTimer(s.pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *AsyncMediaService) pollOnceWithLock(ctx context.Context, task *AsyncMediaTask, account *Account, billingType int8) (*AsyncMediaTask, bool, error) {
+	if s == nil || task == nil {
+		return task, false, errors.New("async media poll: invalid task")
+	}
+	lockStore, ok := s.statusCache.(AsyncMediaTaskLockStore)
+	if !ok {
+		return s.pollOnce(ctx, task, account, billingType)
+	}
+	token := uuid.NewString()
+	locked, err := lockStore.TryAcquireAsyncMediaTaskLock(ctx, amDerefStr(task.UpstreamRequestID), token, s.pollInterval+5*time.Second)
+	if err != nil || !locked {
+		return task, false, err
+	}
+	defer func() { _ = lockStore.ReleaseAsyncMediaTaskLock(ctx, amDerefStr(task.UpstreamRequestID), token) }()
+	return s.pollOnce(ctx, task, account, billingType)
 }
 
 func AsyncMediaTaskStatusCacheTTL(status string) time.Duration {
@@ -447,8 +532,83 @@ func (s *AsyncMediaService) ReconcileTask(ctx context.Context, task *AsyncMediaT
 	if account == nil {
 		return errors.New("async media reconcile: account is nil")
 	}
-	_, _, err := s.pollOnce(ctx, task, account, billingType)
+	_, _, err := s.pollOnceWithLock(ctx, task, account, billingType)
 	return err
+}
+
+// pollFalResultOnce uses the response URL for every poll. FAL returns a small
+// status object while queued and the native result payload once completed, so
+// the former /status-then-result two-step flow is unnecessary.
+func (s *AsyncMediaService) pollFalResultOnce(ctx context.Context, task *AsyncMediaTask, account *Account, billingType int8, responseURL string) (*AsyncMediaTask, bool, error) {
+	client, err := s.newClient(account)
+	if err != nil {
+		return task, false, fmt.Errorf("async media poll: build client: %w", err)
+	}
+	logger.FromContext(ctx).Debug("async_media.upstream_request",
+		zap.String("operation", "result"), zap.String("method", http.MethodGet),
+		zap.String("url", responseURL), zap.String("upstream_model", amDerefStr(task.UpstreamModel)),
+		zap.String("upstream_request_id", amDerefStr(task.UpstreamRequestID)), zap.String("request_body", ""))
+	rawResult, err := client.ResultRaw(ctx, responseURL)
+	if err != nil {
+		logger.FromContext(ctx).Debug("async_media.upstream_response",
+			zap.String("operation", "result"), zap.String("url", responseURL),
+			zap.String("upstream_request_id", amDerefStr(task.UpstreamRequestID)), zap.Error(err))
+		var apiErr *fal.APIError
+		if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+			s.markFailedAndRefund(ctx, task, billingType, fmt.Sprintf("result %d: %s", apiErr.StatusCode, apiErr.Body))
+			return task, true, nil
+		}
+		return task, false, nil
+	}
+	if raw, marshalErr := json.Marshal(rawResult); marshalErr == nil {
+		logger.FromContext(ctx).Debug("async_media.upstream_response",
+			zap.String("operation", "result"), zap.String("url", responseURL),
+			zap.String("upstream_request_id", amDerefStr(task.UpstreamRequestID)),
+			zap.String("response_body", truncateAsyncUpstreamBody(raw)))
+	}
+	upstreamStatus := ""
+	if value, ok := rawResult["status"].(string); ok {
+		upstreamStatus = strings.ToUpper(strings.TrimSpace(value))
+	}
+	switch upstreamStatus {
+	case fal.StatusInQueue, fal.StatusInProgress, "PENDING", "PROCESSING":
+		return task, false, nil
+	case fal.StatusFailed, fal.StatusCanceled:
+		s.markFailedAndRefund(ctx, task, billingType, "upstream status: "+upstreamStatus)
+		return task, true, nil
+	}
+	// A payload without status is the completed native result. Do not leak the
+	// provider's status marker through the public data payload.
+	delete(rawResult, "status")
+	result := &fal.Response{}
+	if encoded, marshalErr := json.Marshal(rawResult); marshalErr == nil {
+		_ = json.Unmarshal(encoded, result)
+	}
+	return s.finishImageResult(ctx, task, account, billingType, result, rawResult)
+}
+
+func (s *AsyncMediaService) finishImageResult(ctx context.Context, task *AsyncMediaTask, account *Account, billingType int8, result *fal.Response, rawResult map[string]any) (*AsyncMediaTask, bool, error) {
+	var imageURLs []string
+	var imageOutputSizes []string
+	var imageMetadata []ImageOutputMetadata
+	if len(rawResult) > 0 && s.modelIntroService != nil {
+		if intro, introErr := s.lookupModelIntro(ctx, task.RequestedModel); introErr == nil && intro != nil {
+			imageURLs, _ = extractConfiguredImageURLs(rawResult, intro)
+			imageMetadata = extractConfiguredImageMetadata(rawResult, imageURLs)
+			imageOutputSizes = imageOutputSizesFromMetadata(imageMetadata)
+		}
+	}
+	if len(imageURLs) == 0 {
+		imageURLs, imageOutputSizes = extractFalImageResult(result)
+		imageMetadata = extractFalImageMetadata(result)
+	}
+	if len(imageURLs) == 0 {
+		s.markFailedAndRefund(ctx, task, billingType, "upstream returned no images")
+		return task, true, nil
+	}
+	task.ImageMetadata = imageMetadata
+	s.markSucceeded(ctx, task, account.BillingRateMultiplier(), billingType, imageURLs, imageOutputSizes, rawResult)
+	return task, true, nil
 }
 
 // pollOnce 执行一轮状态查询并在终态时结算/退费。
@@ -461,7 +621,7 @@ func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, 
 	// task creation and the upstream submit response. There is no upstream URL
 	// to call yet; leave the task pending and let the next reconcile retry.
 	if task.UpstreamRequestID == nil || strings.TrimSpace(*task.UpstreamRequestID) == "" ||
-		task.StatusURL == nil || strings.TrimSpace(*task.StatusURL) == "" {
+		task.ResponseURL == nil || strings.TrimSpace(*task.ResponseURL) == "" {
 		logger.FromContext(ctx).Debug("async_media.upstream_poll_skipped",
 			zap.String("reason", "upstream_not_submitted"),
 			zap.Int64("task_id", task.ID),
@@ -472,12 +632,23 @@ func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, 
 	if task != nil && account != nil {
 		task.statusCacheUpstream = account.Platform
 	}
+	responseURL := ""
+	if task.ResponseURL != nil {
+		responseURL = *task.ResponseURL
+	}
+	task.lastRunAt = time.Now().UTC()
+	task.UpdatedAt = task.lastRunAt
+	// The Redis heartbeat is deliberately independent of database updated_at.
+	s.cacheTaskStatus(ctx, task)
 	if account != nil && account.Platform == PlatformLeonardo {
 		return s.pollLeonardoOnce(ctx, task, account, billingType)
 	}
 	client, err := s.newClient(account)
 	if err != nil {
 		return task, false, fmt.Errorf("async media poll: build client: %w", err)
+	}
+	if account.Platform == PlatformFal && !IsSeedVRUpscaleModel(task.RequestedModel) {
+		return s.pollFalResultOnce(ctx, task, account, billingType, responseURL)
 	}
 	statusURL := ""
 	if task.StatusURL != nil {
@@ -532,7 +703,7 @@ func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, 
 	}
 
 	// 终态：取结果。
-	responseURL := st.ResponseURL
+	responseURL = st.ResponseURL
 	upstreamModel := amDerefStr(task.UpstreamModel)
 	if responseURL == "" && task.ResponseURL != nil {
 		responseURL = *task.ResponseURL

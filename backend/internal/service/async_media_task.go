@@ -88,6 +88,7 @@ type AsyncMediaTask struct {
 
 	statusCacheHit      bool
 	statusCacheUpstream string
+	lastRunAt           time.Time
 }
 
 // AsyncMediaTaskStatus is the Redis representation used by the public
@@ -107,7 +108,14 @@ type AsyncMediaTaskStatus struct {
 	FinalCost     float64               `json:"final_cost"`
 	CreatedAt     time.Time             `json:"created_at"`
 	UpdatedAt     time.Time             `json:"updated_at"`
+	LastRunAt     time.Time             `json:"last_run_at,omitempty"`
 	Version       int64                 `json:"version"`
+}
+
+// AsyncMediaTaskLockStore serializes background polling for one upstream task.
+type AsyncMediaTaskLockStore interface {
+	TryAcquireAsyncMediaTaskLock(ctx context.Context, requestID, token string, ttl time.Duration) (bool, error)
+	ReleaseAsyncMediaTaskLock(ctx context.Context, requestID, token string) error
 }
 
 // AsyncMediaTaskStatusStore stores the read model for async image status/result
@@ -152,6 +160,7 @@ func asyncMediaTaskStatusFromTask(task *AsyncMediaTask) *AsyncMediaTaskStatus {
 		FinalCost:     task.FinalCost,
 		CreatedAt:     task.CreatedAt,
 		UpdatedAt:     task.UpdatedAt,
+		LastRunAt:     task.lastRunAt,
 		Version:       asyncMediaTaskStatusVersion(task),
 	}
 }
@@ -188,6 +197,7 @@ func (status *AsyncMediaTaskStatus) toTask() *AsyncMediaTask {
 		FinalCost:           status.FinalCost,
 		CreatedAt:           status.CreatedAt,
 		UpdatedAt:           status.UpdatedAt,
+		lastRunAt:           status.LastRunAt,
 		statusCacheHit:      true,
 		statusCacheUpstream: status.Upstream,
 	}

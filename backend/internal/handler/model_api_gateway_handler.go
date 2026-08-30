@@ -101,7 +101,7 @@ func (h *ModelAPIGatewayHandler) Native(c *gin.Context) {
 	case method == http.MethodPut && strings.HasSuffix(path, "/cancel"):
 		h.nativeCancel(c, modelAPIRequestIDFromPath(path))
 	case method == http.MethodGet && strings.Contains(path, "/requests/"):
-		h.nativeResult(c, modelAPIRequestIDFromPath(path), strings.HasSuffix(path, "/status"))
+		h.nativeResult(c, modelAPIRequestIDFromPath(path), false)
 	case method == http.MethodPost:
 		h.nativeSubmit(c, path)
 	default:
@@ -431,18 +431,8 @@ func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string, stat
 	}
 	c.Set(modelAPIUpstreamContextKey, upstream)
 	if mediaTask != nil {
-		if account != nil && !mediaTask.IsTerminal() {
-			if updated, _, _ := h.mediaService.AdvanceTask(c.Request.Context(), mediaTask, account); updated != nil {
-				mediaTask = updated
-			}
-		}
 		h.writeMediaResult(c, reqID, mediaTask, upstream, statusRequest)
 		return
-	}
-	if account != nil && !videoTask.IsTerminal() {
-		if updated, _, _ := h.videoService.AdvanceTask(c.Request.Context(), videoTask, account); updated != nil {
-			videoTask = updated
-		}
 	}
 	if !videoTask.IsTerminal() {
 		response := modelAPIStatusResponse{
@@ -451,15 +441,6 @@ func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string, stat
 		}
 		logModelAPIClientResponse(c, upstream, http.StatusAccepted, response)
 		c.JSON(http.StatusAccepted, response)
-		return
-	}
-	if statusRequest {
-		response := modelAPIStatusResponse{
-			StatusResponse: fal.StatusResponse{Status: videoFalStatusFromTask(videoTask), RequestID: reqID},
-			ActualCost:     videoTask.FinalCost,
-		}
-		logModelAPIClientResponse(c, upstream, http.StatusOK, response)
-		c.JSON(http.StatusOK, response)
 		return
 	}
 	if videoTask.Status != service.AsyncVideoStatusSucceeded {
@@ -471,7 +452,7 @@ func (h *ModelAPIGatewayHandler) nativeResult(c *gin.Context, reqID string, stat
 	// Preserve the upstream result payload while appending the authoritative
 	// amount settled by Sub2API. Clone the map so the persisted task payload is
 	// not mutated by response decoration.
-	response := modelAPIResultPayload(videoTask.ResultPayload, videoTask.FinalCost)
+	response := gin.H{"status": fal.StatusCompleted, "request_id": reqID, "data": modelAPIResultPayload(videoTask.ResultPayload, videoTask.FinalCost)}
 	logModelAPIClientResponse(c, upstream, http.StatusOK, response)
 	c.JSON(http.StatusOK, response)
 }
@@ -571,16 +552,7 @@ func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, 
 		c.JSON(http.StatusOK, response)
 		return
 	}
-	if statusRequest {
-		response := modelAPIStatusResponse{
-			StatusResponse: fal.StatusResponse{Status: imageStatusFromTask(task), RequestID: reqID},
-			ActualCost:     task.FinalCost,
-		}
-		logModelAPIClientResponse(c, upstream, http.StatusOK, response)
-		c.JSON(http.StatusOK, response)
-		return
-	}
-	response := buildAsyncImageResultPayload(task)
+	response := gin.H{"status": modelAPIStatusCompleted, "request_id": reqID, "data": buildAsyncImageResultPayload(task)}
 	logModelAPIClientResponse(c, upstream, http.StatusOK, response)
 	c.JSON(http.StatusOK, response)
 }
