@@ -40,8 +40,9 @@ type APIKey struct {
 	// that consumes the referenced organization subscription
 	// (organization_subscriptions.id) instead of the owner's personal subscription.
 	OrganizationSubscriptionID *int64
-	// PreferCompanyBalance controls the fallback wallet after an enterprise
-	// subscription is exhausted. It is intentionally false by default.
+	// PreferCompanyBalance controls wallet selection when an enterprise key
+	// reaches a configured balance-based fallback group. It never bypasses an
+	// exhausted enterprise subscription when no fallback group is configured.
 	PreferCompanyBalance bool
 	Status               string
 	IPWhitelist          []string

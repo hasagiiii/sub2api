@@ -76,6 +76,7 @@ export async function create(
   const payload: CreateApiKeyRequest = { name }
   if (organizationSubscriptionId !== undefined && organizationSubscriptionId !== null) {
     payload.organization_subscription_id = organizationSubscriptionId
+    payload.fallback_group_ids = fallbackGroupIds ?? []
   } else if (groupId !== undefined) {
     payload.group_id = groupId
     payload.fallback_group_ids = fallbackGroupIds ?? []

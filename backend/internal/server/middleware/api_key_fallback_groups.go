@@ -14,12 +14,18 @@ func prepareAPIKeyRoutingState(
 	apiKey *service.APIKey,
 	skipBilling bool,
 ) (*service.APIKeyRoutingState, error) {
-	if apiKey == nil || apiKey.OrganizationSubscriptionID != nil || len(apiKey.FallbackGroupIDs) == 0 {
+	if apiKey == nil || len(apiKey.FallbackGroupIDs) == 0 {
 		return nil, nil
 	}
 	candidates := apiKeyService.ResolveAPIKeyRoutingCandidates(ctx, apiKey)
 	for index := range candidates {
 		candidate := &candidates[index]
+		// The primary enterprise group is checked against its organization
+		// subscription by the auth middleware. It has no personal subscription
+		// record to resolve here; only fallback candidates use this path.
+		if index == 0 && apiKey.OrganizationSubscriptionID != nil {
+			continue
+		}
 		if candidate.Unavailable != nil || candidate.Group == nil || skipBilling || !candidate.Group.IsSubscriptionType() {
 			continue
 		}

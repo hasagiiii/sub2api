@@ -1499,6 +1499,61 @@ func TestAPIKeyAuthQuotaErrorKeepsLegacyFormatOutsideResponses(t *testing.T) {
 	requireAPIKeyAuthError(t, w, "API_KEY_QUOTA_EXHAUSTED", "API key 额度已用完")
 }
 
+type exhaustedEnterpriseOrganizationRepo struct {
+	service.OrganizationRepository
+	runtime *service.OrgSubscriptionRuntime
+}
+
+func (r exhaustedEnterpriseOrganizationRepo) GetContextForUser(context.Context, int64) (*service.OrganizationContext, error) {
+	return nil, service.ErrCompanyNotFound
+}
+
+func (r exhaustedEnterpriseOrganizationRepo) GetOrganizationSubscriptionForBilling(context.Context, int64) (*service.OrgSubscriptionRuntime, error) {
+	return r.runtime, nil
+}
+
+func TestAPIKeyAuthRejectsExhaustedEnterpriseSubscriptionWithoutFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	limit := 1.0
+	groupID := int64(42)
+	organizationSubscriptionID := int64(501)
+	user := &service.User{ID: 7, Role: service.RoleUser, Status: service.StatusActive, Balance: 100}
+	apiKey := &service.APIKey{
+		ID: 100, UserID: user.ID, Key: "enterprise-no-fallback", Status: service.StatusActive,
+		GroupID: &groupID, OrganizationSubscriptionID: &organizationSubscriptionID,
+		User: user,
+		Group: &service.Group{
+			ID: groupID, Status: service.StatusActive, Platform: service.PlatformAnthropic,
+			SubscriptionType: service.SubscriptionTypeSubscription, Hydrated: true,
+		},
+	}
+	apiKeyRepo := &stubApiKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+		clone := *apiKey
+		userClone := *user
+		clone.User = &userClone
+		return &clone, nil
+	}}
+	cfg := &config.Config{RunMode: config.RunModeStandard}
+	apiKeyService := service.NewAPIKeyService(apiKeyRepo, nil, nil, nil, nil, nil, cfg)
+	apiKeyService.SetOrganizationRepository(exhaustedEnterpriseOrganizationRepo{
+		runtime: &service.OrgSubscriptionRuntime{
+			ID: organizationSubscriptionID, OrganizationID: 3, GroupID: groupID,
+			Status:   service.SubscriptionStatusActive,
+			StartsAt: time.Now().Add(-time.Hour), ExpiresAt: time.Now().Add(time.Hour),
+			DailyLimitUSD: &limit, DailyUsageUSD: limit + 0.1,
+		},
+	})
+	router := newAuthTestRouter(apiKeyService, nil, cfg)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	req.Header.Set("x-api-key", apiKey.Key)
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	requireAPIKeyAuthError(t, w, "USAGE_LIMIT_EXCEEDED", service.ErrDailyLimitExceeded.Error())
+}
+
 func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.HandlerFunc(NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, cfg)))

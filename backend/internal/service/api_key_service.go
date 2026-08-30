@@ -739,9 +739,6 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 	// 企业 API Key：绑定公司订阅。校验用户是该订阅所属组织的活跃成员，
 	// 并将分组强制设置为订阅所属分组（消费走公司订阅计数器）。
 	if req.OrganizationSubscriptionID != nil {
-		if len(req.FallbackGroupIDs) > 0 {
-			return nil, ErrInvalidFallbackGroups
-		}
 		orgSub, err := s.resolveBindableOrganizationSubscription(ctx, userID, *req.OrganizationSubscriptionID)
 		if err != nil {
 			return nil, err
@@ -1070,9 +1067,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	if req.OrganizationSubscriptionID != nil {
-		if req.FallbackGroupIDs != nil && len(*req.FallbackGroupIDs) > 0 {
-			return nil, ErrInvalidFallbackGroups
-		}
 		// 重新绑定为企业 Key
 		orgSub, err := s.resolveBindableOrganizationSubscription(ctx, userID, *req.OrganizationSubscriptionID)
 		if err != nil {
@@ -1082,10 +1076,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.GroupID = &gid
 		apiKey.OrganizationSubscriptionID = req.OrganizationSubscriptionID
 		fields.GroupID = true
-		if len(apiKey.FallbackGroupIDs) > 0 {
-			apiKey.FallbackGroupIDs = []int64{}
-			fields.FallbackGroupIDs = true
-		}
 	} else if req.GroupID != nil {
 		// 验证分组权限（个人 Key），并清除可能存在的企业绑定
 		user, err := s.userRepo.GetByID(ctx, userID)
@@ -1112,9 +1102,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	if req.FallbackGroupIDs != nil {
-		if apiKey.OrganizationSubscriptionID != nil && len(*req.FallbackGroupIDs) > 0 {
-			return nil, ErrInvalidFallbackGroups
-		}
 		user := apiKey.User
 		if user == nil {
 			user, err = s.userRepo.GetByID(ctx, userID)

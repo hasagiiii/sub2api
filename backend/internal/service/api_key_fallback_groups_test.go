@@ -68,19 +68,9 @@ func TestValidateAPIKeyFallbackGroups(t *testing.T) {
 	unauthorized := *user
 	unauthorized.AllowedGroups = nil
 	require.ErrorIs(t, svc.validateAPIKeyFallbackGroups(context.Background(), &unauthorized, &primary, []int64{3}), ErrGroupNotAllowed)
-}
 
-func TestCreateAPIKeyRejectsFallbackGroupsForEnterpriseKey(t *testing.T) {
-	organizationSubscriptionID := int64(90)
-	svc := &APIKeyService{
-		userRepo: &fallbackValidationUserRepo{user: &User{ID: 7, Status: StatusActive}},
-	}
-
-	_, err := svc.Create(context.Background(), 7, CreateAPIKeyRequest{
-		OrganizationSubscriptionID: &organizationSubscriptionID,
-		FallbackGroupIDs:           []int64{2},
-	})
-	require.ErrorIs(t, err, ErrInvalidFallbackGroups)
+	enterprisePrimary := int64(5)
+	require.NoError(t, svc.validateAPIKeyFallbackGroups(context.Background(), user, &enterprisePrimary, []int64{2}))
 }
 
 func TestResolveAPIKeyRoutingCandidatesRejectsCrossPlatformRuntimeData(t *testing.T) {
@@ -104,14 +94,4 @@ func TestResolveAPIKeyRoutingCandidatesRejectsCrossPlatformRuntimeData(t *testin
 	require.ErrorIs(t, candidates[1].Unavailable, ErrGroupNotAllowed)
 	require.NoError(t, candidates[2].Unavailable)
 	require.Equal(t, samePlatform.ID, candidates[2].Group.ID)
-}
-
-type fallbackValidationUserRepo struct {
-	*userRepoStubForGroupUpdate
-	user *User
-}
-
-func (r *fallbackValidationUserRepo) GetByID(context.Context, int64) (*User, error) {
-	clone := *r.user
-	return &clone, nil
 }

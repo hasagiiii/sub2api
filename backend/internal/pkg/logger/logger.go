@@ -457,7 +457,6 @@ func inferStdLogLevel(msg string) Level {
 	if lower == "" {
 		return LevelInfo
 	}
-
 	if strings.HasPrefix(lower, "[debug]") || strings.HasPrefix(lower, "debug:") {
 		return LevelDebug
 	}
@@ -479,6 +478,17 @@ func inferStdLogLevel(msg string) Level {
 
 // LegacyPrintf 用于平滑迁移历史的 printf 风格日志到结构化 logger。
 func LegacyPrintf(component, format string, args ...any) {
+	legacyPrintf(true, component, format, args...)
+}
+
+// LegacyPrintfNoStack records a printf-style log without the logger's automatic
+// stack trace. Use this for diagnostic messages that include an error field but
+// whose call-site is sufficient for troubleshooting.
+func LegacyPrintfNoStack(component, format string, args ...any) {
+	legacyPrintf(false, component, format, args...)
+}
+
+func legacyPrintf(withStack bool, component, format string, args ...any) {
 	msg := normalizeStdLogMessage(fmt.Sprintf(format, args...))
 	if msg == "" {
 		return
@@ -495,7 +505,11 @@ func LegacyPrintf(component, format string, args ...any) {
 	if component != "" {
 		l = l.With(zap.String("component", component))
 	}
-	l = l.WithOptions(zap.AddCallerSkip(1))
+	options := []zap.Option{zap.AddCallerSkip(1)}
+	if !withStack {
+		options = append(options, zap.AddStacktrace(zapcore.PanicLevel))
+	}
+	l = l.WithOptions(options...)
 
 	switch inferStdLogLevel(msg) {
 	case LevelDebug:

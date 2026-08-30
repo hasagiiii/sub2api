@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -198,6 +200,9 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 					}
 					if reValidate := apiKeyService.ValidateEnterpriseSubscription(c.Request.Context(), apiKey); reValidate == nil {
 						setGroupContext(c, apiKey.Group)
+						if routingState != nil {
+							c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.APIKeyRoutingState, (*service.APIKeyRoutingState)(nil)))
+						}
 						validateErr = nil
 					} else {
 						apiKey.OrganizationSubscriptionID = &originalSubID
@@ -206,15 +211,17 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 					}
 				}
 			}
-			if validateErr != nil && (errors.Is(validateErr, service.ErrDailyLimitExceeded) ||
-				errors.Is(validateErr, service.ErrWeeklyLimitExceeded) ||
-				errors.Is(validateErr, service.ErrMonthlyLimitExceeded)) {
-				apiKey.OrganizationSubscriptionID = nil
-				isEnterpriseKey = false
-				enterpriseSubscriptionFallback = true
-				setGroupContext(c, apiKey.Group)
-				validateErr = nil
+			if validateErr != nil && routingState != nil {
+				if _, routeErr := routingState.EnsureEligibleFrom(c.Request.Context(), 1); routeErr == nil {
+					isEnterpriseKey = false
+					enterpriseSubscriptionFallback = true
+					setGroupContext(c, apiKey.Group)
+					validateErr = nil
+				}
 			}
+			// Enterprise subscription groups never fall back directly to a
+			// balance. Without a usable manual or enterprise subscription
+			// fallback, keep validateErr and reject the request below.
 			if validateErr != nil {
 				status := 403
 				if errors.Is(validateErr, service.ErrDailyLimitExceeded) ||

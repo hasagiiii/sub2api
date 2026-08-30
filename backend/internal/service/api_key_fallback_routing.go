@@ -220,6 +220,13 @@ func (s *APIKeyRoutingState) applyCandidateLocked(index int) {
 		groupID := candidate.Group.ID
 		s.apiKey.GroupID = &groupID
 		s.apiKey.Group = candidate.Group
+		// An enterprise subscription binding belongs to the primary group. Once
+		// a request falls back to another group, billing must resolve that
+		// candidate's own subscription/balance instead of charging the original
+		// organization subscription.
+		if index > 0 && s.apiKey.OrganizationSubscriptionID != nil {
+			s.apiKey.OrganizationSubscriptionID = nil
+		}
 	}
 	if candidate.Subscription != nil {
 		s.subscriptionRef = *candidate.Subscription

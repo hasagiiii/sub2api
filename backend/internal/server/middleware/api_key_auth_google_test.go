@@ -443,6 +443,47 @@ func TestApiKeyAuthWithSubscriptionGoogleAcceptsEnterpriseSubscription(t *testin
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
 
+func TestApiKeyAuthWithSubscriptionGoogleRejectsExhaustedEnterpriseWithoutFallback(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(99)
+	organizationSubscriptionID := int64(501)
+	limit := 1.0
+	apiKey := &service.APIKey{
+		ID: 100, UserID: 7, Key: "enterprise-google-no-fallback", Status: service.StatusActive,
+		GroupID: &groupID, OrganizationSubscriptionID: &organizationSubscriptionID,
+		User: &service.User{ID: 7, Role: service.RoleUser, Status: service.StatusActive, Balance: 100},
+		Group: &service.Group{
+			ID: groupID, Status: service.StatusActive, Platform: service.PlatformGemini,
+			SubscriptionType: service.SubscriptionTypeSubscription, Hydrated: true,
+		},
+	}
+	apiKeyService := newTestAPIKeyService(fakeAPIKeyRepo{getByKey: func(context.Context, string) (*service.APIKey, error) {
+		clone := *apiKey
+		userClone := *apiKey.User
+		clone.User = &userClone
+		return &clone, nil
+	}})
+	apiKeyService.SetOrganizationRepository(fakeGoogleOrganizationRepo{runtime: &service.OrgSubscriptionRuntime{
+		ID: organizationSubscriptionID, OrganizationID: 3, GroupID: groupID,
+		Status:   service.SubscriptionStatusActive,
+		StartsAt: time.Now().Add(-time.Hour), ExpiresAt: time.Now().Add(time.Hour),
+		DailyLimitUSD: &limit, DailyUsageUSD: limit + 0.1,
+	}})
+	r := gin.New()
+	r.Use(APIKeyAuthWithSubscriptionGoogle(apiKeyService, nil, &config.Config{RunMode: config.RunModeStandard}))
+	r.GET("/v1beta/test", func(c *gin.Context) { c.Status(http.StatusOK) })
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/test", nil)
+	req.Header.Set("x-goog-api-key", apiKey.Key)
+	rec := httptest.NewRecorder()
+
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
+	var resp googleErrorResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, http.StatusTooManyRequests, resp.Error.Code)
+}
+
 func TestApiKeyAuthWithSubscriptionGoogle_QueryKeyAllowedOnV1Beta(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

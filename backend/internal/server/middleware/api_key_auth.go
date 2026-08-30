@@ -284,6 +284,12 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 								apiKey.User.ID, apiKey.ID, originalSubID, newSubID, fallback.GroupID,
 							)
 							setGroupContext(c, apiKey.Group)
+							// Enterprise auto-switching selects a subscription outside
+							// the manual group fallback state; prevent that state from
+							// re-evaluating the old primary group in the handler.
+							if routingState != nil {
+								c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.APIKeyRoutingState, (*service.APIKeyRoutingState)(nil)))
+							}
 							validateErr = nil
 						} else {
 							// 切换到的候选也不可用，回滚到原绑定并按原错误返回。
@@ -293,24 +299,24 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 						}
 					}
 				}
-				// Once the bound enterprise subscription is exhausted, fall back to
-				// normal balance billing for this request. The API key preference is
-				// resolved later by BillingContextResolver; the DB binding is kept.
-				if validateErr != nil && (errors.Is(validateErr, service.ErrDailyLimitExceeded) ||
-					errors.Is(validateErr, service.ErrWeeklyLimitExceeded) ||
-					errors.Is(validateErr, service.ErrMonthlyLimitExceeded)) {
-					apiKey.OrganizationSubscriptionID = nil
-					isEnterpriseKey = false
-					setGroupContext(c, apiKey.Group)
-					validateErr = nil
+				// Manual API-key fallback groups are also valid for enterprise keys.
+				if validateErr != nil && routingState != nil {
+					if _, routeErr := routingState.EnsureEligibleFrom(c.Request.Context(), 1); routeErr == nil {
+						isEnterpriseKey = false
+						setGroupContext(c, apiKey.Group)
+						validateErr = nil
+					}
 				}
+				// Enterprise subscription groups never fall back directly to a
+				// balance. Without a usable manual or enterprise subscription
+				// fallback, keep validateErr and reject the request below.
 				if validateErr != nil {
 					// DIAG_USAGE_LIMIT: 记录企业订阅命中日/周/月限额的原因，便于排查 IAM 侧误判
 					orgSubIDForLog := int64(0)
 					if apiKey.OrganizationSubscriptionID != nil {
 						orgSubIDForLog = *apiKey.OrganizationSubscriptionID
 					}
-					logger.LegacyPrintf(
+					logger.LegacyPrintfNoStack(
 						"middleware.api_key_auth",
 						"DIAG_USAGE_LIMIT branch=enterprise user_id=%d api_key_id=%d org_sub_id=%d group=%s validate_err=%v",
 						apiKey.User.ID, apiKey.ID, orgSubIDForLog,
