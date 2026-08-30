@@ -1875,6 +1875,7 @@ export interface UsageLogAccountSummary {
 }
 
 export interface AdminUsageLog extends UsageLog {
+  balance_source?: 'self' | 'allocated' | 'shared' | 'company' | 'subscription' | string | null
   upstream_model?: string | null
   upstream_response_model?: string | null
   upstream_model_mismatch?: boolean | null
