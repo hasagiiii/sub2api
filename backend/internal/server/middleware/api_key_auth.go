@@ -304,7 +304,6 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				// Manual API-key fallback groups are also valid for enterprise keys.
 				if validateErr != nil && routingState != nil {
 					if _, routeErr := routingState.EnsureEligibleFrom(c.Request.Context(), 1); routeErr == nil {
-						isEnterpriseKey = false
 						setGroupContext(c, apiKey.Group)
 						validateErr = nil
 					}

@@ -8,8 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
-	"strconv"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -79,33 +78,7 @@ func ensureAuthRouteDockerAvailable(t *testing.T) {
 }
 
 func authRouteDockerAvailable() bool {
-	if os.Getenv("DOCKER_HOST") != "" {
-		return true
-	}
-
-	socketCandidates := []string{
-		"/var/run/docker.sock",
-		filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "docker.sock"),
-		filepath.Join(authRouteUserHomeDir(), ".docker", "run", "docker.sock"),
-		filepath.Join(authRouteUserHomeDir(), ".docker", "desktop", "docker.sock"),
-		filepath.Join("/run/user", strconv.Itoa(os.Getuid()), "docker.sock"),
-	}
-
-	for _, socket := range socketCandidates {
-		if socket == "" {
-			continue
-		}
-		if _, err := os.Stat(socket); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
-func authRouteUserHomeDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return home
+	cmd := exec.Command("docker", "info")
+	cmd.Env = os.Environ()
+	return cmd.Run() == nil
 }

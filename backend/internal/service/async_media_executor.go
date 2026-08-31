@@ -557,10 +557,6 @@ func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, 
 	if task != nil && account != nil {
 		task.statusCacheUpstream = account.Platform
 	}
-	responseURL := ""
-	if task.ResponseURL != nil {
-		responseURL = *task.ResponseURL
-	}
 	task.lastRunAt = time.Now().UTC()
 	task.UpdatedAt = task.lastRunAt
 	// The Redis heartbeat is deliberately independent of database updated_at.
@@ -625,7 +621,7 @@ func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, 
 	}
 
 	// 终态：取结果。
-	responseURL = st.ResponseURL
+	responseURL := st.ResponseURL
 	upstreamModel := amDerefStr(task.UpstreamModel)
 	if responseURL == "" && task.ResponseURL != nil {
 		responseURL = *task.ResponseURL
@@ -773,7 +769,7 @@ func (s *AsyncMediaService) markSucceeded(ctx context.Context, task *AsyncMediaT
 				}
 			}
 			if len(mapping) > 0 {
-				task.ResultPayload = replaceURLsInPayload(task.ResultPayload, mapping).(map[string]any)
+				replaceURLsInPayload(task.ResultPayload, mapping)
 			}
 		}
 	}

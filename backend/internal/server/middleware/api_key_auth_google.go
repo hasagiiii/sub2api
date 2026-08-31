@@ -183,7 +183,6 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 		isEnterpriseKey := apiKey.OrganizationSubscriptionID != nil
-		enterpriseSubscriptionFallback := false
 		if isEnterpriseKey {
 			validateErr := apiKeyService.ValidateEnterpriseSubscription(c.Request.Context(), apiKey)
 			if validateErr != nil {
@@ -213,8 +212,6 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			}
 			if validateErr != nil && routingState != nil {
 				if _, routeErr := routingState.EnsureEligibleFrom(c.Request.Context(), 1); routeErr == nil {
-					isEnterpriseKey = false
-					enterpriseSubscriptionFallback = true
 					setGroupContext(c, apiKey.Group)
 					validateErr = nil
 				}
@@ -232,7 +229,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				abortWithGoogleError(c, status, validateErr.Error())
 				return
 			}
-		} else if !enterpriseSubscriptionFallback && routingState == nil && isSubscriptionType && subscriptionService != nil {
+		} else if routingState == nil && isSubscriptionType && subscriptionService != nil {
 			subscription, err := subscriptionService.GetActiveSubscription(
 				c.Request.Context(),
 				apiKey.User.ID,
