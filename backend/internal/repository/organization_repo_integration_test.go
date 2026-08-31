@@ -914,6 +914,7 @@ func TestOrganizationUsageExcludesOwnerSelfBalanceWithEnterpriseAPIKey(t *testin
 	enterpriseSubscription, err := repo.CreateOrganizationSubscription(ctx, owner.ID, groupID, 0, "owner subscription")
 	require.NoError(t, err)
 	ownerKey := mustCreateApiKey(t, integrationEntClient, &service.APIKey{UserID: owner.ID, GroupID: &groupID})
+	account := mustCreateAccount(t, integrationEntClient, &service.Account{Name: "organization-owner-self-account"})
 	_, err = integrationDB.ExecContext(ctx, `UPDATE api_keys SET organization_subscription_id=$1 WHERE id=$2`, enterpriseSubscription.ID, ownerKey.ID)
 	require.NoError(t, err)
 	prefix := "owner-self-" + uuid.NewString()
@@ -922,8 +923,8 @@ func TestOrganizationUsageExcludesOwnerSelfBalanceWithEnterpriseAPIKey(t *testin
 	})
 	_, err = integrationDB.ExecContext(ctx, `
 		INSERT INTO usage_logs(user_id,organization_id,payer_user_id,balance_source,billing_type,api_key_id,account_id,request_id,model,input_tokens,output_tokens,total_cost,actual_cost,billing_status,created_at)
-		VALUES($1,$2,$1,'self',1,$3,NULL,$4,'gpt-owner-self',10,5,1,1,'charged',NOW())`,
-		owner.ID, organizationID, ownerKey.ID, prefix+"-balance")
+		VALUES($1,$2,$1,'self',1,$3,$4,$5,'gpt-owner-self',10,5,1,1,'charged',NOW())`,
+		owner.ID, organizationID, ownerKey.ID, account.ID, prefix+"-balance")
 	require.NoError(t, err)
 
 	rows, total, err := repo.ListUsage(ctx, owner.ID, service.OrganizationUsageFilter{Page: 1, PageSize: 20})
