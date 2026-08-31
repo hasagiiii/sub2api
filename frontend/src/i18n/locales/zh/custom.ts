@@ -8273,7 +8273,7 @@ decodeSizeOnRspHint: '开启后上游不返回 size 字段或返回 size=auto �
     amountTooLow: '最低金额为 {min}',
     amountTooHigh: '最高金额为 {max}',
     amountNoMethod: '该金额没有可用的支付方式',
-    rechargeRatePreview: '当前倍率：1 CNY = {usd} USD',
+    rechargeRatePreview: '当前倍率：1 {currency} = {usd} USD',
     promo: {
       banner: '充值赠送活动进行中（截止 {validUntil}），按档位享额外赠送余额',
       bannerNoExpiry: '充值赠送活动进行中，按档位享额外赠送余额',

@@ -8091,7 +8091,7 @@ decodeSizeOnRspHint: 'When the upstream response omits the size field or returns
     amountTooLow: 'Minimum amount is {min}',
     amountTooHigh: 'Maximum amount is {max}',
     amountNoMethod: 'No payment method available for this amount',
-    rechargeRatePreview: 'Current rate: 1 CNY = {usd} USD',
+    rechargeRatePreview: 'Current rate: 1 {currency} = {usd} USD',
     promo: {
       banner: 'Recharge bonus campaign is on (until {validUntil}). Higher tiers earn extra credit.',
       bannerNoExpiry: 'Recharge bonus campaign is on. Higher tiers earn extra credit.',

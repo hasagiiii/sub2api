@@ -209,7 +209,8 @@ func (r *userRepository) createWithPublicID(ctx context.Context, userIn *service
 		SetMustChangePassword(userIn.MustChangePassword).
 		SetRecoveryEmail(userIn.RecoveryEmail).
 		SetNillableRecoveryEmailVerifiedAt(userIn.RecoveryEmailVerifiedAt).
-		SetAuthzGeneration(max(userIn.AuthzGeneration, 1))
+		SetAuthzGeneration(max(userIn.AuthzGeneration, 1)).
+		SetRestrictPublicGroups(userIn.RestrictPublicGroups)
 	if userIn.Email != "" {
 		createOp.SetEmail(userIn.Email)
 	}
@@ -431,6 +432,9 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	}
 	if fields.Status {
 		updateOp = updateOp.SetStatus(userIn.Status)
+	}
+	if fields.RestrictPublicGroups {
+		updateOp = updateOp.SetRestrictPublicGroups(userIn.RestrictPublicGroups)
 	}
 	if fields.BalanceNotifySettings {
 		updateOp = updateOp.
