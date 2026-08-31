@@ -326,15 +326,29 @@ func (s *OpenAIGatewayService) runSeedVRUpscale(
 	defer cancel()
 
 	dataURI := "data:image/png;base64," + b64
-	sub, err := client.SubmitUpscale(upCtx, cfg.Endpoint, &fal.UpscaleRequest{
+	upstreamRequest := &fal.UpscaleRequest{
 		ImageURL:      dataURI,
 		UpscaleMode:   "factor",
 		UpscaleFactor: factor,
 		OutputFormat:  "png",
-	})
+	}
+	logger.L().Debug("openai.images.upscale.upstream_request",
+		zap.String("endpoint", cfg.Endpoint),
+		zap.String("model", cfg.Endpoint),
+		zap.String("upscale_mode", upstreamRequest.UpscaleMode),
+		zap.Int("upscale_factor", upstreamRequest.UpscaleFactor),
+		zap.String("output_format", upstreamRequest.OutputFormat),
+		zap.Int("image_base64_bytes", len(b64)),
+	)
+	sub, err := client.SubmitUpscale(upCtx, cfg.Endpoint, upstreamRequest)
 	if err != nil {
+		logger.L().Debug("openai.images.upscale.upstream_response", zap.String("stage", "submit"), zap.String("endpoint", cfg.Endpoint), zap.Error(err))
 		return "", "", fmt.Errorf("submit: %w", err)
 	}
+	logger.L().Debug("openai.images.upscale.upstream_response",
+		zap.String("stage", "submit"), zap.String("endpoint", cfg.Endpoint),
+		zap.String("request_id", sub.RequestID), zap.String("status_url", sub.StatusURL), zap.String("response_url", sub.ResponseURL),
+	)
 
 	statusURL := strings.TrimSpace(sub.StatusURL)
 	if statusURL == "" {
@@ -351,8 +365,12 @@ func (s *OpenAIGatewayService) runSeedVRUpscale(
 	for {
 		st, serr := client.Status(upCtx, statusURL)
 		if serr != nil {
+			logger.L().Debug("openai.images.upscale.upstream_response", zap.String("stage", "status"), zap.String("endpoint", statusURL), zap.Error(serr))
 			return "", "", fmt.Errorf("status: %w", serr)
 		}
+		logger.L().Debug("openai.images.upscale.upstream_response",
+			zap.String("stage", "status"), zap.String("endpoint", statusURL), zap.String("request_id", st.RequestID), zap.String("status", st.Status),
+		)
 		if st.Status == fal.StatusCompleted {
 			if u := strings.TrimSpace(st.ResponseURL); u != "" {
 				responseURL = u
@@ -368,8 +386,14 @@ func (s *OpenAIGatewayService) runSeedVRUpscale(
 
 	res, rerr := client.UpscaleResult(upCtx, responseURL)
 	if rerr != nil {
+		logger.L().Debug("openai.images.upscale.upstream_response", zap.String("stage", "result"), zap.String("endpoint", responseURL), zap.Error(rerr))
 		return "", "", fmt.Errorf("result: %w", rerr)
 	}
+	logger.L().Debug("openai.images.upscale.upstream_response",
+		zap.String("stage", "result"), zap.String("endpoint", responseURL),
+		zap.String("image_url", res.Image.URL), zap.String("content_type", res.Image.ContentType),
+		zap.Int("width", res.Image.Width), zap.Int("height", res.Image.Height),
+	)
 	imgURL := strings.TrimSpace(res.Image.URL)
 	if imgURL == "" {
 		return "", "", fmt.Errorf("upscale result has empty image url")

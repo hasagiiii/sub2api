@@ -95,6 +95,11 @@ func OrganizationSubscriptionID(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldOrganizationSubscriptionID, v))
 }
 
+// PreferCompanyBalance applies equality check predicate on the "prefer_company_balance" field. It's identical to PreferCompanyBalanceEQ.
+func PreferCompanyBalance(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldPreferCompanyBalance, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldStatus, v))
@@ -523,6 +528,16 @@ func OrganizationSubscriptionIDIsNil() predicate.APIKey {
 // OrganizationSubscriptionIDNotNil applies the NotNil predicate on the "organization_subscription_id" field.
 func OrganizationSubscriptionIDNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldOrganizationSubscriptionID))
+}
+
+// PreferCompanyBalanceEQ applies the EQ predicate on the "prefer_company_balance" field.
+func PreferCompanyBalanceEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldPreferCompanyBalance, v))
+}
+
+// PreferCompanyBalanceNEQ applies the NEQ predicate on the "prefer_company_balance" field.
+func PreferCompanyBalanceNEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldPreferCompanyBalance, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

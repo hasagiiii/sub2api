@@ -395,6 +395,15 @@ type BillingContext struct {
 	AuthzGeneration int64
 }
 
+type billingAPIKeyContextKey struct{}
+
+// WithBillingAPIKey associates the request's API key with billing resolution.
+// This keeps the resolver interface compatible with non-HTTP callers while
+// allowing API-key-level wallet preferences to affect fallback billing.
+func WithBillingAPIKey(ctx context.Context, apiKey *APIKey) context.Context {
+	return context.WithValue(ctx, billingAPIKeyContextKey{}, apiKey)
+}
+
 func (c *BillingContext) UsesCompanyBalance() bool {
 	return c != nil && c.BalanceSource == BalanceSourceCompany
 }
@@ -1688,6 +1697,14 @@ func (r *BillingContextResolver) resolveForAmount(ctx context.Context, consumerU
 	if err != nil {
 		organizationRuntimeMetrics.payerResolutionFailures.Add(1)
 		return nil, fmt.Errorf("resolve billing context: %w", err)
+	}
+	var preferredKey *APIKey
+	if ctx != nil {
+		preferredKey, _ = ctx.Value(billingAPIKeyContextKey{}).(*APIKey)
+	}
+	if preferredKey != nil && preferredKey.PreferCompanyBalance && resolved != nil && resolved.OrganizationID != nil && resolved.BalanceSource == BalanceSourceSelf {
+		resolved.PayerUserID = resolved.ConsumerUserID
+		resolved.BalanceSource = BalanceSourceCompany
 	}
 	if enforceSpendLimit {
 		if err := r.CheckSpendLimit(ctx, resolved, requiredAmount); err != nil {

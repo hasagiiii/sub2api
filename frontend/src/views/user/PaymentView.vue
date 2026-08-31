@@ -227,6 +227,14 @@
                   </div>
                 </div>
               </div>
+              <div
+                v-if="isSelectedPlanRenewal"
+                class="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 dark:border-red-800/60 dark:bg-red-900/20 dark:text-red-300"
+                data-test="renewal-quota-warning"
+                role="alert"
+              >
+                {{ t('payment.renewalQuotaWarning') }}
+              </div>
               <button :class="['btn w-full py-3 text-base font-medium', paymentButtonClass]" :disabled="!canSubmitSubscription || submitting" @click="confirmSubscribe">
                 <span v-if="submitting" class="flex items-center justify-center gap-2">
                   <span class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
@@ -1040,6 +1048,12 @@ const paymentButtonClass = computed(() => {
 // Subscription confirm: platform accent colors (clean card, no gradient)
 const planBadgeClass = computed(() => platformBadgeClass(selectedPlan.value?.group_platform || ''))
 const planTextClass = computed(() => platformTextClass(selectedPlan.value?.group_platform || ''))
+const isSelectedPlanRenewal = computed(() =>
+  selectedPlan.value !== null
+  && activeSubscriptions.value.some(
+    subscription => subscription.status === 'active' && subscription.group_id === selectedPlan.value?.group_id,
+  ),
+)
 
 // Renewal modal state
 const showRenewalModal = ref(false)

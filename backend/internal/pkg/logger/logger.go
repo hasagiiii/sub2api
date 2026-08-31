@@ -457,7 +457,6 @@ func inferStdLogLevel(msg string) Level {
 	if lower == "" {
 		return LevelInfo
 	}
-
 	if strings.HasPrefix(lower, "[debug]") || strings.HasPrefix(lower, "debug:") {
 		return LevelDebug
 	}
@@ -479,6 +478,10 @@ func inferStdLogLevel(msg string) Level {
 
 // LegacyPrintf 用于平滑迁移历史的 printf 风格日志到结构化 logger。
 func LegacyPrintf(component, format string, args ...any) {
+	legacyPrintf(component, format, args...)
+}
+
+func legacyPrintf(component, format string, args ...any) {
 	msg := normalizeStdLogMessage(fmt.Sprintf(format, args...))
 	if msg == "" {
 		return

@@ -78,6 +78,9 @@ const messages: Record<string, string> = {
   'admin.usage.billingModeToken': 'Token',
   'admin.usage.billingModePerRequest': 'Per request',
   'admin.usage.billingModeImage': 'Image',
+	'organization.balanceSource.self': 'Root balance',
+	'organization.balanceSource.company': 'Company balance',
+	'organization.balanceSource.subscription': 'Enterprise subscription',
 	'admin.usage.manualVideoBilling': 'Complete video billing manually',
 	'admin.usage.billingPendingManual': 'Manual billing required',
 	'usage.videoCount': 'Video count',
@@ -112,6 +115,7 @@ const DataTableStub = {
       <div v-for="row in data" :key="row.request_id">
         <slot name="cell-model" :row="row" :value="row.model" />
         <slot name="cell-billing_mode" :row="row" />
+        <slot name="cell-balance_source" :row="row" />
         <slot name="cell-tokens" :row="row" />
         <slot name="cell-cost" :row="row" />
         <slot name="cell-request_id" :row="row" />
@@ -148,6 +152,25 @@ const baseImageRow = {
   image_size_source: null,
   image_size_breakdown: null,
 }
+
+describe('admin UsageTable balance source', () => {
+  it('renders the recorded source and falls back to billing type for legacy rows', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          { request_id: 'balance-source', balance_source: 'company', billing_type: 0 },
+          { request_id: 'legacy-subscription', balance_source: null, billing_type: 1 },
+        ],
+        loading: false,
+        columns: [{ key: 'balance_source', label: 'Balance source' }],
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Teleport: true } },
+    })
+
+    expect(wrapper.text()).toContain('Company balance')
+    expect(wrapper.text()).toContain('Enterprise subscription')
+  })
+})
 
 const DataTableStubWithResult = {
   props: ['data'],

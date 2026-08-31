@@ -28,12 +28,24 @@ describe('API key fallback group payloads', () => {
     })
   })
 
-  it('does not serialize personal fallback groups for an enterprise key', async () => {
+  it('serializes ordered fallback groups for an enterprise key', async () => {
     await create('enterprise', 1, undefined, [], [], 0, undefined, undefined, 90, [3, 2])
 
     expect(post).toHaveBeenCalledWith('/keys', {
       name: 'enterprise',
       organization_subscription_id: 90,
+      fallback_group_ids: [3, 2],
+    })
+  })
+
+  it('serializes company balance preference when enabled', async () => {
+    await create('company-first', 1, undefined, [], [], 0, undefined, undefined, null, [], true)
+
+    expect(post).toHaveBeenCalledWith('/keys', {
+      name: 'company-first',
+      group_id: 1,
+      fallback_group_ids: [],
+      prefer_company_balance: true,
     })
   })
 

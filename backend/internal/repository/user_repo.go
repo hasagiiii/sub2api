@@ -650,6 +650,9 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 	if filters.Role != "" {
 		q = q.Where(dbuser.RoleEQ(filters.Role))
 	}
+	if filters.EnterpriseIdentity != "" {
+		q = q.Where(userEnterpriseIdentityPredicate(filters.EnterpriseIdentity))
+	}
 	if filters.Search != "" {
 		orPreds := []predicate.User{
 			dbuser.EmailContainsFold(filters.Search),
@@ -774,6 +777,29 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 	}
 
 	return outUsers, paginationResultFromTotal(int64(total), params), nil
+}
+
+// userEnterpriseIdentityPredicate keeps the enterprise identity filter in the
+// database query so pagination and total counts are based on the same set.
+// The displayed identity uses the same company_id requirement as
+// loadEnterpriseIdentities below.
+func userEnterpriseIdentityPredicate(identity string) predicate.User {
+	return predicate.User(func(s *entsql.Selector) {
+		s.Where(entsql.P(func(b *entsql.Builder) {
+			outerUserID := s.C(dbuser.FieldID)
+			if identity == "personal" {
+				b.WriteString("NOT EXISTS (SELECT 1 FROM organization_memberships m JOIN organizations o ON o.id = m.organization_id WHERE m.user_id = ")
+			} else {
+				b.WriteString("EXISTS (SELECT 1 FROM organization_memberships m JOIN organizations o ON o.id = m.organization_id WHERE m.user_id = ")
+			}
+			b.Ident(outerUserID)
+			b.WriteString(" AND NULLIF(TRIM(o.company_id), '') IS NOT NULL")
+			if identity == "owner" || identity == "member" {
+				b.WriteString(" AND m.role = ").Arg(identity)
+			}
+			b.WriteString(")")
+		}))
+	})
 }
 
 type userEnterpriseIdentity struct {

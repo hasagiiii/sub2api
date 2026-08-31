@@ -14,6 +14,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 const maxAPIKeyAuthorizationHeaderBytes = service.MaxAPIKeyCredentialBytes + 128
@@ -284,6 +286,12 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 								apiKey.User.ID, apiKey.ID, originalSubID, newSubID, fallback.GroupID,
 							)
 							setGroupContext(c, apiKey.Group)
+							// Enterprise auto-switching selects a subscription outside
+							// the manual group fallback state; prevent that state from
+							// re-evaluating the old primary group in the handler.
+							if routingState != nil {
+								c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.APIKeyRoutingState, (*service.APIKeyRoutingState)(nil)))
+							}
 							validateErr = nil
 						} else {
 							// 切换到的候选也不可用，回滚到原绑定并按原错误返回。
@@ -293,23 +301,37 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 						}
 					}
 				}
+				// Manual API-key fallback groups are also valid for enterprise keys.
+				if validateErr != nil && routingState != nil {
+					if _, routeErr := routingState.EnsureEligibleFrom(c.Request.Context(), 1); routeErr == nil {
+						setGroupContext(c, apiKey.Group)
+						validateErr = nil
+					}
+				}
+				// Enterprise subscription groups never fall back directly to a
+				// balance. Without a usable manual or enterprise subscription
+				// fallback, keep validateErr and reject the request below.
 				if validateErr != nil {
 					// DIAG_USAGE_LIMIT: 记录企业订阅命中日/周/月限额的原因，便于排查 IAM 侧误判
 					orgSubIDForLog := int64(0)
 					if apiKey.OrganizationSubscriptionID != nil {
 						orgSubIDForLog = *apiKey.OrganizationSubscriptionID
 					}
-					logger.LegacyPrintf(
-						"middleware.api_key_auth",
-						"DIAG_USAGE_LIMIT branch=enterprise user_id=%d api_key_id=%d org_sub_id=%d group=%s validate_err=%v",
-						apiKey.User.ID, apiKey.ID, orgSubIDForLog,
-						func() string {
-							if apiKey.Group != nil {
-								return apiKey.Group.Name
-							}
-							return ""
-						}(),
-						validateErr,
+					logger.L().With(
+						zap.String("component", "middleware.api_key_auth"),
+					).WithOptions(zap.AddStacktrace(zapcore.PanicLevel)).Error(
+						fmt.Sprintf(
+							"DIAG_USAGE_LIMIT branch=enterprise user_id=%d api_key_id=%d org_sub_id=%d group=%s validate_err=%v",
+							apiKey.User.ID, apiKey.ID, orgSubIDForLog,
+							func() string {
+								if apiKey.Group != nil {
+									return apiKey.Group.Name
+								}
+								return ""
+							}(),
+							validateErr,
+						),
+						zap.Bool("legacy_printf", true),
 					)
 					code := "SUBSCRIPTION_INVALID"
 					status := 403
@@ -420,7 +442,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 					//     余额预检，让企业钱包承担后续消费；
 					//   - 若返回 Self/Allocated：说明没有企业代付能力，维持 403。
 					// 非 IAM 用户 resolver 恒返回 Self，等价于原逻辑。
-					if billingCtx := apiKeyService.ResolveBillingContextForUser(c.Request.Context(), apiKey.User.ID); billingCtx != nil && billingCtx.BalanceSource == service.BalanceSourceCompany {
+					if billingCtx := apiKeyService.ResolveBillingContextForAPIKey(c.Request.Context(), apiKey); billingCtx != nil && billingCtx.BalanceSource == service.BalanceSourceCompany {
 						logger.LegacyPrintf(
 							"middleware.api_key_auth",
 							"DIAG_BILLING_BYPASS auth_balance_gate_allow_company user_id=%d api_key_id=%d user_balance=%f payer_user_id=%d balance_source=%s",

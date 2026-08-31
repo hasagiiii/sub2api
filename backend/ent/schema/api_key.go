@@ -56,6 +56,9 @@ func (APIKey) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("Bound organization subscription id for enterprise API keys (organization_subscriptions.id)"),
+		field.Bool("prefer_company_balance").
+			Default(false).
+			Comment("Prefer company balance after enterprise subscription is exhausted"),
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),

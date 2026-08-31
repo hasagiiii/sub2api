@@ -368,6 +368,21 @@ func TestBillingContextResolverPassesRequiredAmount(t *testing.T) {
 	require.Equal(t, int64(12), resolved.PayerUserID)
 }
 
+func TestBillingContextResolverHonorsAPIKeyCompanyBalancePreference(t *testing.T) {
+	organizationID := int64(8)
+	repo := &organizationRepoStub{resolved: &BillingContext{
+		ConsumerUserID: 12, OrganizationID: &organizationID, PayerUserID: 12, BalanceSource: BalanceSourceSelf,
+	}}
+	resolver := NewBillingContextResolver(repo)
+	apiKey := &APIKey{PreferCompanyBalance: true}
+
+	resolved, err := resolver.ResolveForAmount(WithBillingAPIKey(context.Background(), apiKey), 12, 1)
+
+	require.NoError(t, err)
+	require.Equal(t, BalanceSourceCompany, resolved.BalanceSource)
+	require.Equal(t, int64(12), resolved.PayerUserID)
+}
+
 func TestOrganizationServiceNormalizesSpendLimitBatch(t *testing.T) {
 	repo := &organizationRepoStub{}
 	svc := NewOrganizationService(repo, &organizationUserRepoStub{}, companyTestConfig())

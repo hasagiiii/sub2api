@@ -28,6 +28,17 @@ func TestUsageLogFromService_IncludesOpenAIWSMode(t *testing.T) {
 	require.False(t, UsageLogFromServiceAdmin(httpLog).OpenAIWSMode)
 }
 
+func TestUsageLogFromServiceAdmin_IncludesBalanceSource(t *testing.T) {
+	t.Parallel()
+
+	source := service.BalanceSourceCompany
+	log := &service.UsageLog{RequestID: "req-balance-source", BalanceSource: &source}
+
+	adminDTO := UsageLogFromServiceAdmin(log)
+	require.NotNil(t, adminDTO.BalanceSource)
+	require.Equal(t, source, *adminDTO.BalanceSource)
+}
+
 func TestUsageLogFromService_PrefersRequestTypeForLegacyFields(t *testing.T) {
 	t.Parallel()
 

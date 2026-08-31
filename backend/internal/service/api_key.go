@@ -40,9 +40,13 @@ type APIKey struct {
 	// that consumes the referenced organization subscription
 	// (organization_subscriptions.id) instead of the owner's personal subscription.
 	OrganizationSubscriptionID *int64
-	Status                     string
-	IPWhitelist                []string
-	IPBlacklist                []string
+	// PreferCompanyBalance controls wallet selection when an enterprise key
+	// reaches a configured balance-based fallback group. It never bypasses an
+	// exhausted enterprise subscription when no fallback group is configured.
+	PreferCompanyBalance bool
+	Status               string
+	IPWhitelist          []string
+	IPBlacklist          []string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。
 	CompiledIPWhitelist *ip.CompiledIPRules `json:"-"`
 	CompiledIPBlacklist *ip.CompiledIPRules `json:"-"`

@@ -13,6 +13,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const maxBatchPricingEstimateModels = 50
+
+type batchPricingEstimateError struct {
+	Endpoint string `json:"endpoint"`
+	Type     string `json:"type"`
+	Message  string `json:"message"`
+}
+
+type batchPricingEstimateResponse struct {
+	Estimates []*service.ImagePricingEstimate `json:"estimates"`
+	Errors    []batchPricingEstimateError     `json:"errors,omitempty"`
+}
+
 func (h *ModelAPIGatewayHandler) estimatePricing(c *gin.Context, path string) {
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil {
@@ -25,15 +38,10 @@ func (h *ModelAPIGatewayHandler) estimatePricing(c *gin.Context, path string) {
 		return
 	}
 
-	var params map[string]any
-	decoder := json.NewDecoder(c.Request.Body)
-	decoder.UseNumber()
-	if err := decoder.Decode(&params); err != nil {
-		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "request parameters must be a JSON object")
+	params, err := decodeEstimateParams(c)
+	if err != nil {
+		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
-	}
-	if input, ok := params["input"].(map[string]any); ok {
-		params = input
 	}
 	dimensions, err := extractEstimateDimensions(params)
 	if err != nil {
@@ -56,6 +64,86 @@ func (h *ModelAPIGatewayHandler) estimatePricing(c *gin.Context, path string) {
 		return
 	}
 	c.JSON(http.StatusOK, estimate)
+}
+
+// estimatePricingBatch handles POST /api/v1/model/estimate_pricing. The
+// request parameters are shared by every model and each model is evaluated
+// independently so one unsupported model does not hide valid estimates.
+func (h *ModelAPIGatewayHandler) estimatePricingBatch(c *gin.Context) {
+	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
+	if !ok || apiKey == nil {
+		h.jsonError(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
+		return
+	}
+	params, err := decodeEstimateParams(c)
+	if err != nil {
+		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	rawModels, ok := params["models"].([]any)
+	if !ok || len(rawModels) == 0 {
+		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "models must be a non-empty array")
+		return
+	}
+	if len(rawModels) > maxBatchPricingEstimateModels {
+		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", fmt.Sprintf("models must contain at most %d items", maxBatchPricingEstimateModels))
+		return
+	}
+
+	dimensions, err := extractEstimateDimensions(params)
+	if err != nil {
+		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	count, err := extractEstimateImageCount(params)
+	if err != nil {
+		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	quality, _ := params["quality"].(string)
+
+	response := batchPricingEstimateResponse{
+		Estimates: make([]*service.ImagePricingEstimate, 0, len(rawModels)),
+	}
+	for _, rawModel := range rawModels {
+		endpoint, ok := rawModel.(string)
+		endpoint = strings.Trim(strings.TrimSpace(endpoint), "/")
+		if !ok || endpoint == "" {
+			response.Errors = append(response.Errors, batchPricingEstimateError{
+				Type:    "invalid_request_error",
+				Message: "each models item must be a non-empty model endpoint string",
+			})
+			continue
+		}
+		estimate, estimateErr := h.gatewayService.EstimateImagePricing(c.Request.Context(), apiKey, endpoint, dimensions, quality, count)
+		if estimateErr != nil {
+			errType := "invalid_request_error"
+			if errors.Is(estimateErr, service.ErrImagePricingModelUnsupported) {
+				errType = "not_found_error"
+			}
+			response.Errors = append(response.Errors, batchPricingEstimateError{
+				Endpoint: endpoint,
+				Type:     errType,
+				Message:  estimateErr.Error(),
+			})
+			continue
+		}
+		response.Estimates = append(response.Estimates, estimate)
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func decodeEstimateParams(c *gin.Context) (map[string]any, error) {
+	var params map[string]any
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.UseNumber()
+	if err := decoder.Decode(&params); err != nil || params == nil {
+		return nil, fmt.Errorf("request parameters must be a JSON object")
+	}
+	if input, ok := params["input"].(map[string]any); ok {
+		params = input
+	}
+	return params, nil
 }
 
 func extractEstimateDimensions(params map[string]any) (service.ImageDimensions, error) {

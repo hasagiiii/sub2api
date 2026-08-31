@@ -10,11 +10,20 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
 
 const asyncMediaTaskStatusKeyPrefix = "async_media:status:"
+const asyncMediaTaskLockKeyPrefix = "async_media:poll_lock:"
+
+const asyncMediaTaskLockReleaseScript = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('DEL', KEYS[1])
+end
+return 0
+`
 
 const asyncMediaTaskStatusSetScript = `
 local current_version = redis.call('HGET', KEYS[1], 'version')
@@ -112,4 +121,28 @@ func (c *asyncMediaTaskStatusCache) SetAsyncMediaTaskStatus(ctx context.Context,
 		zap.ByteString("payload", payload),
 	)
 	return nil
+}
+
+func (c *asyncMediaTaskStatusCache) TryAcquireAsyncMediaTaskLock(ctx context.Context, requestID, token string, ttl time.Duration) (bool, error) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return false, nil
+	}
+	if strings.TrimSpace(token) == "" {
+		token = uuid.NewString()
+	}
+	if ttl <= 0 {
+		ttl = 10 * time.Second
+	}
+	return c.rdb.SetNX(ctx, asyncMediaTaskLockKeyPrefix+requestID, token, ttl).Result()
+}
+
+func (c *asyncMediaTaskStatusCache) ReleaseAsyncMediaTaskLock(ctx context.Context, requestID, token string) error {
+	requestID = strings.TrimSpace(requestID)
+	token = strings.TrimSpace(token)
+	if requestID == "" || token == "" {
+		return nil
+	}
+	_, err := c.rdb.Eval(ctx, asyncMediaTaskLockReleaseScript, []string{asyncMediaTaskLockKeyPrefix + requestID}, token).Result()
+	return err
 }

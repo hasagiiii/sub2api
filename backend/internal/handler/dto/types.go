@@ -69,6 +69,7 @@ type APIKey struct {
 	// OrganizationSubscriptionID is set for enterprise API keys bound to a
 	// company subscription.
 	OrganizationSubscriptionID *int64     `json:"organization_subscription_id,omitempty"`
+	PreferCompanyBalance       bool       `json:"prefer_company_balance"`
 	Status                     string     `json:"status"`
 	IPWhitelist                []string   `json:"ip_whitelist"`
 	IPBlacklist                []string   `json:"ip_blacklist"`
@@ -609,6 +610,9 @@ type UsageLog struct {
 // AdminUsageLog 是管理员接口使用的 usage log DTO（包含管理员字段）。
 type AdminUsageLog struct {
 	UsageLog
+
+	// BalanceSource records the wallet or subscription that paid for the request.
+	BalanceSource *string `json:"balance_source,omitempty"`
 
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Omitted when no mapping was applied (requested model was used as-is).

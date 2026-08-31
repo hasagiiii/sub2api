@@ -51,6 +51,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetNillableGroupID(key.GroupID).
 		SetFallbackGroupIds(key.FallbackGroupIDs).
 		SetNillableOrganizationSubscriptionID(key.OrganizationSubscriptionID).
+		SetPreferCompanyBalance(key.PreferCompanyBalance).
 		SetNillableLastUsedAt(key.LastUsedAt).
 		SetQuota(key.Quota).
 		SetQuotaUsed(key.QuotaUsed).
@@ -138,6 +139,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldGroupID,
 			apikey.FieldFallbackGroupIds,
 			apikey.FieldOrganizationSubscriptionID,
+			apikey.FieldPreferCompanyBalance,
 			apikey.FieldName,
 			apikey.FieldStatus,
 			apikey.FieldIPWhitelist,
@@ -314,6 +316,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 	}
 	if fields.FallbackGroupIDs {
 		builder.SetFallbackGroupIds(key.FallbackGroupIDs)
+	}
+	if fields.PreferCompanyBalance {
+		builder.SetPreferCompanyBalance(key.PreferCompanyBalance)
 	}
 	if key.OrganizationSubscriptionID != nil {
 		builder.SetOrganizationSubscriptionID(*key.OrganizationSubscriptionID)
@@ -900,6 +905,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		GroupID:                    m.GroupID,
 		FallbackGroupIDs:           append([]int64(nil), m.FallbackGroupIds...),
 		OrganizationSubscriptionID: m.OrganizationSubscriptionID,
+		PreferCompanyBalance:       m.PreferCompanyBalance,
 		Quota:                      m.Quota,
 		QuotaUsed:                  m.QuotaUsed,
 		ExpiresAt:                  m.ExpiresAt,

@@ -649,19 +649,19 @@
           </Select>
           <p class="input-hint">{{ t('keys.orgSubscriptionHint') }}</p>
 
-          <!-- 编辑模式下，当密钥已经绑定企业订阅时，只读展示"自动切换"开关状态与套餐切换顺序 -->
+          <!-- 选择企业订阅后展示"自动切换"开关状态与套餐切换顺序 -->
           <div
-            v-if="showEditModal && selectedKey && selectedKey.organization_subscription_id"
+            v-if="formData.organization_subscription_id"
             class="mt-2 rounded-md border border-gray-200 bg-gray-50 p-2 text-xs leading-5 text-gray-600 dark:border-dark-600 dark:bg-dark-900/60 dark:text-dark-300"
             data-test="edit-fallback-panel"
           >
             <div class="flex items-center gap-2">
               <span
                 class="badge whitespace-nowrap text-xs"
-                :class="getFallbackEntry(selectedKey.organization_subscription_id).loaded && !getFallbackEntry(selectedKey.organization_subscription_id).autoSwitchEnabled ? 'badge-gray' : 'badge-purple'"
+                :class="getFallbackEntry(formData.organization_subscription_id).loaded && !getFallbackEntry(formData.organization_subscription_id).autoSwitchEnabled ? 'badge-gray' : 'badge-purple'"
               >
                 {{
-                  getFallbackEntry(selectedKey.organization_subscription_id).loaded && !getFallbackEntry(selectedKey.organization_subscription_id).autoSwitchEnabled
+                  getFallbackEntry(formData.organization_subscription_id).loaded && !getFallbackEntry(formData.organization_subscription_id).autoSwitchEnabled
                     ? t('organization.settings.fallback.badgeOff')
                     : t('organization.settings.fallback.badge')
                 }}
@@ -669,10 +669,10 @@
               <span class="text-gray-500 dark:text-gray-400">{{ t('organization.settings.fallback.tooltipIntro') }}</span>
             </div>
             <div class="mt-2 font-medium text-gray-800 dark:text-white">{{ t('organization.settings.fallback.chainTitle') }}</div>
-            <div v-if="getFallbackEntry(selectedKey.organization_subscription_id).loading" class="mt-1">
+            <div v-if="getFallbackEntry(formData.organization_subscription_id).loading" class="mt-1">
               {{ t('organization.settings.fallback.loading') }}
             </div>
-            <div v-else-if="getFallbackEntry(selectedKey.organization_subscription_id).error" class="mt-1 text-red-600">
+            <div v-else-if="getFallbackEntry(formData.organization_subscription_id).error" class="mt-1 text-red-600">
               {{ t('organization.settings.fallback.loadFailed') }}
             </div>
             <ol v-else class="mt-1 space-y-1">
@@ -680,18 +680,18 @@
                 <span class="w-14 shrink-0 font-mono text-[10px] text-gray-400">{{ t('organization.settings.fallback.chainCurrent') }}</span>
                 <span class="inline-flex min-w-0 items-center">
                   <GroupBadge
-                    v-if="selectedKey.group"
-                    :name="selectedKey.group.name"
-                    :platform="selectedKey.group.platform"
-                    :subscription-type="selectedKey.group.subscription_type"
-                    :rate-multiplier="selectedKey.group.rate_multiplier"
+                    v-if="editFallbackCurrentGroup"
+                    :name="editFallbackCurrentGroup.name"
+                    :platform="editFallbackCurrentGroup.platform"
+                    :subscription-type="editFallbackCurrentGroup.subscription_type"
+                    :rate-multiplier="editFallbackCurrentGroup.rate_multiplier"
                     :subscription-label-override="t('keys.orgSubscriptionLabel')"
                   />
-                  <span v-else class="break-all">{{ `#${selectedKey.organization_subscription_id}` }}</span>
+                  <span v-else class="break-all">{{ `#${formData.organization_subscription_id}` }}</span>
                 </span>
               </li>
               <li
-                v-for="(candidate, cIndex) in getFallbackEntry(selectedKey.organization_subscription_id).candidates"
+                v-for="(candidate, cIndex) in getFallbackEntry(formData.organization_subscription_id).candidates"
                 :key="candidate.id"
                 class="flex items-center gap-2"
               >
@@ -709,7 +709,7 @@
                 </span>
               </li>
               <li
-                v-if="!getFallbackEntry(selectedKey.organization_subscription_id).candidates.length"
+                v-if="!getFallbackEntry(formData.organization_subscription_id).candidates.length"
                 class="text-gray-500"
               >
                 {{ t('organization.settings.fallback.chainEmpty') }}
@@ -760,7 +760,9 @@
             </template>
           </Select>
 
-          <div class="mt-4 space-y-2" data-test="fallback-groups-editor">
+        </div>
+
+        <div class="mt-4 space-y-2" data-test="fallback-groups-editor">
             <div class="flex items-center justify-between gap-3">
               <div>
                 <label class="input-label mb-0">{{ t('keys.fallbackGroupsLabel') }}</label>
@@ -824,7 +826,7 @@
             </div>
 
             <div
-              v-if="formData.group_id !== null && formData.fallback_group_ids.length < 5 && fallbackGroupOptions.length"
+              v-if="fallbackPrimaryGroupId !== null && formData.fallback_group_ids.length < 5 && fallbackGroupOptions.length"
               class="flex items-center gap-2"
             >
               <Select
@@ -847,7 +849,7 @@
                 {{ t('common.add') }}
               </button>
             </div>
-            <p v-else-if="formData.group_id === null" class="input-hint" data-test="fallback-select-primary">
+            <p v-else-if="fallbackPrimaryGroupId === null" class="input-hint" data-test="fallback-select-primary">
               {{ t('keys.fallbackGroupsSelectPrimary') }}
             </p>
             <p v-else-if="formData.fallback_group_ids.length >= 5" class="input-hint" data-test="fallback-limit">
@@ -857,7 +859,6 @@
               {{ t('keys.fallbackGroupsEmpty') }}
             </p>
           </div>
-        </div>
 
         <!-- Custom Key Section (only for create) -->
         <div v-if="!showEditModal" class="space-y-3">
@@ -892,7 +893,23 @@
           </div>
         </div>
 
-        <div v-if="showEditModal">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-1">
+            <label class="input-label mb-0">{{ t('keys.preferCompanyBalanceLabel') }}</label>
+            <HelpTooltip
+              :content="t('keys.preferCompanyBalanceHint')"
+              width-class="w-72"
+              data-test="prefer-company-balance-help"
+            >
+              <template #trigger>
+                <Icon name="questionCircle" size="xs" :stroke-width="2" />
+              </template>
+            </HelpTooltip>
+          </div>
+          <Toggle v-model="formData.prefer_company_balance" size="sm" data-test="prefer-company-balance-toggle" />
+        </div>
+
+        <div v-if="showEditModal" data-test="key-status-field">
           <label class="input-label">{{ t('keys.statusLabel') }}</label>
           <Select
             v-model="formData.status"
@@ -1516,6 +1533,8 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
+	import Toggle from '@/components/common/Toggle.vue'
+	import HelpTooltip from '@/components/common/HelpTooltip.vue'
 	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 	import type { OrganizationSubscription } from '@/types/organization'
 import type { Column } from '@/components/common/types'
@@ -1711,6 +1730,7 @@ const formData = ref({
   group_id: null as number | null,
   fallback_group_ids: [] as number[],
   organization_subscription_id: null as number | null,
+  prefer_company_balance: true,
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
   custom_key: '',
@@ -1810,9 +1830,25 @@ const fallbackGroupToAdd = ref<number | null>(null)
 
 const groupById = (groupId: number) => groups.value.find(group => group.id === groupId)
 
+const fallbackPrimaryGroup = computed(() => {
+  if (formData.value.organization_subscription_id) {
+    const subscription = orgSubscriptions.value.find(item => item.id === formData.value.organization_subscription_id)
+    if (subscription) {
+      return {
+        id: subscription.group_id,
+        platform: subscription.platform,
+      }
+    }
+  }
+  const group = formData.value.group_id === null ? undefined : groupById(formData.value.group_id)
+  return group ? { id: group.id, platform: group.platform } : null
+})
+
+const fallbackPrimaryGroupId = computed(() => fallbackPrimaryGroup.value?.id ?? null)
+
 const eligibleFallbackGroups = computed(() => {
-  const primary = formData.value.group_id === null ? undefined : groupById(formData.value.group_id)
-  if (!primary || formData.value.organization_subscription_id) return []
+  const primary = fallbackPrimaryGroup.value
+  if (!primary) return []
   const selected = new Set(formData.value.fallback_group_ids)
   return groups.value.filter(group =>
     group.id !== primary.id &&
@@ -1835,14 +1871,15 @@ const fallbackGroupOptions = computed(() => eligibleFallbackGroups.value.map(gro
   platform: group.platform
 })))
 
-const normalizeFallbackGroups = (primaryGroupId: number | null, fallbackGroupIds: number[]) => {
+const normalizeFallbackGroups = (primaryGroupId: number | null, fallbackGroupIds: number[], primaryPlatform?: string) => {
   if (primaryGroupId === null) return []
   const primary = groupById(primaryGroupId)
-  if (!primary) return []
+  const platform = primary?.platform ?? primaryPlatform
+  if (!platform) return []
   const seen = new Set<number>()
   return fallbackGroupIds.filter(groupId => {
     const group = groupById(groupId)
-    if (!group || group.id === primary.id || group.platform !== primary.platform || seen.has(group.id)) {
+    if (!group || group.id === primaryGroupId || group.platform !== platform || seen.has(group.id)) {
       return false
     }
     seen.add(group.id)
@@ -1988,8 +2025,14 @@ watch(() => formData.value.group_id, groupId => {
 
 watch(() => formData.value.organization_subscription_id, organizationSubscriptionId => {
   if (organizationSubscriptionId) {
-    formData.value.fallback_group_ids = []
     fallbackGroupToAdd.value = null
+    formData.value.fallback_group_ids = normalizeFallbackGroups(
+      fallbackPrimaryGroupId.value,
+      formData.value.fallback_group_ids,
+      fallbackPrimaryGroup.value?.platform,
+    )
+    // 说明面板跟随创建/编辑弹窗中当前选择的企业订阅实时更新。
+    void ensureFallbackLoaded(organizationSubscriptionId)
   }
 })
 
@@ -2012,6 +2055,26 @@ const orgSubscriptionOptions = computed(() => {
       userRate: null,
     }
   })
+})
+
+// 链路的当前项应跟随表单中选中的企业订阅，而不是始终使用打开弹窗时的旧分组。
+const editFallbackCurrentGroup = computed(() => {
+  const subscriptionId = formData.value.organization_subscription_id
+  if (!subscriptionId) return null
+
+  const originalKey = selectedKey.value
+  if (originalKey?.organization_subscription_id === subscriptionId && originalKey.group) {
+    return originalKey.group
+  }
+
+  const subscription = orgSubscriptions.value.find(item => item.id === subscriptionId)
+  if (!subscription) return null
+  return {
+    name: subscription.group_name,
+    platform: subscription.platform as GroupPlatform,
+    subscription_type: 'subscription' as SubscriptionType,
+    rate_multiplier: subscription.rate_multiplier,
+  }
 })
 
 // Group dropdown search
@@ -2183,6 +2246,7 @@ const editKey = (key: ApiKey) => {
     group_id: key.group_id,
     fallback_group_ids: [...(key.fallback_group_ids ?? [])],
     organization_subscription_id: key.organization_subscription_id ?? null,
+    prefer_company_balance: key.prefer_company_balance ?? false,
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
@@ -2361,7 +2425,14 @@ const handleSubmit = async () => {
         name: formData.value.name,
         // 绑定企业订阅时由后端强制关联订阅分组；否则更新个人分组并清除企业订阅绑定。
         ...(orgSubscriptionId
-          ? { organization_subscription_id: orgSubscriptionId, fallback_group_ids: [] }
+          ? {
+              organization_subscription_id: orgSubscriptionId,
+              fallback_group_ids: normalizeFallbackGroups(
+                fallbackPrimaryGroupId.value,
+                formData.value.fallback_group_ids,
+                fallbackPrimaryGroup.value?.platform,
+              ),
+            }
           : {
               group_id: formData.value.group_id,
               organization_subscription_id: null,
@@ -2374,6 +2445,7 @@ const handleSubmit = async () => {
         rate_limit_5h: rateLimitData.rate_limit_5h,
         rate_limit_1d: rateLimitData.rate_limit_1d,
         rate_limit_7d: rateLimitData.rate_limit_7d,
+        prefer_company_balance: formData.value.prefer_company_balance,
       }
       if (shouldSubmitEditStatus(selectedKey.value, formData.value.status)) {
         updates.status = formData.value.status
@@ -2382,7 +2454,7 @@ const handleSubmit = async () => {
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
-      await keysAPI.create(
+      const createArgs = [
         formData.value.name,
         formData.value.group_id,
         customKey,
@@ -2392,8 +2464,19 @@ const handleSubmit = async () => {
         expiresInDays,
         rateLimitData,
         orgSubscriptionId,
-        orgSubscriptionId ? [] : normalizeFallbackGroups(formData.value.group_id, formData.value.fallback_group_ids)
-      )
+        orgSubscriptionId
+          ? normalizeFallbackGroups(
+              fallbackPrimaryGroupId.value,
+              formData.value.fallback_group_ids,
+              fallbackPrimaryGroup.value?.platform,
+            )
+          : normalizeFallbackGroups(formData.value.group_id, formData.value.fallback_group_ids)
+      ] as const
+      if (formData.value.prefer_company_balance) {
+        await keysAPI.create(...createArgs, true)
+      } else {
+        await keysAPI.create(...createArgs)
+      }
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
       if (onboardingStore.isCurrentStep('[data-tour="key-form-submit"]')) {
@@ -2440,6 +2523,7 @@ const closeModals = () => {
     group_id: null,
     fallback_group_ids: [],
     organization_subscription_id: null,
+    prefer_company_balance: true,
     status: 'active',
     use_custom_key: false,
     custom_key: '',

@@ -755,7 +755,17 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 			if candidateGroup != nil {
 				candidatePlatform = candidateGroup.Platform
 			}
-			return s.checkBillingEligibility(candidateCtx, user, candidateKey, candidateGroup, candidateSubscription, candidatePlatform)
+			// Fallback candidates are evaluated before routing state activates
+			// them. Clear an enterprise binding for a non-primary group so the
+			// candidate is billed by its own subscription or balance source.
+			billingKey := candidateKey
+			if candidateKey != nil && candidateKey.OrganizationSubscriptionID != nil &&
+				(candidateKey.Group == nil || candidateGroup == nil || candidateKey.Group.ID != candidateGroup.ID) {
+				keyCopy := *candidateKey
+				keyCopy.OrganizationSubscriptionID = nil
+				billingKey = &keyCopy
+			}
+			return s.checkBillingEligibility(candidateCtx, user, billingKey, candidateGroup, candidateSubscription, candidatePlatform)
 		})
 		return state.EnsureEligible(ctx)
 	}
@@ -841,7 +851,7 @@ func (s *BillingCacheService) checkBillingEligibility(ctx context.Context, user 
 		var resolved *BillingContext
 		if s.billingContextResolver != nil {
 			var err error
-			resolved, err = s.billingContextResolver.ResolveForAmount(ctx, user.ID, s.minimumBalanceReserve())
+			resolved, err = s.billingContextResolver.ResolveForAmount(WithBillingAPIKey(ctx, apiKey), user.ID, s.minimumBalanceReserve())
 			if err != nil {
 				logger.LegacyPrintf("service.billing_cache", "ALERT: billing payer resolution failed for user %d: %v", user.ID, err)
 				return err

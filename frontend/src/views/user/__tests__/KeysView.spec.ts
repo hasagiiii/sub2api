@@ -19,6 +19,7 @@ const {
   createKey,
   updateKey,
   listOrganizationSubscriptions,
+  getSubscriptionFallback,
 } = vi.hoisted(() => ({
   listKeys: vi.fn(),
   getPublicSettings: vi.fn(),
@@ -33,6 +34,7 @@ const {
   createKey: vi.fn(),
   updateKey: vi.fn(),
   listOrganizationSubscriptions: vi.fn(),
+  getSubscriptionFallback: vi.fn(),
 }))
 
 const messages: Record<string, string> = {
@@ -68,6 +70,9 @@ const messages: Record<string, string> = {
   'keys.orgSubscriptionLabel': 'Enterprise Subscription',
   'keys.orgSubscriptionNone': 'None (use personal group)',
   'keys.orgSubscriptionHint': 'Enterprise subscription hint',
+  'keys.preferCompanyBalanceLabel': 'Prefer company balance',
+  'keys.preferCompanyBalanceHint': 'Uses company balance first.',
+  'keys.statusLabel': 'Status',
   'keys.orgSubscriptionType.monthly': 'Monthly',
 }
 
@@ -79,6 +84,9 @@ vi.mock('@/api', () => ({
     delete: vi.fn(),
     toggleStatus: vi.fn(),
     listOrganizationSubscriptions,
+  },
+  organizationAPI: {
+    getSubscriptionFallback,
   },
   authAPI: {
     getPublicSettings,
@@ -370,6 +378,7 @@ describe('user KeysView column settings', () => {
     createKey.mockReset()
     updateKey.mockReset()
     listOrganizationSubscriptions.mockReset()
+    getSubscriptionFallback.mockReset()
 
     listKeys.mockResolvedValue({
       items: [createApiKey()],
@@ -383,6 +392,7 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     listOrganizationSubscriptions.mockResolvedValue([])
+    getSubscriptionFallback.mockResolvedValue({ auto_switch_enabled: true, candidates: [] })
     createKey.mockResolvedValue(createApiKey())
     updateKey.mockResolvedValue(createApiKey())
     isCurrentStep.mockReturnValue(false)
@@ -655,6 +665,26 @@ describe('user KeysView column settings', () => {
     expect(options.map(option => option.value)).toEqual([2, 3])
   })
 
+  it('defaults company balance preference on and places it above status', async () => {
+    const wrapper = await mountView()
+
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await nextTick()
+
+    const toggle = wrapper.get('[data-test="prefer-company-balance-toggle"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    expect(toggle.classes()).toEqual(expect.arrayContaining(['h-5', 'w-9']))
+    expect(wrapper.get('[data-test="prefer-company-balance-help"]').exists()).toBe(true)
+
+    await (wrapper.vm as any).closeModals()
+    await getButtonByText(wrapper, 'Edit').trigger('click')
+    await nextTick()
+
+    const statusField = wrapper.get('[data-test="key-status-field"]')
+    const editToggle = wrapper.get('[data-test="prefer-company-balance-toggle"]')
+    expect(editToggle.element.compareDocumentPosition(statusField.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('keeps the fallback editor visible before primary selection and explains an empty candidate list', async () => {
     getAvailableGroups.mockResolvedValue([
       createGroup({ id: 1, name: 'Only OpenAI group', platform: 'openai' }),
@@ -711,7 +741,8 @@ describe('user KeysView column settings', () => {
       undefined,
       { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 },
       null,
-      [3, 4, 5, 6, 7]
+      [3, 4, 5, 6, 7],
+      true
     )
   })
 
@@ -774,7 +805,9 @@ describe('user KeysView column settings', () => {
     await organizationSelect!.vm.$emit('update:modelValue', 90)
     await nextTick()
 
-    expect(wrapper.find('[data-test="fallback-groups-editor"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="edit-fallback-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="fallback-groups-editor"]').exists()).toBe(true)
+    expect(wrapper.findAll('[data-test="fallback-group-row"]')).toHaveLength(1)
     await wrapper.get('input[required]').setValue('enterprise-key')
     await wrapper.get('#key-form').trigger('submit')
     await flushPromises()
@@ -788,7 +821,43 @@ describe('user KeysView column settings', () => {
       undefined,
       { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 },
       90,
-      []
+      [2],
+      true
     )
+  })
+
+  it('shows the auto-switch explanation immediately when selected while editing', async () => {
+    const personalGroup = createGroup({ id: 1, name: 'Personal' })
+    listKeys.mockResolvedValueOnce({
+      items: [{ ...createApiKey(), group_id: personalGroup.id, group: personalGroup }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    listOrganizationSubscriptions.mockResolvedValue([{
+      id: 90,
+      organization_id: 8,
+      group_id: 99,
+      group_name: 'Enterprise Group',
+      platform: 'openai',
+      subscription_type: 'monthly',
+      rate_multiplier: 0.2,
+      status: 'active',
+    }])
+
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Edit').trigger('click')
+    await nextTick()
+
+    const organizationSelect = wrapper.findAllComponents({ name: 'Select' }).find(select =>
+      (select.props('options') as Array<{ value: number }>).some(option => option.value === 90)
+    )
+    expect(organizationSelect).toBeDefined()
+    await organizationSelect!.vm.$emit('update:modelValue', 90)
+    await nextTick()
+
+    expect(wrapper.find('[data-test="edit-fallback-panel"]').exists()).toBe(true)
+    expect(getSubscriptionFallback).toHaveBeenCalledWith(90)
   })
 })

@@ -83,8 +83,30 @@ func TestModelAPIGatewayKnownImageNeverFallsThroughToVideoValidation(t *testing.
 
 	recorder := performModelAPISubmit(t, handler, "/api/v1/model/openai/gpt-image-2", `{"prompt":"studio photo"}`)
 
-	require.Equal(t, http.StatusServiceUnavailable, recorder.Code, recorder.Body.String())
-	require.Contains(t, recorder.Body.String(), "no available image account")
+	require.Equal(t, http.StatusInternalServerError, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), "Internal server error")
+	require.NotContains(t, recorder.Body.String(), "no available image account")
+	require.NotContains(t, recorder.Body.String(), "Missing 'resolution'")
+}
+
+func TestModelAPIGatewaySeedVRUpscaleSelectionFailureReturnsServerError(t *testing.T) {
+	handler := NewModelAPIGatewayHandler(newModelAPITestGatewayService(), nil, nil, nil, nil, nil)
+
+	recorder := performModelAPISubmit(t, handler, "/api/v1/model/seedvr/upscale/image", `{}`)
+
+	require.Equal(t, http.StatusInternalServerError, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), "Internal server error")
+	require.NotContains(t, recorder.Body.String(), "no available image account")
+	require.NotContains(t, recorder.Body.String(), "Missing 'resolution'")
+}
+
+func TestModelAPIGatewayImageSelectionFailureDoesNotFallThroughToVideoValidation(t *testing.T) {
+	handler := NewModelAPIGatewayHandler(newModelAPITestGatewayService(), nil, nil, nil, nil, nil)
+
+	recorder := performModelAPISubmit(t, handler, "/api/v1/model/imageutils/rembg", `{}`)
+
+	require.Equal(t, http.StatusInternalServerError, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), "Internal server error")
 	require.NotContains(t, recorder.Body.String(), "Missing 'resolution'")
 }
 
@@ -125,7 +147,10 @@ func TestModelAPIGatewayExplicitVideoSkipsImageAccountProbe(t *testing.T) {
 	require.Zero(t, listCalls, "explicit video requests must not query the image account pool")
 }
 
-func TestModelAPIGatewayStatusEndpointRemoved(t *testing.T) {
+func TestModelAPIGatewayStatusEndpointUsesTaskLookup(t *testing.T) {
+	require.Equal(t, "request-1", modelAPIRequestIDFromPath("fal-ai/flux/requests/request-1/status"))
+	require.Equal(t, "request-1", modelAPIRequestIDFromPath("fal-ai/flux/requests/request-1"))
+
 	gin.SetMode(gin.TestMode)
 	handler := NewModelAPIGatewayHandler(nil, nil, nil, nil, nil, nil)
 	router := gin.New()
@@ -135,8 +160,8 @@ func TestModelAPIGatewayStatusEndpointRemoved(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/model/fal-ai/flux/requests/request-1/status", nil)
 	router.ServeHTTP(recorder, request)
 
-	require.Equal(t, http.StatusNotFound, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "Unsupported model endpoint")
+	require.Equal(t, http.StatusInternalServerError, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "Internal server error")
 }
 
 func TestMediaFalStatusFromTaskMapsTerminalFailureToFailed(t *testing.T) {
@@ -187,7 +212,7 @@ func TestModelAPIResultPayloadAddsAuthoritativeActualCostWithoutMutation(t *test
 	result := modelAPIResultPayload(original, 1.25)
 
 	require.Equal(t, 1.25, result["actual_cost"])
-	require.Equal(t, modelAPIStatusCompleted, result["status"])
+	require.NotContains(t, result, "status")
 	require.Equal(t, float64(999), original["actual_cost"])
 	require.Equal(t, original["video"], result["video"])
 }
@@ -248,4 +273,23 @@ func TestBuildAsyncImageResultResponseIncludesActualCost(t *testing.T) {
 	require.Equal(t, modelAPIStatusCompleted, response.Status)
 	require.Equal(t, 0.75, response.ActualCost)
 	require.Len(t, response.Images, 1)
+}
+
+func TestBuildAsyncImageResultPayloadPreservesNativeShapeWithoutStatus(t *testing.T) {
+	task := &service.AsyncMediaTask{
+		FinalCost: 1,
+		ResultPayload: map[string]any{
+			"image": map[string]any{
+				"url":   "https://fal.example/image.png",
+				"width": float64(1832),
+			},
+		},
+	}
+
+	payload := buildAsyncImageResultPayload(task)
+	require.NotContains(t, payload, "status")
+	require.Equal(t, float64(1), payload["actual_cost"])
+	image, ok := payload["image"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "https://fal.example/image.png", image["url"])
 }

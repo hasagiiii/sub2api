@@ -461,7 +461,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			tokens, cost.TotalCost,
 		)
 	}
-	resolvedBillingContext, err := resolveAndSnapshotBillingContext(ctx, usageLog, user, s.billingContextResolver, cost.ActualCost)
+	resolvedBillingContext, err := resolveAndSnapshotBillingContext(ctx, usageLog, user, apiKey, s.billingContextResolver, cost.ActualCost)
 	if err != nil {
 		return err
 	}

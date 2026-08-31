@@ -117,6 +117,7 @@ type BindUserAuthIdentityChannelRequest struct {
 //   - status: filter by user status
 //   - role: filter by user role
 //   - search: search in email, username
+//   - enterprise_identity: filter by enterprise identity (enterprise, personal, owner, member)
 //   - attr[{id}]: filter by custom attribute value, e.g. attr[1]=company
 //   - group_name: fuzzy filter by allowed group name
 //   - api_key_group_id: filter by the exact group bound to the user's API keys
@@ -131,11 +132,12 @@ func (h *UserHandler) List(c *gin.Context) {
 	}
 
 	filters := service.UserListFilters{
-		Status:     c.Query("status"),
-		Role:       c.Query("role"),
-		Search:     search,
-		GroupName:  strings.TrimSpace(c.Query("group_name")),
-		Attributes: parseAttributeFilters(c),
+		Status:             c.Query("status"),
+		Role:               c.Query("role"),
+		Search:             search,
+		EnterpriseIdentity: normalizeEnterpriseIdentityFilter(c.Query("enterprise_identity")),
+		GroupName:          strings.TrimSpace(c.Query("group_name")),
+		Attributes:         parseAttributeFilters(c),
 	}
 	if raw := strings.TrimSpace(c.Query("api_key_group_id")); raw != "" {
 		if id, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil && id > 0 {
@@ -180,6 +182,15 @@ func (h *UserHandler) List(c *gin.Context) {
 	}
 
 	response.Paginated(c, out, total, page, pageSize)
+}
+
+func normalizeEnterpriseIdentityFilter(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "enterprise", "personal", "owner", "member":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
 }
 
 // parseAttributeFilters extracts attribute filters from query params

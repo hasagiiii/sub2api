@@ -40,3 +40,26 @@ func buildAsyncImageResultResponse(task *service.AsyncMediaTask) asyncImageResul
 	}
 	return response
 }
+
+// buildAsyncImageResultPayload returns the native result shape for the final
+// /requests/{id} endpoint. The provider payload is persisted by the async
+// executor; only actual_cost is added by Sub2API. Legacy tasks without a raw
+// payload retain the normalized images fallback.
+func buildAsyncImageResultPayload(task *service.AsyncMediaTask) map[string]any {
+	if task == nil {
+		return map[string]any{"actual_cost": float64(0)}
+	}
+	if task.ResultPayload != nil {
+		payload := make(map[string]any, len(task.ResultPayload)+1)
+		for key, value := range task.ResultPayload {
+			payload[key] = value
+		}
+		payload["actual_cost"] = task.FinalCost
+		return payload
+	}
+	legacy := buildAsyncImageResultResponse(task)
+	return map[string]any{
+		"images":      legacy.Images,
+		"actual_cost": legacy.ActualCost,
+	}
+}

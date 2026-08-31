@@ -607,6 +607,21 @@ func falAccountSupportsModel(account *Account, requestedModel string, api string
 	}
 
 	supported := account.FalSupportedModelAPIs()
+	requestedPath := normalizeFalEndpointPath(requestedModel)
+	if requestedPath != "" {
+		for key, endpoint := range account.GetModelMapping() {
+			// Multi-segment native endpoints such as
+			// fal-ai/seedvr/upscale/image cannot be parsed as the legacy
+			// organization/model/api shape. Match their complete normalized
+			// path before falling back to the parsed model/API lookup below.
+			if normalizeFalEndpointPath(endpoint) == requestedPath {
+				return true
+			}
+			if strings.Contains(requestedPath, "/") && normalizeFalEndpointPath(key) == requestedPath && strings.Contains(normalizeFalEndpointPath(endpoint), "/") {
+				return true
+			}
+		}
+	}
 	// 先按请求原串（对外别名，如 dall-e-3、gpt-image-2-edit）匹配，
 	// 再按请求的 model 段（如 slug openai/gpt-image-2[/edit] 取 gpt-image-2）匹配。
 	for _, name := range []string{strings.ToLower(strings.TrimSpace(requestedModel)), strings.ToLower(reqModel)} {
@@ -620,6 +635,12 @@ func falAccountSupportsModel(account *Account, requestedModel string, api string
 		}
 	}
 	return false
+}
+
+func normalizeFalEndpointPath(endpoint string) string {
+	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(endpoint), "/"))
+	normalized = strings.TrimPrefix(normalized, "fal-ai/")
+	return strings.Trim(normalized, "/")
 }
 
 func validateOpenAIImagesModel(model string) error {

@@ -97,6 +97,7 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 		GroupID:                    k.GroupID,
 		FallbackGroupIDs:           append([]int64{}, k.FallbackGroupIDs...),
 		OrganizationSubscriptionID: k.OrganizationSubscriptionID,
+		PreferCompanyBalance:       k.PreferCompanyBalance,
 		Status:                     k.Status,
 		IPWhitelist:                k.IPWhitelist,
 		IPBlacklist:                k.IPBlacklist,
@@ -770,6 +771,7 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
 	return &AdminUsageLog{
 		UsageLog:              usageLog,
+		BalanceSource:         l.BalanceSource,
 		UpstreamModel:         l.UpstreamModel,
 		UpstreamResponseModel: l.UpstreamResponseModel,
 		UpstreamModelMismatch: l.UpstreamModelMismatch,

@@ -7,6 +7,7 @@
 当前入口挂在 fal 兼容模型网关下：
 
 - `POST /api/v1/model/{endpoint}/estimate_pricing`
+- `POST /api/v1/model/estimate_pricing`（批量预估）
 
 接口需要有效的 Sub2API API Key。它只返回价格预览，不会创建上游任务、冻结余额、扣除余额或写入使用记录。
 
@@ -34,11 +35,15 @@ Content-Type: application/json
 |------|------|------|
 | `endpoint` | 是 | 模型 endpoint 路径，例如 `fal-ai/flux/dev`。API Key 所属分组必须直接支持该模型，或通过通配符模型映射支持该模型。 |
 
+批量预估时使用固定路径 `/api/v1/model/estimate_pricing`，模型 endpoint 放在请求体的 `models` 数组中。尺寸、质量和图片数量参数对数组中的所有模型生效，成功结果按模型数组中的相对顺序排列。
+
 该路由即使在视频功能开关关闭时也可访问，因为它只是价格工具接口；但仍然需要 API Key 鉴权和分组绑定。
 
 ## 请求体
 
 请求体必须是 JSON object。接口支持扁平请求体，也支持 fal 常见的 `input` 包裹格式。
+
+批量接口额外要求 `models` 字段：非空模型 endpoint 字符串数组，最多 50 个模型。单模型接口不需要此字段。
 
 扁平请求体：
 
@@ -77,6 +82,7 @@ Content-Type: application/json
 | `n` | 否 | `num_images` 的别名。 |
 | `image_count` | 否 | `num_images` 的别名。 |
 | `quality` | 否 | 可选质量档位，例如 `high`。当价格档位区分质量时参与匹配。 |
+| `models` | 批量接口必填 | 模型 endpoint 字符串数组，最多 50 个；数组中每个模型独立计算价格。 |
 
 至少需要提供一种完整的尺寸来源。若尺寸以对象形式传入，必须包含正整数 `width` 和 `height`。
 
@@ -126,6 +132,22 @@ Content-Type: application/json
 | `rate_multiplier` | 本次预估采用的实际扣费倍率。 |
 | `estimated_price` | 倍率后的用户侧预估费用。 |
 
+批量接口响应格式：
+
+```json
+{
+  "estimates": [
+    { "endpoint": "fal-ai/flux/dev", "estimated_price": 0.3 },
+    { "endpoint": "fal-ai/flux/schnell", "estimated_price": 0.24 }
+  ],
+  "errors": [
+    { "endpoint": "made-up/model", "type": "not_found_error", "message": "group does not support model: made-up/model" }
+  ]
+}
+```
+
+批量请求中单个模型失败时会放入 `errors`，其它模型仍会返回预估结果。请求体、尺寸或数量等公共参数非法时，接口整体返回 `400`。
+
 ## 示例
 
 使用明确尺寸对象预估：
@@ -152,6 +174,19 @@ curl -X POST "https://example.com/api/v1/model/fal-ai/flux/dev/estimate_pricing"
       "image_size": "landscape_4_3",
       "n": 1
     }
+  }'
+```
+
+批量预估多个模型：
+
+```bash
+curl -X POST "https://example.com/api/v1/model/estimate_pricing" \
+  -H "Authorization: Bearer sk-..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "models": ["fal-ai/flux/dev", "fal-ai/flux/schnell"],
+    "image_size": "square_hd",
+    "num_images": 1
   }'
 ```
 

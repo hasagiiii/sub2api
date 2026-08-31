@@ -1187,13 +1187,16 @@ func ProvideAsyncMediaService(
 	billingContextResolver *BillingContextResolver,
 	billingCache *BillingCacheService,
 	opsService *OpsService,
+	modelIntroService *ModelIntroService,
 	cfg *config.Config,
 ) *AsyncMediaService {
 	svc := NewAsyncMediaService(taskRepo, userRepo, groupRepo, billing, resolver, cos)
 	svc.SetStatusCache(statusCache)
+	svc.SetBackgroundPollingEnabled(true)
 	svc.SetDeferredService(deferred)
 	svc.SetBillingContextResolver(billingContextResolver)
 	svc.SetOpsService(opsService)
+	svc.SetModelIntroService(modelIntroService)
 	svc.SetBalanceCache(billingCache)
 	if cfg != nil {
 		if cfg.AsyncMedia.PollIntervalSeconds > 0 {
@@ -1246,6 +1249,7 @@ func ProvideAsyncVideoService(
 	costCenter *CostCenterService,
 	cosTransfer *COSImageTransferService,
 	opsService *OpsService,
+	pollLock AsyncMediaTaskLockStore,
 	cfg *config.Config,
 ) *AsyncVideoService {
 	svc := NewAsyncVideoService(taskRepo, userRepo, billing)
@@ -1257,6 +1261,8 @@ func ProvideAsyncVideoService(
 	svc.SetCostCenterWriter(costCenter)
 	svc.SetCOSTransferService(cosTransfer)
 	svc.SetOpsService(opsService)
+	svc.SetPollLock(pollLock)
+	svc.SetBackgroundPollingEnabled(true)
 	if cfg != nil {
 		if cfg.AsyncMedia.PollIntervalSeconds > 0 {
 			svc.SetPollInterval(time.Duration(cfg.AsyncMedia.PollIntervalSeconds) * time.Second)

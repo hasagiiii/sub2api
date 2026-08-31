@@ -79,7 +79,8 @@ type APIKeyUpdateFields struct {
 	// 仅供"重置限流用量"路径声明；常规计费走 IncrementRateLimitUsage。
 	RateLimitUsage bool
 	// IPRules 覆盖 ip_whitelist 与 ip_blacklist。
-	IPRules bool
+	IPRules              bool
+	PreferCompanyBalance bool
 }
 
 // IsEmpty 报告该次 Update 是否不写任何列。
@@ -222,6 +223,7 @@ type CreateAPIKeyRequest struct {
 	// subscription's group and consumption is charged against the organization
 	// subscription instead of a personal subscription.
 	OrganizationSubscriptionID *int64   `json:"organization_subscription_id"`
+	PreferCompanyBalance       bool     `json:"prefer_company_balance"`
 	CustomKey                  *string  `json:"custom_key"`   // 可选的自定义key
 	IPWhitelist                []string `json:"ip_whitelist"` // IP 白名单
 	IPBlacklist                []string `json:"ip_blacklist"` // IP 黑名单
@@ -245,6 +247,7 @@ type UpdateAPIKeyRequest struct {
 	// subscription (enterprise key). Selecting a normal GroupID clears the
 	// enterprise binding.
 	OrganizationSubscriptionID *int64    `json:"organization_subscription_id"`
+	PreferCompanyBalance       *bool     `json:"prefer_company_balance"`
 	Status                     *string   `json:"status"`
 	IPWhitelist                *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
 	IPBlacklist                *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
@@ -405,6 +408,26 @@ func (s *APIKeyService) ResolveBillingContextForUser(ctx context.Context, userID
 	ctxResult, err := s.organizationRepo.ResolveBillingContext(ctx, userID, 0)
 	if err != nil {
 		return nil
+	}
+	return ctxResult
+}
+
+// ResolveBillingContextForAPIKey is the authentication-time variant that
+// preserves API-key wallet preferences for the low-balance gate.
+func (s *APIKeyService) ResolveBillingContextForAPIKey(ctx context.Context, apiKey *APIKey) *BillingContext {
+	if apiKey == nil {
+		return nil
+	}
+	if s == nil || s.organizationRepo == nil {
+		return nil
+	}
+	ctxResult, err := s.organizationRepo.ResolveBillingContext(WithBillingAPIKey(ctx, apiKey), apiKey.UserID, 0)
+	if err != nil {
+		return nil
+	}
+	if apiKey.PreferCompanyBalance && ctxResult != nil && ctxResult.OrganizationID != nil && ctxResult.BalanceSource == BalanceSourceSelf {
+		ctxResult.PayerUserID = ctxResult.ConsumerUserID
+		ctxResult.BalanceSource = BalanceSourceCompany
 	}
 	return ctxResult
 }
@@ -716,9 +739,6 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 	// 企业 API Key：绑定公司订阅。校验用户是该订阅所属组织的活跃成员，
 	// 并将分组强制设置为订阅所属分组（消费走公司订阅计数器）。
 	if req.OrganizationSubscriptionID != nil {
-		if len(req.FallbackGroupIDs) > 0 {
-			return nil, ErrInvalidFallbackGroups
-		}
 		orgSub, err := s.resolveBindableOrganizationSubscription(ctx, userID, *req.OrganizationSubscriptionID)
 		if err != nil {
 			return nil, err
@@ -784,6 +804,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		GroupID:                    req.GroupID,
 		FallbackGroupIDs:           append([]int64(nil), req.FallbackGroupIDs...),
 		OrganizationSubscriptionID: req.OrganizationSubscriptionID,
+		PreferCompanyBalance:       req.PreferCompanyBalance,
 		Status:                     StatusActive,
 		IPWhitelist:                req.IPWhitelist,
 		IPBlacklist:                req.IPBlacklist,
@@ -1046,9 +1067,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	if req.OrganizationSubscriptionID != nil {
-		if req.FallbackGroupIDs != nil && len(*req.FallbackGroupIDs) > 0 {
-			return nil, ErrInvalidFallbackGroups
-		}
 		// 重新绑定为企业 Key
 		orgSub, err := s.resolveBindableOrganizationSubscription(ctx, userID, *req.OrganizationSubscriptionID)
 		if err != nil {
@@ -1058,10 +1076,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.GroupID = &gid
 		apiKey.OrganizationSubscriptionID = req.OrganizationSubscriptionID
 		fields.GroupID = true
-		if len(apiKey.FallbackGroupIDs) > 0 {
-			apiKey.FallbackGroupIDs = []int64{}
-			fields.FallbackGroupIDs = true
-		}
 	} else if req.GroupID != nil {
 		// 验证分组权限（个人 Key），并清除可能存在的企业绑定
 		user, err := s.userRepo.GetByID(ctx, userID)
@@ -1082,11 +1096,12 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.OrganizationSubscriptionID = nil
 		fields.GroupID = true
 	}
+	if req.PreferCompanyBalance != nil {
+		apiKey.PreferCompanyBalance = *req.PreferCompanyBalance
+		fields.PreferCompanyBalance = true
+	}
 
 	if req.FallbackGroupIDs != nil {
-		if apiKey.OrganizationSubscriptionID != nil && len(*req.FallbackGroupIDs) > 0 {
-			return nil, ErrInvalidFallbackGroups
-		}
 		user := apiKey.User
 		if user == nil {
 			user, err = s.userRepo.GetByID(ctx, userID)

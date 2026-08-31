@@ -493,6 +493,15 @@ func collectOutputFieldPaths(fields []OutputFieldSpec) []string {
 		}
 		typ, _ := m["type"].(string)
 		typ = strings.ToLower(strings.TrimSpace(typ))
+		if typ == "" {
+			// The admin schema editor intentionally omits type on nested nodes;
+			// infer it from the structural keys, just like schemaToRow does.
+			if _, exists := m["items"]; exists {
+				typ = "array"
+			} else if _, exists := m["properties"]; exists {
+				typ = "object"
+			}
+		}
 		switch typ {
 		case "object":
 			// Properties 反解出来是 map[string]any；每个 value 又是嵌套 schema。

@@ -6,8 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strconv"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -160,33 +159,7 @@ func ensureKiroCooldownDockerAvailable(t *testing.T) {
 }
 
 func kiroCooldownDockerAvailable() bool {
-	if os.Getenv("DOCKER_HOST") != "" {
-		return true
-	}
-
-	socketCandidates := []string{
-		"/var/run/docker.sock",
-		filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "docker.sock"),
-		filepath.Join(kiroCooldownUserHomeDir(), ".docker", "run", "docker.sock"),
-		filepath.Join(kiroCooldownUserHomeDir(), ".docker", "desktop", "docker.sock"),
-		filepath.Join("/run/user", strconv.Itoa(os.Getuid()), "docker.sock"),
-	}
-
-	for _, socket := range socketCandidates {
-		if socket == "" {
-			continue
-		}
-		if _, err := os.Stat(socket); err == nil {
-			return true
-		}
-	}
-	return false
-}
-
-func kiroCooldownUserHomeDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return home
+	cmd := exec.Command("docker", "info")
+	cmd.Env = os.Environ()
+	return cmd.Run() == nil
 }

@@ -1489,6 +1489,20 @@ func TestGatewayService_isModelSupportedByAccount_FalEditContext(t *testing.T) {
 	}
 }
 
+func TestGatewayService_isModelSupportedByAccount_FalMultiSegmentEndpoint(t *testing.T) {
+	svc := &GatewayService{}
+	account := &Account{
+		Platform: PlatformFal,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"seedvr/upscale/image": "fal-ai/seedvr/upscale/image",
+		}},
+	}
+
+	require.True(t, svc.isModelSupportedByAccount(account, "seedvr/upscale/image", ""))
+	require.True(t, svc.isModelSupportedByAccount(account, "fal-ai/seedvr/upscale/image", ""))
+}
+
 // TestGatewayService_selectAccountWithMixedScheduling 测试混合调度
 func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 	ctx := context.Background()

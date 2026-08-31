@@ -122,6 +122,9 @@ func (r *AsyncMediaReconciler) Stop() {
 
 func (r *AsyncMediaReconciler) loop() {
 	defer r.wg.Done()
+	// Recover persisted tasks immediately after startup; subsequent scans only
+	// reclaim tasks whose Redis heartbeat is missing or older than 30 seconds.
+	r.runOnce(r.parentCtx)
 	ticker := time.NewTicker(r.Interval())
 	defer ticker.Stop()
 	for {
@@ -148,8 +151,25 @@ func (r *AsyncMediaReconciler) runOnce(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		if !r.shouldReconcile(ctx, task) {
+			continue
+		}
 		r.reconcileOne(ctx, task)
 	}
+}
+
+func (r *AsyncMediaReconciler) shouldReconcile(ctx context.Context, task *AsyncMediaTask) bool {
+	if task == nil || task.IsTerminal() {
+		return false
+	}
+	if r.exec == nil || r.exec.statusCache == nil || task.UpstreamRequestID == nil {
+		return true
+	}
+	cached, err := r.exec.statusCache.GetAsyncMediaTaskStatus(ctx, *task.UpstreamRequestID)
+	if err != nil || cached == nil {
+		return true
+	}
+	return cached.LastRunAt.IsZero() || time.Since(cached.LastRunAt) >= 30*time.Second
 }
 
 func (r *AsyncMediaReconciler) reconcileOne(ctx context.Context, task *AsyncMediaTask) {

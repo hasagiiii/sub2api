@@ -37,6 +37,7 @@ export interface StatusResponse {
   request_id?: string
   queue_position?: number
   logs?: Array<{ message?: string; level?: string; timestamp?: string } | string>
+  data?: ResultResponse
   [k: string]: unknown
 }
 
@@ -97,7 +98,7 @@ export async function status(
   options?: { signal?: AbortSignal }
 ): Promise<StatusResponse> {
   const { data } = await playgroundClient.get<StatusResponse>(
-    `/${slug}/requests/${requestId}/status`,
+    `/${slug}/requests/${requestId}`,
     { headers: authHeader(apiKey), signal: options?.signal }
   )
   return data

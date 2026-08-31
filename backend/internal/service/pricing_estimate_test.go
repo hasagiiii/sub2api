@@ -114,6 +114,30 @@ func TestGatewayServiceEstimateImagePricingAcceptsGroupModelWildcard(t *testing.
 	require.Equal(t, "1K", estimate.Tier)
 }
 
+func TestGatewayServiceEstimateImagePricingNormalizesFalAIPrefix(t *testing.T) {
+	price := 0.1
+	svc := &GatewayService{
+		billingService: &BillingService{},
+		accountRepo: &pricingEstimateAccountRepo{accounts: []Account{{
+			Platform: PlatformFal,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{"fal-ai/imageutils/rembg": "fal-ai/imageutils/rembg"},
+			},
+		}}},
+	}
+	apiKey := &APIKey{Group: &Group{
+		ID: 9, ImagePrice1K: &price,
+		ImageResolution1K: "1024x1024", ImageResolution2K: "2048x2048", ImageResolution4K: "4096x4096",
+	}}
+
+	estimate, err := svc.EstimateImagePricing(
+		context.Background(), apiKey, "imageutils/rembg",
+		ImageDimensions{Width: 800, Height: 800}, "high", 1,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "imageutils/rembg", estimate.Endpoint)
+}
+
 func TestModelPricingResolverGetImageTierPrice(t *testing.T) {
 	price1K, price2K, price4K := 0.1, 0.2, 0.4
 	resolved := &ResolvedPricing{Mode: BillingModeImage, RequestTiers: []PricingInterval{

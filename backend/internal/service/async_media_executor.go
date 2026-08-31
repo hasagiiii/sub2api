@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -53,7 +54,9 @@ type AsyncMediaService struct {
 	deferred               *DeferredService
 	billingContextResolver *BillingContextResolver
 	opsService             *OpsService
+	modelIntroService      *ModelIntroService
 	statusCache            AsyncMediaTaskStatusStore
+	backgroundPolling      bool
 	balanceCache           interface {
 		InvalidateUserBalance(ctx context.Context, userID int64) error
 	}
@@ -84,9 +87,26 @@ func (s *AsyncMediaService) SetOpsService(ops *OpsService) {
 	}
 }
 
+// SetModelIntroService injects the model output schema used to extract native
+// provider result fields.
+func (s *AsyncMediaService) SetModelIntroService(intros *ModelIntroService) {
+	if s != nil {
+		s.modelIntroService = intros
+	}
+}
+
 func (s *AsyncMediaService) SetStatusCache(cache AsyncMediaTaskStatusStore) {
 	if s != nil {
 		s.statusCache = cache
+	}
+}
+
+// SetBackgroundPollingEnabled enables the server-owned polling loop. It is
+// enabled by production wiring; unit tests may leave it disabled and advance a
+// task explicitly.
+func (s *AsyncMediaService) SetBackgroundPollingEnabled(enabled bool) {
+	if s != nil {
+		s.backgroundPolling = enabled
 	}
 }
 
@@ -151,8 +171,14 @@ type AsyncMediaSubmitInput struct {
 	InternalRequestID string // 网关侧生成的内部请求 ID（幂等键）
 	RequestedModel    string // 客户端请求模型（映射前）
 
-	Input             fal.ImageGenInput // 协议无关的图片请求描述
-	RequestParameters map[string]any    // sanitized non-binary client parameters for usage details
+	Input fal.ImageGenInput // 协议无关的图片请求描述
+	// RawRequestBody preserves the caller's native FAL JSON payload. It is used
+	// for non-SeedVR native endpoints whose schema is not fal.Request.
+	RawRequestBody []byte
+	// UpscaleRequest is set for the native seedvr/upscale/image facade. SeedVR
+	// uses a different fal payload/response shape than gpt-image requests.
+	UpscaleRequest    *fal.UpscaleRequest
+	RequestParameters map[string]any // sanitized non-binary client parameters for usage details
 
 	BillingType       int8    // 0=balance / 1=subscription
 	RateMultiplier    float64 // 下游图片计费倍率
@@ -263,6 +289,9 @@ func (s *AsyncMediaService) SubmitAsync(ctx context.Context, in *AsyncMediaSubmi
 	task.UpdatedAt = time.Now().UTC()
 	task.statusCacheUpstream = in.Account.Platform
 	s.cacheTaskStatus(ctx, task)
+	if s.backgroundPolling {
+		s.startBackgroundPolling(task, in.Account, in.BillingType)
+	}
 
 	// 账号已成功向上游提交任务，视为本次被使用：记录 last_used_at（延迟批量刷库）。
 	if s.deferred != nil {
@@ -354,6 +383,12 @@ func (s *AsyncMediaService) cacheTaskStatus(ctx context.Context, task *AsyncMedi
 		return
 	}
 	ttl := AsyncMediaTaskStatusCacheTTL(status.Status)
+	if status.Status == AsyncMediaStatusPending || status.Status == AsyncMediaStatusRunning {
+		ttl = s.pollInterval + 5*time.Second
+		if ttl < 5*time.Second {
+			ttl = 5 * time.Second
+		}
+	}
 	if err := s.statusCache.SetAsyncMediaTaskStatus(ctx, status, ttl); err != nil {
 		logger.L().Warn("async_media.status_cache_set_failed",
 			zap.String("upstream", "redis"),
@@ -363,6 +398,72 @@ func (s *AsyncMediaService) cacheTaskStatus(ctx context.Context, task *AsyncMedi
 			zap.Error(err),
 		)
 	}
+}
+
+func (s *AsyncMediaService) startBackgroundPolling(task *AsyncMediaTask, account *Account, billingType int8) {
+	if s == nil || task == nil || account == nil || task.IsTerminal() {
+		return
+	}
+	go s.backgroundPollLoop(context.Background(), task, account, billingType)
+}
+
+func (s *AsyncMediaService) backgroundPollLoop(ctx context.Context, task *AsyncMediaTask, account *Account, billingType int8) {
+	if task == nil || account == nil {
+		return
+	}
+	for {
+		if task.IsTerminal() || ctx.Err() != nil {
+			return
+		}
+		token := uuid.NewString()
+		locked := true
+		if lockStore, ok := s.statusCache.(AsyncMediaTaskLockStore); ok {
+			var err error
+			locked, err = lockStore.TryAcquireAsyncMediaTaskLock(ctx, amDerefStr(task.UpstreamRequestID), token, s.pollInterval+5*time.Second)
+			if err != nil {
+				locked = false
+			}
+		}
+		if locked {
+			updated, done, err := s.pollOnce(ctx, task, account, billingType)
+			if lockStore, ok := s.statusCache.(AsyncMediaTaskLockStore); ok {
+				_ = lockStore.ReleaseAsyncMediaTaskLock(ctx, amDerefStr(task.UpstreamRequestID), token)
+			}
+			if err != nil {
+				logger.L().Warn("async_media.background_poll_failed", zap.Int64("task_id", task.ID), zap.Error(err))
+			}
+			if updated != nil {
+				task = updated
+			}
+			if done {
+				return
+			}
+		}
+		timer := time.NewTimer(s.pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+func (s *AsyncMediaService) pollOnceWithLock(ctx context.Context, task *AsyncMediaTask, account *Account, billingType int8) (*AsyncMediaTask, bool, error) {
+	if s == nil || task == nil {
+		return task, false, errors.New("async media poll: invalid task")
+	}
+	lockStore, ok := s.statusCache.(AsyncMediaTaskLockStore)
+	if !ok {
+		return s.pollOnce(ctx, task, account, billingType)
+	}
+	token := uuid.NewString()
+	locked, err := lockStore.TryAcquireAsyncMediaTaskLock(ctx, amDerefStr(task.UpstreamRequestID), token, s.pollInterval+5*time.Second)
+	if err != nil || !locked {
+		return task, false, err
+	}
+	defer func() { _ = lockStore.ReleaseAsyncMediaTaskLock(ctx, amDerefStr(task.UpstreamRequestID), token) }()
+	return s.pollOnce(ctx, task, account, billingType)
 }
 
 func AsyncMediaTaskStatusCacheTTL(status string) time.Duration {
@@ -431,16 +532,35 @@ func (s *AsyncMediaService) ReconcileTask(ctx context.Context, task *AsyncMediaT
 	if account == nil {
 		return errors.New("async media reconcile: account is nil")
 	}
-	_, _, err := s.pollOnce(ctx, task, account, billingType)
+	_, _, err := s.pollOnceWithLock(ctx, task, account, billingType)
 	return err
 }
 
 // pollOnce 执行一轮状态查询并在终态时结算/退费。
 // 返回 (最新任务, 是否终态, error)。
 func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, account *Account, billingType int8) (*AsyncMediaTask, bool, error) {
+	if task == nil {
+		return nil, false, errors.New("async media poll: task is nil")
+	}
+	// A reconciler can observe the row during the short pending window between
+	// task creation and the upstream submit response. There is no upstream URL
+	// to call yet; leave the task pending and let the next reconcile retry.
+	if task.UpstreamRequestID == nil || strings.TrimSpace(*task.UpstreamRequestID) == "" ||
+		task.ResponseURL == nil || strings.TrimSpace(*task.ResponseURL) == "" {
+		logger.FromContext(ctx).Debug("async_media.upstream_poll_skipped",
+			zap.String("reason", "upstream_not_submitted"),
+			zap.Int64("task_id", task.ID),
+			zap.String("status", task.Status),
+		)
+		return task, false, nil
+	}
 	if task != nil && account != nil {
 		task.statusCacheUpstream = account.Platform
 	}
+	task.lastRunAt = time.Now().UTC()
+	task.UpdatedAt = task.lastRunAt
+	// The Redis heartbeat is deliberately independent of database updated_at.
+	s.cacheTaskStatus(ctx, task)
 	if account != nil && account.Platform == PlatformLeonardo {
 		return s.pollLeonardoOnce(ctx, task, account, billingType)
 	}
@@ -452,8 +572,27 @@ func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, 
 	if task.StatusURL != nil {
 		statusURL = *task.StatusURL
 	}
+	logger.FromContext(ctx).Debug("async_media.upstream_request",
+		zap.String("operation", "status"),
+		zap.String("method", http.MethodGet),
+		zap.String("url", statusURL),
+		zap.String("upstream_model", amDerefStr(task.UpstreamModel)),
+		zap.String("upstream_request_id", amDerefStr(task.UpstreamRequestID)),
+		zap.String("request_body", ""),
+	)
 	st, err := client.Status(ctx, statusURL)
 	if err != nil {
+		logger.FromContext(ctx).Debug("async_media.upstream_response",
+			zap.String("operation", "status"),
+			zap.String("url", statusURL),
+			zap.String("upstream_request_id", amDerefStr(task.UpstreamRequestID)),
+			zap.Error(err),
+		)
+		if IsSeedVRUpscaleModel(task.RequestedModel) {
+			logger.FromContext(ctx).Debug("fal.image.upscale_status_response",
+				zap.Int64("task_id", task.ID), zap.String("request_id", amDerefStr(task.UpstreamRequestID)),
+				zap.String("url", statusURL), zap.Error(err))
+		}
 		var apiErr *fal.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
 			// 明确的客户端错误视为失败（任务不可恢复）。
@@ -463,6 +602,19 @@ func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, 
 		// 网络/5xx：暂不终结，等待下一轮或 reconciler。
 		return task, false, nil
 	}
+	if raw, marshalErr := json.Marshal(st); marshalErr == nil {
+		logger.FromContext(ctx).Debug("async_media.upstream_response",
+			zap.String("operation", "status"),
+			zap.String("url", statusURL),
+			zap.String("upstream_request_id", amDerefStr(task.UpstreamRequestID)),
+			zap.String("response_body", truncateAsyncUpstreamBody(raw)),
+		)
+	}
+	if IsSeedVRUpscaleModel(task.RequestedModel) {
+		logger.FromContext(ctx).Debug("fal.image.upscale_status_response",
+			zap.Int64("task_id", task.ID), zap.String("request_id", amDerefStr(task.UpstreamRequestID)),
+			zap.String("url", statusURL), zap.String("status", st.Status), zap.String("response_url", st.ResponseURL))
+	}
 
 	if !st.IsTerminal() {
 		return task, false, nil
@@ -470,10 +622,52 @@ func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, 
 
 	// 终态：取结果。
 	responseURL := st.ResponseURL
+	upstreamModel := amDerefStr(task.UpstreamModel)
 	if responseURL == "" && task.ResponseURL != nil {
 		responseURL = *task.ResponseURL
 	}
-	result, err := client.Result(ctx, responseURL)
+	var result *fal.Response
+	var rawResult map[string]any
+	if IsSeedVRUpscaleModel(task.RequestedModel) {
+		upscaleResult, upscaleErr := client.UpscaleResult(ctx, responseURL)
+		if upscaleErr != nil {
+			err = upscaleErr
+		} else if upscaleResult != nil {
+			logger.FromContext(ctx).Debug("fal.image.upscale_result_response",
+				zap.Int64("task_id", task.ID), zap.String("request_id", amDerefStr(task.UpstreamRequestID)),
+				zap.String("url", responseURL), zap.Any("image", upscaleResult.Image))
+			result = &fal.Response{Images: []fal.Image{{
+				URL:         upscaleResult.Image.URL,
+				ContentType: upscaleResult.Image.ContentType,
+				Width:       upscaleResult.Image.Width,
+				Height:      upscaleResult.Image.Height,
+			}}}
+		}
+	} else {
+		logger.FromContext(ctx).Debug("async_media.upstream_request",
+			zap.String("operation", "result"),
+			zap.String("method", http.MethodGet),
+			zap.String("url", responseURL),
+			zap.String("upstream_model", upstreamModel),
+			zap.String("upstream_request_id", amDerefStr(task.UpstreamRequestID)),
+			zap.String("request_body", ""),
+		)
+		rawResult, err = client.ResultRaw(ctx, responseURL)
+		if err != nil {
+			logger.FromContext(ctx).Debug("async_media.upstream_response",
+				zap.String("operation", "result"), zap.String("url", responseURL),
+				zap.String("upstream_request_id", amDerefStr(task.UpstreamRequestID)), zap.Error(err))
+		} else if raw, marshalErr := json.Marshal(rawResult); marshalErr == nil {
+			logger.FromContext(ctx).Debug("async_media.upstream_response",
+				zap.String("operation", "result"), zap.String("url", responseURL),
+				zap.String("upstream_request_id", amDerefStr(task.UpstreamRequestID)),
+				zap.String("response_body", truncateAsyncUpstreamBody(raw)))
+		}
+		if encoded, marshalErr := json.Marshal(rawResult); marshalErr == nil {
+			result = &fal.Response{}
+			_ = json.Unmarshal(encoded, result)
+		}
+	}
 	if err != nil {
 		var apiErr *fal.APIError
 		if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
@@ -483,34 +677,100 @@ func (s *AsyncMediaService) pollOnce(ctx context.Context, task *AsyncMediaTask, 
 		return task, false, nil
 	}
 
-	imageURLs, imageOutputSizes := extractFalImageResult(result)
-	imageMetadata := extractFalImageMetadata(result)
+	var imageURLs []string
+	var imageOutputSizes []string
+	var imageMetadata []ImageOutputMetadata
+	var matchedFields []string
+	if len(rawResult) > 0 && s.modelIntroService != nil {
+		intro, introErr := s.lookupModelIntro(ctx, task.RequestedModel)
+		if introErr == nil && intro != nil {
+			imageURLs, matchedFields = extractConfiguredImageURLs(rawResult, intro)
+			imageMetadata = extractConfiguredImageMetadata(rawResult, imageURLs)
+			imageOutputSizes = imageOutputSizesFromMetadata(imageMetadata)
+			logger.FromContext(ctx).Debug("async_media.result_field_extraction",
+				zap.String("requested_model", task.RequestedModel),
+				zap.String("configured_result_field", intro.ResultField),
+				zap.Strings("extracted_fields", matchedFields),
+				zap.Int("extracted_url_count", len(imageURLs)),
+			)
+		} else if introErr != nil {
+			logger.FromContext(ctx).Debug("async_media.result_field_schema_lookup_failed",
+				zap.String("requested_model", task.RequestedModel), zap.Error(introErr))
+		}
+	}
+	if len(imageURLs) == 0 {
+		imageURLs, imageOutputSizes = extractFalImageResult(result)
+		imageMetadata = extractFalImageMetadata(result)
+	}
 	if len(imageURLs) == 0 {
 		s.markFailedAndRefund(ctx, task, billingType, "upstream returned no images")
 		return task, true, nil
 	}
 
 	task.ImageMetadata = imageMetadata
-	s.markSucceeded(ctx, task, account.BillingRateMultiplier(), billingType, imageURLs, imageOutputSizes)
+	s.markSucceeded(ctx, task, account.BillingRateMultiplier(), billingType, imageURLs, imageOutputSizes, rawResult)
 	return task, true, nil
 }
 
+func (s *AsyncMediaService) lookupModelIntro(ctx context.Context, model string) (*ModelIntro, error) {
+	if s == nil || s.modelIntroService == nil {
+		return nil, errors.New("model intro service is unavailable")
+	}
+	requested := strings.Trim(strings.TrimSpace(model), "/")
+	candidates := []string{requested}
+	normalized := strings.TrimPrefix(requested, "fal-ai/")
+	if normalized != "" && normalized != requested {
+		candidates = append(candidates, normalized)
+	} else if normalized != "" {
+		candidates = append(candidates, "fal-ai/"+normalized)
+	}
+	var lastErr error
+	for _, candidate := range candidates {
+		intro, err := s.modelIntroService.Get(ctx, candidate)
+		if err == nil && intro != nil {
+			return intro, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
 // markSucceeded 成功结算：转存 COS、结算 finalCost（退差）、置 succeeded、终态写 usage_log。
-func (s *AsyncMediaService) markSucceeded(ctx context.Context, task *AsyncMediaTask, accountRateMultiplier float64, billingType int8, imageURLs, imageOutputSizes []string) {
-	// COS 转存成功时复用已下载图片解析尺寸；未转存或 fal 未返回宽高时，再从原图文件头补测。
+func (s *AsyncMediaService) markSucceeded(ctx context.Context, task *AsyncMediaTask, accountRateMultiplier float64, billingType int8, imageURLs, imageOutputSizes []string, resultPayload map[string]any) {
+	// COS 转存成功时复用已下载图片解析尺寸；未启用 COS 时，才从原图文件头补测。
 	var cosURLs []string
+	// TransferImagesWithSizes already retries each source URL up to the configured
+	// limit. Once that transfer attempt has run, do not probe the same URLs again
+	// just to discover dimensions: a failed transfer must fall back to the
+	// original upstream URLs without another download.
+	transferAttempted := false
 	imageOutputSizes = mergeImageOutputSizes(imageOutputSizes, nil, len(imageURLs))
 	if s.cos != nil {
 		if s.cos.IsEnabled(ctx) {
+			transferAttempted = true
 			transferred, transferredSizes, ok := s.cos.TransferImagesWithSizes(ctx, imageURLs)
 			imageOutputSizes = mergeImageOutputSizes(imageOutputSizes, transferredSizes, len(imageURLs))
 			if ok {
 				cosURLs = transferred
 			}
 		}
-		if hasMissingImageOutputSize(imageOutputSizes) {
+		if !transferAttempted && hasMissingImageOutputSize(imageOutputSizes) {
 			detectedSizes := s.cos.DetectImageSizes(ctx, imageURLs)
 			imageOutputSizes = mergeImageOutputSizes(imageOutputSizes, detectedSizes, len(imageURLs))
+		}
+	}
+	if resultPayload != nil {
+		task.ResultPayload = cloneAsyncMediaPayload(resultPayload)
+		if len(cosURLs) == len(imageURLs) && len(cosURLs) > 0 {
+			mapping := make(map[string]string, len(imageURLs))
+			for i := range imageURLs {
+				if strings.TrimSpace(imageURLs[i]) != "" && strings.TrimSpace(cosURLs[i]) != "" {
+					mapping[imageURLs[i]] = cosURLs[i]
+				}
+			}
+			if len(mapping) > 0 {
+				replaceURLsInPayload(task.ResultPayload, mapping)
+			}
 		}
 	}
 	logger.L().Info("async_media.image_output_sizes_resolved",
@@ -534,7 +794,7 @@ func (s *AsyncMediaService) markSucceeded(ctx context.Context, task *AsyncMediaT
 		finalTotalCost = asyncMediaBaseCost(finalCost, task.RateMultiplier)
 	}
 
-	updated, err := s.taskRepo.MarkSucceeded(ctx, task.ID, imageURLs, cosURLs, task.ImageMetadata, finalCost)
+	updated, err := s.taskRepo.MarkSucceeded(ctx, task.ID, imageURLs, cosURLs, task.ImageMetadata, task.ResultPayload, finalCost)
 	if err != nil {
 		logger.L().Error("async_media.mark_succeeded_failed", zap.Int64("task_id", task.ID), zap.Error(err))
 		return
@@ -1039,10 +1299,73 @@ func (s *AsyncMediaService) submitUpstream(ctx context.Context, in *AsyncMediaSu
 	if err != nil {
 		return "", "", "", err
 	}
-	request := fal.BuildRequest(in.Input)
-	response, err := client.Submit(ctx, upstreamModel, request)
+	if in.UpscaleRequest != nil {
+		request := *in.UpscaleRequest
+		logger.FromContext(ctx).Debug("fal.image.upscale_submit_parameters",
+			zap.Int64("account_id", in.Account.ID),
+			zap.Int64("group_id", derefGroupID(in.GroupID)),
+			zap.Int64("api_key_id", in.APIKeyID),
+			zap.String("requested_model", in.RequestedModel),
+			zap.String("upstream_model", upstreamModel),
+			zap.String("image_url", truncateFalDebugValue(request.ImageURL)),
+			zap.String("upscale_mode", request.UpscaleMode),
+			zap.Int("upscale_factor", request.UpscaleFactor),
+			zap.String("output_format", request.OutputFormat),
+		)
+		response, submitErr := client.SubmitUpscale(ctx, upstreamModel, &request)
+		if submitErr != nil {
+			logger.FromContext(ctx).Debug("fal.image.upscale_submit_response",
+				zap.String("upstream_model", upstreamModel), zap.Error(submitErr))
+			return "", "", "", submitErr
+		}
+		logger.FromContext(ctx).Debug("fal.image.upscale_submit_response",
+			zap.String("upstream_model", upstreamModel),
+			zap.String("request_id", response.RequestID),
+			zap.String("status_url", response.StatusURL),
+			zap.String("response_url", response.ResponseURL),
+		)
+		statusURL := response.StatusURL
+		if statusURL == "" {
+			statusURL = client.BuildStatusURL(upstreamModel, response.RequestID)
+		}
+		responseURL := response.ResponseURL
+		if responseURL == "" {
+			responseURL = client.BuildResponseURL(upstreamModel, response.RequestID)
+		}
+		return response.RequestID, statusURL, responseURL, nil
+	}
+	var response *fal.SubmitResponse
+	if len(in.RawRequestBody) > 0 {
+		logger.FromContext(ctx).Debug("async_media.upstream_request",
+			zap.String("operation", "submit"),
+			zap.String("method", http.MethodPost),
+			zap.String("url", strings.TrimRight(in.Account.FalQueueBaseURL(), "/")+"/"+strings.TrimLeft(upstreamModel, "/")),
+			zap.String("upstream_model", upstreamModel),
+			zap.String("request_body", truncateAsyncUpstreamBody(in.RawRequestBody)),
+		)
+		response, err = client.SubmitRaw(ctx, upstreamModel, in.RawRequestBody)
+	} else {
+		request := fal.BuildRequest(in.Input)
+		if raw, marshalErr := json.Marshal(request); marshalErr == nil {
+			logger.FromContext(ctx).Debug("async_media.upstream_request",
+				zap.String("operation", "submit"),
+				zap.String("method", http.MethodPost),
+				zap.String("url", strings.TrimRight(in.Account.FalQueueBaseURL(), "/")+"/"+strings.TrimLeft(upstreamModel, "/")),
+				zap.String("upstream_model", upstreamModel),
+				zap.String("request_body", truncateAsyncUpstreamBody(raw)),
+			)
+		}
+		response, err = client.Submit(ctx, upstreamModel, request)
+	}
 	if err != nil {
+		logger.FromContext(ctx).Debug("async_media.upstream_response",
+			zap.String("operation", "submit"), zap.String("upstream_model", upstreamModel), zap.Error(err))
 		return "", "", "", err
+	}
+	if raw, marshalErr := json.Marshal(response); marshalErr == nil {
+		logger.FromContext(ctx).Debug("async_media.upstream_response",
+			zap.String("operation", "submit"), zap.String("upstream_model", upstreamModel),
+			zap.String("response_body", truncateAsyncUpstreamBody(raw)))
 	}
 	statusURL := response.StatusURL
 	if statusURL == "" {
@@ -1123,7 +1446,7 @@ func (s *AsyncMediaService) pollLeonardoOnce(ctx context.Context, task *AsyncMed
 		return task, true, nil
 	}
 	task.ImageMetadata = imageMetadata
-	s.markSucceeded(ctx, task, account.BillingRateMultiplier(), billingType, imageURLs, imageOutputSizes)
+	s.markSucceeded(ctx, task, account.BillingRateMultiplier(), billingType, imageURLs, imageOutputSizes, nil)
 	return task, true, nil
 }
 
@@ -1135,7 +1458,30 @@ func resolveFalUpstreamModel(account *Account, requestedModel string, isEdit boo
 	if account != nil {
 		mapping = account.GetModelMapping()
 	}
+	if IsSeedVRUpscaleModel(requestedModel) {
+		for _, endpoint := range mapping {
+			if mapped := strings.TrimSpace(endpoint); IsSeedVRUpscaleModel(mapped) {
+				return mapped
+			}
+		}
+		// Never let a stale alias (for example seedvr -> gpt-image-2) change
+		// the protocol used by this native facade.
+		return defaultFalUpscaleEndpoint
+	}
 	mapped := strings.TrimSpace(mapping[requestedModel])
+	if mapped == "" {
+		// Account mappings may use the prefixed/unprefixed form of a native FAL
+		// endpoint. Match normalized paths before applying any image default.
+		reqPath := normalizeFalModelPath(requestedModel)
+		for key, endpoint := range mapping {
+			if normalizeFalModelPath(key) == reqPath || normalizeFalModelPath(endpoint) == reqPath {
+				if candidate := strings.TrimSpace(endpoint); candidate != "" {
+					mapped = candidate
+					break
+				}
+			}
+		}
+	}
 	if !isEdit {
 		if mapped != "" {
 			return mapped
@@ -1176,6 +1522,72 @@ func resolveFalUpstreamModel(account *Account, requestedModel string, isEdit boo
 		}
 	}
 	return domain.FalSlugImageEdit
+}
+
+func normalizeFalModelPath(model string) string {
+	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(model), "/"))
+	return strings.TrimPrefix(normalized, "fal-ai/")
+}
+
+// IsSeedVRUpscaleModel reports whether a model path is the native SeedVR
+// image upscale facade, accepting both prefixed and unprefixed forms.
+func IsSeedVRUpscaleModel(model string) bool {
+	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(model), "/"))
+	normalized = strings.TrimPrefix(normalized, "fal-ai/")
+	return normalized == "seedvr/upscale/image"
+}
+
+func truncateFalDebugValue(value string) string {
+	value = strings.TrimSpace(value)
+	const maxLen = 256
+	if len(value) > maxLen {
+		return value[:maxLen] + "..."
+	}
+	return value
+}
+
+const asyncUpstreamLogBodyLimit = 4 << 10
+
+// truncateAsyncUpstreamBody keeps async provider diagnostics useful without
+// allowing prompts, data URIs, or provider payloads to flood the logs.
+func truncateAsyncUpstreamBody(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var value any
+	if json.Unmarshal(raw, &value) == nil {
+		truncateAsyncUpstreamJSON(&value)
+		if encoded, err := json.Marshal(value); err == nil {
+			raw = encoded
+		}
+	}
+	if len(raw) <= asyncUpstreamLogBodyLimit {
+		return string(raw)
+	}
+	return string(raw[:asyncUpstreamLogBodyLimit]) + "...(truncated)"
+}
+
+func truncateAsyncUpstreamJSON(value *any) {
+	switch current := (*value).(type) {
+	case map[string]any:
+		for key, child := range current {
+			truncateAsyncUpstreamJSON(&child)
+			current[key] = child
+		}
+	case []any:
+		for i := range current {
+			truncateAsyncUpstreamJSON(&current[i])
+		}
+	case string:
+		trimmed := strings.TrimSpace(current)
+		if strings.HasPrefix(strings.ToLower(trimmed), "data:") {
+			*value = fmt.Sprintf("[redacted data URI, bytes=%d]", len(current))
+			return
+		}
+		if len(current) > 1024 {
+			*value = current[:1024] + "...(truncated)"
+		}
+	}
 }
 
 // newClient 基于账号凭证与代理构建 fal 客户端。

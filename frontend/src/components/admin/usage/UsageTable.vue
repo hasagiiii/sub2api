@@ -124,6 +124,12 @@
           </span>
         </template>
 
+        <template #cell-balance_source="{ row }">
+          <span class="text-sm text-gray-700 dark:text-gray-300">
+            {{ balanceSourceLabel(row) }}
+          </span>
+        </template>
+
         <template #cell-tokens="{ row }">
           <!-- 视频生成请求（billing_mode=video） -->
           <div v-if="isVideoUsage(row)" class="flex items-center gap-1.5">
@@ -823,6 +829,13 @@ const getRequestTypeLabel = (row: AdminUsageLog): string => {
   if (requestType === 'stream') return t('usage.stream')
   if (requestType === 'sync') return t('usage.sync')
   return t('usage.unknown')
+}
+
+const balanceSourceLabel = (row: AdminUsageLog): string => {
+  const source = row.balance_source || (row.billing_type === 1 ? 'subscription' : 'self')
+  const key = `organization.balanceSource.${source}`
+  const translated = t(key)
+  return translated === key ? source : translated
 }
 
 const getRequestTypeBadgeClass = (row: AdminUsageLog): string => {

@@ -103,9 +103,16 @@ func (s *GatewayService) validateGroupSupportsPricingModel(ctx context.Context, 
 		groupID = &id
 	}
 	requestedModel := strings.ToLower(strings.Trim(strings.TrimSpace(endpoint), "/"))
+	requestedPath := normalizeFalModelPath(requestedModel)
 	for _, supportedModel := range s.GetAvailableModels(ctx, groupID, "") {
 		pattern := strings.ToLower(strings.Trim(strings.TrimSpace(supportedModel), "/"))
 		if pattern == requestedModel || matchWildcard(pattern, requestedModel) {
+			return nil
+		}
+		// Account/channel mappings may expose the same FAL endpoint with or
+		// without the transport prefix. Treat both forms as the same model.
+		patternPath := normalizeFalModelPath(pattern)
+		if patternPath == requestedPath || matchWildcard(patternPath, requestedPath) {
 			return nil
 		}
 	}

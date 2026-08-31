@@ -3,8 +3,8 @@
  *
  * 视频演练台的任务状态机 composable，封装：
  *   1. submit → 拿 request_id
- *   2. 每 3 秒轮询 status（IN_QUEUE / IN_PROGRESS / COMPLETED / FAILED / CANCELED）
- *   3. status=COMPLETED 时 fetch result 并抽视频 URL
+ *   2. 每 3 秒查询统一的 /requests/{id} 接口
+ *   3. status=COMPLETED 时直接读取响应 data
  *   4. reset 本地状态（已提交任务仍在服务端继续执行）
  *
  * 不做超时兜底（视频渲染可以跑几分钟）。
@@ -24,9 +24,7 @@ export function useVideoPlayground() {
   const phase = ref<PlaygroundPhase>('idle')
   const requestId = ref<string>('')
   // internalRequestId：提交前由前端预生成的稳定 ID（UUID v4），作为 x-client-request-id header
-  // 传入后端，后端会把它落到 async_video_tasks.internal_request_id 。
-  // 前端在任务终态时用它拉一次 GET /user/video-models/tasks/by-request/:rid
-  // 拿 final_cost（实扣费用）。
+  // 传入后端，后端会把它落到任务表，便于幂等追踪。
   const internalRequestId = ref<string>('')
   const errorMessage = ref<string>('')
   const statusPayload = ref<StatusResponse | null>(null)
@@ -132,16 +130,12 @@ export function useVideoPlayground() {
     if (st === 'COMPLETED') {
       phase.value = 'completed'
       stopPolling()
-      // fetch 最终结果
-      try {
-        const r = await videoPlaygroundAPI.result(slug, requestId.value, apiKey)
-        resultPayload.value = r
-      } catch (err) {
+      resultPayload.value = s.data ?? null
+      if (!resultPayload.value) {
         phase.value = 'failed'
-        errorMessage.value = extractErrorMessage(err, 'Failed to fetch result.')
-      } finally {
-        stopTickTimer()
+        errorMessage.value = 'Completed task did not include a result.'
       }
+      stopTickTimer()
       return
     }
 
@@ -189,7 +183,7 @@ export function useVideoPlayground() {
     phase.value = 'submitting'
     submittedAt.value = Date.now()
     // 预生成稳定的 internal_request_id（首选 crypto.randomUUID，未命中时退到 timestamp+random）
-    // 后面任务终态时依靠它去后端拿 final_cost；不依赖上游返回的 request_id。
+    // 任务终态由统一的 /requests/{id} 查询返回，不依赖上游返回的 request_id。
     const rid = generateClientRequestId()
     internalRequestId.value = rid
     startTickTimer()
@@ -257,7 +251,7 @@ export function useVideoPlayground() {
 /**
  * generateClientRequestId：不依赖任何外部包。
  * 优先用 crypto.randomUUID（主流现代浏览器均支持），少数环境下退到 timestamp+random，
- * 上游只当这个值为幂符用（GET by-request/:rid），撑住能就行。
+ * 上游只当这个值为幂等键使用。
  */
 function generateClientRequestId(): string {
   try {

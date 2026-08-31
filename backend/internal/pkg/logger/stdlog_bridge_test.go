@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestInferStdLogLevel(t *testing.T) {
@@ -139,6 +142,10 @@ func TestLegacyPrintfRoutesLevels(t *testing.T) {
 	LegacyPrintf("service.test", "request started")
 	LegacyPrintf("service.test", "Warning: queue full")
 	LegacyPrintf("service.test", "forward failed: timeout")
+	L().WithOptions(zap.AddStacktrace(zapcore.PanicLevel)).Error(
+		"DIAG_USAGE_LIMIT branch=enterprise validate_err=error: code=429",
+		zap.Bool("legacy_printf", true),
+	)
 	// Skip Sync() — on Windows, fsync on pipes deadlocks (FlushFileBuffers).
 
 	_ = stdoutW.Close()
@@ -162,5 +169,15 @@ func TestLegacyPrintfRoutesLevels(t *testing.T) {
 	}
 	if !strings.Contains(stderrText, "\"component\":\"service.test\"") {
 		t.Fatalf("stderr missing component field: %s", stderrText)
+	}
+	for _, line := range strings.Split(stderrText, "\n") {
+		if strings.Contains(line, "DIAG_USAGE_LIMIT") {
+			if !strings.Contains(line, `"level":"ERROR"`) {
+				t.Fatalf("diagnostic log must remain error level: %s", line)
+			}
+			if strings.Contains(line, "stacktrace") {
+				t.Fatalf("diagnostic log must not include stacktrace: %s", line)
+			}
+		}
 	}
 }

@@ -119,6 +119,20 @@ func (_c *APIKeyCreate) SetNillableOrganizationSubscriptionID(v *int64) *APIKeyC
 	return _c
 }
 
+// SetPreferCompanyBalance sets the "prefer_company_balance" field.
+func (_c *APIKeyCreate) SetPreferCompanyBalance(v bool) *APIKeyCreate {
+	_c.mutation.SetPreferCompanyBalance(v)
+	return _c
+}
+
+// SetNillablePreferCompanyBalance sets the "prefer_company_balance" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillablePreferCompanyBalance(v *bool) *APIKeyCreate {
+	if v != nil {
+		_c.SetPreferCompanyBalance(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *APIKeyCreate) SetStatus(v string) *APIKeyCreate {
 	_c.mutation.SetStatus(v)
@@ -407,6 +421,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultFallbackGroupIds
 		_c.mutation.SetFallbackGroupIds(v)
 	}
+	if _, ok := _c.mutation.PreferCompanyBalance(); !ok {
+		v := apikey.DefaultPreferCompanyBalance
+		_c.mutation.SetPreferCompanyBalance(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -475,6 +493,9 @@ func (_c *APIKeyCreate) check() error {
 	}
 	if _, ok := _c.mutation.FallbackGroupIds(); !ok {
 		return &ValidationError{Name: "fallback_group_ids", err: errors.New(`ent: missing required field "APIKey.fallback_group_ids"`)}
+	}
+	if _, ok := _c.mutation.PreferCompanyBalance(); !ok {
+		return &ValidationError{Name: "prefer_company_balance", err: errors.New(`ent: missing required field "APIKey.prefer_company_balance"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "APIKey.status"`)}
@@ -565,6 +586,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.OrganizationSubscriptionID(); ok {
 		_spec.SetField(apikey.FieldOrganizationSubscriptionID, field.TypeInt64, value)
 		_node.OrganizationSubscriptionID = &value
+	}
+	if value, ok := _c.mutation.PreferCompanyBalance(); ok {
+		_spec.SetField(apikey.FieldPreferCompanyBalance, field.TypeBool, value)
+		_node.PreferCompanyBalance = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -849,6 +874,18 @@ func (u *APIKeyUpsert) AddOrganizationSubscriptionID(v int64) *APIKeyUpsert {
 // ClearOrganizationSubscriptionID clears the value of the "organization_subscription_id" field.
 func (u *APIKeyUpsert) ClearOrganizationSubscriptionID() *APIKeyUpsert {
 	u.SetNull(apikey.FieldOrganizationSubscriptionID)
+	return u
+}
+
+// SetPreferCompanyBalance sets the "prefer_company_balance" field.
+func (u *APIKeyUpsert) SetPreferCompanyBalance(v bool) *APIKeyUpsert {
+	u.Set(apikey.FieldPreferCompanyBalance, v)
+	return u
+}
+
+// UpdatePreferCompanyBalance sets the "prefer_company_balance" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdatePreferCompanyBalance() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldPreferCompanyBalance)
 	return u
 }
 
@@ -1316,6 +1353,20 @@ func (u *APIKeyUpsertOne) UpdateOrganizationSubscriptionID() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearOrganizationSubscriptionID() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearOrganizationSubscriptionID()
+	})
+}
+
+// SetPreferCompanyBalance sets the "prefer_company_balance" field.
+func (u *APIKeyUpsertOne) SetPreferCompanyBalance(v bool) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetPreferCompanyBalance(v)
+	})
+}
+
+// UpdatePreferCompanyBalance sets the "prefer_company_balance" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdatePreferCompanyBalance() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdatePreferCompanyBalance()
 	})
 }
 
@@ -1996,6 +2047,20 @@ func (u *APIKeyUpsertBulk) UpdateOrganizationSubscriptionID() *APIKeyUpsertBulk 
 func (u *APIKeyUpsertBulk) ClearOrganizationSubscriptionID() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearOrganizationSubscriptionID()
+	})
+}
+
+// SetPreferCompanyBalance sets the "prefer_company_balance" field.
+func (u *APIKeyUpsertBulk) SetPreferCompanyBalance(v bool) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetPreferCompanyBalance(v)
+	})
+}
+
+// UpdatePreferCompanyBalance sets the "prefer_company_balance" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdatePreferCompanyBalance() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdatePreferCompanyBalance()
 	})
 }
 

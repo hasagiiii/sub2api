@@ -683,6 +683,29 @@
               loading="lazy"
               class="w-full max-h-[520px] rounded border border-gray-200 object-contain dark:border-gray-700"
             />
+            <div
+              v-if="resultType !== 'video' && primaryPreview.source === 'payload' && playground.phase.value === 'completed'"
+              class="flex flex-wrap justify-start gap-2"
+            >
+              <a
+                :href="primaryPreview.url"
+                :download="imageDownloadFileName(primaryPreview.url)"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                <Icon name="download" size="xs" />
+                {{ t('videoModels.playground.downloadImage') }}
+              </a>
+              <button
+                type="button"
+                class="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-600"
+                :disabled="savingMaterialURLs.has(primaryPreview.url) || savedMaterialURLs.has(primaryPreview.url)"
+                @click="saveImageToMaterials(primaryPreview.url)"
+              >
+                {{ savedMaterialURLs.has(primaryPreview.url) ? t('videoModels.playground.savedToMaterials') : savingMaterialURLs.has(primaryPreview.url) ? t('videoModels.playground.savingToMaterials') : t('videoModels.playground.saveToMaterials') }}
+              </button>
+            </div>
             <a
               :href="primaryPreview.url"
               target="_blank"
@@ -969,6 +992,17 @@ function videoDownloadFileName(url: string): string {
   return `video-${Date.now()}.mp4`
 }
 
+function imageDownloadFileName(url: string): string {
+  try {
+    const parsed = new URL(url, window.location.href)
+    const segment = parsed.pathname.split('/').filter(Boolean).pop()
+    if (segment) return decodeURIComponent(segment)
+  } catch {
+    // Use the stable fallback below for malformed or non-standard URLs.
+  }
+  return `image-${Date.now()}.png`
+}
+
 async function saveVideoToMaterials(url: string) {
   const normalized = url.trim()
   if (!normalized || savingMaterialURLs.has(normalized) || savedMaterialURLs.has(normalized)) return
@@ -980,6 +1014,22 @@ async function saveVideoToMaterials(url: string) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error)
     appStore.showError(t('videoModels.playground.saveToMaterialsFailed', { msg: message }))
+  } finally {
+    savingMaterialURLs.delete(normalized)
+  }
+}
+
+async function saveImageToMaterials(url: string) {
+  const normalized = url.trim()
+  if (!normalized || savingMaterialURLs.has(normalized) || savedMaterialURLs.has(normalized)) return
+  savingMaterialURLs.add(normalized)
+  try {
+    await userMaterialsAPI.importFromUrl(normalized)
+    savedMaterialURLs.add(normalized)
+    appStore.showSuccess(t('videoModels.playground.saveImageToMaterialsSuccess'))
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    appStore.showError(t('videoModels.playground.saveImageToMaterialsFailed', { msg: message }))
   } finally {
     savingMaterialURLs.delete(normalized)
   }
@@ -1541,7 +1591,10 @@ const resolvedOutputs = computed<ResolvedOutput[]>(() => {
   const specs = outputFields.value
   const rf = (resultField.value || '').trim()
   const rt: 'video' | 'image' = resultType.value
-  const matchedByResultField = rf.length > 0 && specs.some((s) => s.key === rf)
+  const primarySpec = rf
+    ? specs.find((s) => rf === s.key || rf.startsWith(`${s.key}.`) || rf.startsWith(`${s.key}[`))
+    : undefined
+  const matchedByResultField = Boolean(primarySpec)
 
   let fallbackPrimaryKey = ''
   if (!matchedByResultField) {
@@ -1556,11 +1609,11 @@ const resolvedOutputs = computed<ResolvedOutput[]>(() => {
 
   const out: ResolvedOutput[] = []
   for (const spec of specs) {
-    const values = pickByPath(payload, spec.key)
+    const values = pickByPath(payload, primarySpec === spec ? rf : spec.key)
     if (values.length === 0) continue
     let isPrimary = false
     let effectiveType: string = spec.type
-    if (matchedByResultField && spec.key === rf) {
+    if (matchedByResultField && primarySpec === spec) {
       isPrimary = true
       effectiveType = rt
     } else if (!matchedByResultField && spec.key === fallbackPrimaryKey) {
@@ -1798,7 +1851,7 @@ const integratePrompt = computed(() => {
     lines.push('【要求】')
     lines.push('1. 认证：Authorization: Bearer <API_KEY>，请把 API Key 作为函数入参 / CLI 参数 / 配置项传入，不要硬编码到源码里。')
     lines.push('2. 提交后拿到 request_id，用 GET 轮询：')
-    lines.push(`   - 轮询地址：${base}/api/v1/model/${s}/requests/{request_id}/status`)
+    lines.push(`   - 查询地址：${base}/api/v1/model/${s}/requests/{request_id}`)
     lines.push('   - 建议初始 2s，指数退避到 15s，总超时 10 分钟。')
     lines.push('3. 状态字段可能是 IN_QUEUE / IN_PROGRESS / COMPLETED / FAILED / CANCELED；只有 COMPLETED 才去读产物。')
     lines.push('4. 错误处理：网络错误重试 3 次；HTTP 4xx 直接抛错并把响应体打出来；HTTP 5xx 走退避重试。')
@@ -1850,7 +1903,7 @@ const integratePrompt = computed(() => {
   lines.push('[Requirements]')
   lines.push('1. Auth: `Authorization: Bearer <API_KEY>`. Pass the API key in as a function argument / CLI flag / config value — do not hardcode it into the source.')
   lines.push('2. After submit, poll GET:')
-  lines.push(`   - ${base}/api/v1/model/${s}/requests/{request_id}/status`)
+  lines.push(`   - ${base}/api/v1/model/${s}/requests/{request_id}`)
   lines.push('   - Start at 2s, exponential backoff up to 15s, hard timeout 10 min.')
   lines.push('3. Possible status values: IN_QUEUE / IN_PROGRESS / COMPLETED / FAILED / CANCELED. Only fetch output on COMPLETED.')
   lines.push('4. Errors: retry network errors 3x; on 4xx surface the response body and stop; on 5xx back-off retry.')
@@ -1983,37 +2036,12 @@ const estimateBreakdown = computed<EstimateBreakdown | null>(() => {
   }
 })
 
-// actualCost：任务终态后通过 GET /user/video-models/tasks/by-request/:rid 拉取。
-// null → 未拉到（仍在加载或未终态）。
-const actualCost = ref<number | null>(null)
-
-// 每次任务终态时拉一次实扣；phase 从终态回退（reset）时清空。
-watch(
-  () => playground.phase.value,
-  async (p) => {
-    if (p === 'completed') {
-      const rid = playground.internalRequestId.value
-      if (!rid) return
-      try {
-        const resp = await videoModelsAPI.getTaskByRequestId(rid)
-        const t = resp.data
-        // 优先 final_cost；未终结前 finalCost=0，held_cost 作为兜底展示。
-        if (t.final_cost > 0) {
-          actualCost.value = t.final_cost
-        } else if (t.held_cost > 0) {
-          actualCost.value = t.held_cost
-        } else {
-          actualCost.value = null
-        }
-      } catch {
-        // 静默失败，仅不展示实扣；不打扰用户主流程。
-        actualCost.value = null
-      }
-    } else if (p === 'idle') {
-      actualCost.value = null
-    }
-  }
-)
+// 统一任务查询接口完成时把实际费用放在 data.actual_cost 中，直接从已查询
+// 的结果读取，避免额外调用 /user/video-models/tasks/by-request/:rid。
+const actualCost = computed(() => {
+  const value = playground.resultPayload.value?.actual_cost
+  return typeof value === 'number' && value > 0 ? value : null
+})
 
 // ============ 输出结构 + 值（右下卡片） ============
 // 需求：右栏底部要固定展示"管理端声明的输出参数"的结构树，并在每个字段旁给出
@@ -2044,7 +2072,16 @@ watch(
 function adaptOutputFieldToNode(key: string, raw: unknown): SchemaNode {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>
-    const rawType = normalizeNodeType(obj.type)
+    let rawType = normalizeNodeType(obj.type)
+    // Nested schemas written by the admin editor omit `type` for backwards
+    // compatibility. Infer scalar types from their example value so numeric
+    // fields such as image width/height are not rendered as strings.
+    if (!obj.type) {
+      if ('items' in obj) rawType = 'array'
+      else if ('properties' in obj) rawType = 'object'
+      else if (typeof obj.value === 'number') rawType = 'number'
+      else if (typeof obj.value === 'boolean') rawType = 'boolean'
+    }
     const required = obj.required === true
     const description = typeof obj.description === 'string' ? obj.description : ''
     // description_en：中英双文字段说明的英文版；渲染层按 locale 选。
@@ -2187,6 +2224,8 @@ function outputValueFor(spec: OutputFieldSpec): unknown {
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const v = (payload as Record<string, unknown>)[spec.key]
     if (v !== undefined) return v
+    const nested = pickByPath(payload, spec.key)
+    if (nested.length > 0) return nested.length === 1 ? nested[0] : nested
   }
   return schemaExampleValue(spec)
 }
@@ -2200,6 +2239,7 @@ function outputValueSourceFor(spec: OutputFieldSpec): 'payload' | 'example' | 'n
   if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
     const v = (payload as Record<string, unknown>)[spec.key]
     if (v !== undefined) return 'payload'
+    if (pickByPath(payload, spec.key).length > 0) return 'payload'
   }
   const ex = schemaExampleValue(spec)
   return ex === undefined ? 'none' : 'example'

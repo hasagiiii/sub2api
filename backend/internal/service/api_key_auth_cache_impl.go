@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 22 // v22: merge upstream (search/audio/video_model_prices) with local profit-control + API key fallback fields; forces refresh of both sides' snapshots
+const apiKeyAuthSnapshotVersion = 23 // v23: include API key company-balance preference
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -344,6 +344,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		GroupID:                    apiKey.GroupID,
 		FallbackGroupIDs:           append([]int64(nil), apiKey.FallbackGroupIDs...),
 		OrganizationSubscriptionID: apiKey.OrganizationSubscriptionID,
+		PreferCompanyBalance:       apiKey.PreferCompanyBalance,
 		Name:                       apiKey.Name,
 		Status:                     apiKey.Status,
 		IPWhitelist:                apiKey.IPWhitelist,
@@ -466,6 +467,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		GroupID:                    snapshot.GroupID,
 		FallbackGroupIDs:           append([]int64(nil), snapshot.FallbackGroupIDs...),
 		OrganizationSubscriptionID: snapshot.OrganizationSubscriptionID,
+		PreferCompanyBalance:       snapshot.PreferCompanyBalance,
 		Key:                        key,
 		Name:                       snapshot.Name,
 		Status:                     snapshot.Status,
