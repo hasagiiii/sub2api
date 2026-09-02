@@ -82,7 +82,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
-	if cappedBody, changed := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); changed {
+	if cappedBody, changed, err := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); err != nil {
+		respondOpenAIReasoningEffortPolicyError(c, err, h.errorResponse)
+		return
+	} else if changed {
 		body = cappedBody
 	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
@@ -248,7 +251,18 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 		body = policySourceBody
 		if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformOpenAI {
-			if cappedBody, changed := service.ApplyOpenAIReasoningEffortPolicy(body, apiKey.Group.MaxReasoningEffort, apiKey.Group.ReasoningEffortMappings); changed {
+			if cappedBody, changed, policyErr := service.ApplyOpenAIReasoningEffortPolicy(
+				body,
+				apiKey.Group.MaxReasoningEffort,
+				apiKey.Group.ReasoningEffortMappings,
+				apiKey.Group.MaxReasoningEffortOverLimit,
+			); policyErr != nil {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				respondOpenAIReasoningEffortPolicyError(c, policyErr, h.errorResponse)
+				return
+			} else if changed {
 				body = cappedBody
 			}
 		}
