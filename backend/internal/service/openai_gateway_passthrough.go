@@ -369,6 +369,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	imageResponseQuality := ""
 	var imageOutputSizes []string
 	var imageOutputBase64s []string
+	var imageOutputURLs []string
 	for {
 		actualModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 		if actualModel == "" {
@@ -498,6 +499,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			imageResponseQuality = result.imageQuality
 			imageOutputSizes = result.imageOutputSizes
 			imageOutputBase64s = result.imageOutputBase64s
+			imageOutputURLs = result.imageOutputURLs
 		} else {
 			result, handleErr := s.handleNonStreamingResponsePassthrough(ctx, resp, c, account, reqModel, upstreamPassthroughModel, imageGroup, imageInputSize)
 			if handleErr != nil {
@@ -526,6 +528,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			imageResponseQuality = result.imageQuality
 			imageOutputSizes = result.imageOutputSizes
 			imageOutputBase64s = result.imageOutputBase64s
+			imageOutputURLs = result.imageOutputURLs
 		}
 		break
 	}
@@ -569,6 +572,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		forwardResult.ImageQuality = resolveOpenAIResponsesImageQuality(imageResponseQuality, imageRequestQuality, imageDefaultQuality)
 		forwardResult.ImageOutputSizes = imageOutputSizes
 		forwardResult.ImageOutputBase64 = imageOutputBase64s
+		forwardResult.ImageOutputURLs = imageOutputURLs
 		forwardResult.BillingModel = imageBillingModel
 	}
 	s.scheduleOpenAIImageCosUpload(ctx, forwardResult)
@@ -1065,6 +1069,7 @@ type openaiStreamingResultPassthrough struct {
 	imageQuality       string
 	imageOutputSizes   []string
 	imageOutputBase64s []string
+	imageOutputURLs    []string
 }
 
 type openaiNonStreamingResultPassthrough struct {
@@ -1075,6 +1080,7 @@ type openaiNonStreamingResultPassthrough struct {
 	imageQuality       string
 	imageOutputSizes   []string
 	imageOutputBase64s []string
+	imageOutputURLs    []string
 }
 
 const openAIStreamKeepaliveBytesKey = "openai_stream_keepalive_bytes"
@@ -2030,6 +2036,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			imageQuality:       imageCounter.Quality(),
 			imageOutputSizes:   imageCounter.Sizes(),
 			imageOutputBase64s: imageCounter.Base64Payloads(),
+			imageOutputURLs:    imageCounter.URLs(),
 		}
 	}
 
@@ -2382,9 +2389,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	imageQuality := collectOpenAIResponseImageQualityFromJSONBytes(body)
 	imageOutputSizes := collectOpenAIResponseImageOutputSizesFromJSONBytes(body)
 	imageOutputBase64s := collectOpenAIResponseImageOutputBase64sFromJSONBytes(body)
+	imageOutputURLs := collectOpenAIResponseImageOutputURLsFromJSONBytes(body)
 	if imageCount > 0 {
 		// 写客户端前同步 upscale：放大成功则改写 body 内 b64，使客户端与 COS 一致、计费按目标档位。
-		body, imageCount, imageOutputSizes, imageOutputBase64s, _ = s.prepareOpenAIResponsesImageBody(ctx, group, requestedImageSize, body, false)
+		body, imageCount, imageOutputSizes, imageOutputBase64s, imageOutputURLs = s.prepareOpenAIResponsesImageBody(ctx, group, requestedImageSize, body, false)
 	}
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
@@ -2397,6 +2405,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		imageQuality:       imageQuality,
 		imageOutputSizes:   imageOutputSizes,
 		imageOutputBase64s: imageOutputBase64s,
+		imageOutputURLs:    imageOutputURLs,
 	}, nil
 }
 
@@ -2470,14 +2479,16 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(ctx context.Context, r
 	var imageQuality string
 	var imageOutputSizes []string
 	var imageOutputBase64s []string
+	var imageOutputURLs []string
 	if ok {
 		// 终端事件已被重建为 JSON 响应体，按 JSON 形状提取/放大。
 		imageCount = countOpenAIResponseImageOutputsFromJSONBytes(body)
 		imageQuality = collectOpenAIResponseImageQualityFromJSONBytes(body)
 		imageOutputSizes = collectOpenAIResponseImageOutputSizesFromJSONBytes(body)
 		imageOutputBase64s = collectOpenAIResponseImageOutputBase64sFromJSONBytes(body)
+		imageOutputURLs = collectOpenAIResponseImageOutputURLsFromJSONBytes(body)
 		if imageCount > 0 {
-			body, imageCount, imageOutputSizes, imageOutputBase64s, _ = s.prepareOpenAIResponsesImageBody(ctx, group, requestedImageSize, body, false)
+			body, imageCount, imageOutputSizes, imageOutputBase64s, imageOutputURLs = s.prepareOpenAIResponsesImageBody(ctx, group, requestedImageSize, body, false)
 		}
 	} else {
 		// 仍是 SSE 文本，按 SSE 形状提取/放大。
@@ -2485,8 +2496,9 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(ctx context.Context, r
 		imageQuality = collectOpenAIImageQualityFromSSEBody(bodyText)
 		imageOutputSizes = collectOpenAIImageOutputSizesFromSSEBody(bodyText)
 		imageOutputBase64s = collectOpenAIImageOutputBase64sFromSSEBody(bodyText)
+		imageOutputURLs = collectOpenAIImageOutputURLsFromSSEBody(bodyText)
 		if imageCount > 0 {
-			body, imageCount, imageOutputSizes, imageOutputBase64s, _ = s.prepareOpenAIResponsesImageBody(ctx, group, requestedImageSize, body, true)
+			body, imageCount, imageOutputSizes, imageOutputBase64s, imageOutputURLs = s.prepareOpenAIResponsesImageBody(ctx, group, requestedImageSize, body, true)
 		}
 	}
 
@@ -2502,6 +2514,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(ctx context.Context, r
 		imageQuality:       imageQuality,
 		imageOutputSizes:   imageOutputSizes,
 		imageOutputBase64s: imageOutputBase64s,
+		imageOutputURLs:    imageOutputURLs,
 	}, nil
 }
 

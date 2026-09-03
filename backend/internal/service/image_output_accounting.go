@@ -233,6 +233,13 @@ func (c *openAIImageOutputCounter) addImageOutputItem(item gjson.Result) {
 		b64Payload = strings.TrimSpace(item.Get("result").String())
 	}
 	urlPayload := strings.TrimSpace(item.Get("url").String())
+	// Some Responses-compatible upstreams put a temporary image URL in
+	// image_generation_call.result instead of returning base64. Treat it as a
+	// URL so status polling can expose it and COS can download it as a fallback.
+	if urlPayload == "" && isHTTPImageOutputURL(b64Payload) {
+		urlPayload = b64Payload
+		b64Payload = ""
+	}
 
 	result := b64Payload
 	if result == "" {
@@ -283,6 +290,11 @@ func (c *openAIImageOutputCounter) addImageOutputItem(item gjson.Result) {
 		c.seenURLs[key] = urlPayload
 	}
 	c.count++
+}
+
+func isHTTPImageOutputURL(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return strings.HasPrefix(value, "https://") || strings.HasPrefix(value, "http://")
 }
 
 func (c *openAIImageOutputCounter) observeQuality(value gjson.Result) {

@@ -182,6 +182,8 @@ func (r *taskResponse) failureReason() string {
 	)
 }
 
+const apizDoubaoSeedance20Model = "doubao-seedance-2-0-260128-betydance"
+
 // adaptSubmitParams 把调用方（fal 兼容协议）传入的 params 转换为 apiz 上游
 // 期望的参数命名与取值。当前处理的差异：
 //   - generate_audio -> audio（bool 值直接搬运）：apiz 侧字段名是 audio；
@@ -195,10 +197,16 @@ func (r *taskResponse) failureReason() string {
 //     （"5" / "10"）与数字类型直接透传。
 //   - aspect_ratio=auto：apiz 不接受 "auto"，这里兜底替换为 "16:9"（视频
 //     业务最常用的横屏比例）。其他显式比例（"1:1" / "9:16" 等）直接透传。
+//   - doubao-seedance-2-0-260128-betydance：该目标模型使用 ratio 字段，
+//     因此 aspect_ratio 重命名为 ratio，且 ratio=auto 替换为 adaptive。
 //
 // 处理原则：拷贝一层新 map，避免污染 handler 里保存到 DB 的原始 payload。
 // body 不是 map[string]any（例如 nil / 结构体）时原样返回。
 func adaptSubmitParams(body any) any {
+	return adaptSubmitParamsForModel(body, "")
+}
+
+func adaptSubmitParamsForModel(body any, model string) any {
 	src, ok := body.(map[string]any)
 	if !ok {
 		return body
@@ -217,6 +225,16 @@ func adaptSubmitParams(body any) any {
 	if v, exists := out["duration"]; exists {
 		if s, isStr := v.(string); isStr && strings.EqualFold(strings.TrimSpace(s), "auto") {
 			out["duration"] = AutoDurationFallbackSeconds
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(model), apizDoubaoSeedance20Model) {
+		// doubao Seedance 2.0 uses ratio instead of aspect_ratio. Preserve an
+		// explicitly supplied ratio and remove the unsupported alias.
+		renameKeyIfAbsent(out, "aspect_ratio", "ratio")
+		if v, exists := out["ratio"]; exists {
+			if s, isStr := v.(string); isStr && strings.EqualFold(strings.TrimSpace(s), "auto") {
+				out["ratio"] = "adaptive"
+			}
 		}
 	}
 	if v, exists := out["aspect_ratio"]; exists {
@@ -304,7 +322,9 @@ func normalizeApizResolution(s string) string {
 // 尊重目标字段、仅丢弃别名，避免同键冲突（直接按 apiz 原生名传参即属此例）。
 //
 // 另外 duration / aspect_ratio 传 "auto" 时会被替换为具体值（apiz 不接受 "auto"，
-// 收到会 422），resolution 的 "720p" 会规范化为 "720P"。
+// 收到会 422），resolution 的 "720p" 会规范化为 "720P"。当目标模型为
+// doubao-seedance-2-0-260128-betydance 时，aspect_ratio 改名为 ratio，auto 改为
+// adaptive。
 //
 // 上游返回 { task_id, status, ... }，映射为 fal.SubmitResponse：
 //   - RequestID = task_id
@@ -313,7 +333,7 @@ func normalizeApizResolution(s string) string {
 func (c *Client) SubmitRaw(ctx context.Context, model string, body any) (*fal.SubmitResponse, error) {
 	envelope := map[string]any{
 		"model":  model,
-		"params": adaptSubmitParams(body),
+		"params": adaptSubmitParamsForModel(body, model),
 	}
 	resp, err := c.doTask(ctx, c.baseURL+pathTasksCreate, envelope)
 	if err != nil {

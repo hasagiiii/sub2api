@@ -150,6 +150,38 @@ func TestAdaptSubmitParamsExistingConversions(t *testing.T) {
 	})
 }
 
+func TestAdaptSubmitParamsDoubaoSeedance20Ratio(t *testing.T) {
+	t.Run("renames aspect_ratio and maps auto", func(t *testing.T) {
+		got := adaptSubmitParamsForModel(map[string]any{
+			"aspect_ratio": " AUTO ",
+			"image_urls":   []any{"https://example.com/image.png"},
+			"video_urls":   []any{"https://example.com/video.mp4"},
+			"audio_urls":   []any{"https://example.com/audio.mp3"},
+		}, apizDoubaoSeedance20Model)
+		m, ok := got.(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "adaptive", m["ratio"])
+		require.NotContains(t, m, "aspect_ratio")
+		require.Equal(t, []any{"https://example.com/image.png"}, m["reference_image_urls"])
+		require.Equal(t, []any{"https://example.com/video.mp4"}, m["reference_video_urls"])
+		require.Equal(t, []any{"https://example.com/audio.mp3"}, m["reference_audio_urls"])
+	})
+
+	t.Run("preserves explicit ratio and maps explicit aspect ratio", func(t *testing.T) {
+		m, ok := adaptSubmitParamsForModel(map[string]any{"aspect_ratio": "9:16"}, apizDoubaoSeedance20Model).(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "9:16", m["ratio"])
+		require.NotContains(t, m, "aspect_ratio")
+	})
+
+	t.Run("does not apply to other models", func(t *testing.T) {
+		m, ok := adaptSubmitParamsForModel(map[string]any{"aspect_ratio": "auto"}, "other-model").(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, apizAutoAspectRatioFallback, m["aspect_ratio"])
+		require.NotContains(t, m, "ratio")
+	})
+}
+
 func TestAdaptSubmitParamsNonMapPassthrough(t *testing.T) {
 	// nil / 结构体 / 切片等非 map 输入应原样返回，不得 panic。
 	require.Nil(t, adaptSubmitParams(nil))

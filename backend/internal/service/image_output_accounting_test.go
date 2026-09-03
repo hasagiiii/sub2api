@@ -38,6 +38,16 @@ data: [DONE]`
 	}
 }
 
+func TestOpenAIImageOutputCounter_ResponsesResultURL(t *testing.T) {
+	body := []byte(`{"output":[{"id":"ig_url_1","type":"image_generation_call","result":"https://cdn.example.com/generated.png"}]}`)
+	if got := collectOpenAIResponseImageOutputURLsFromJSONBytes(body); len(got) != 1 || got[0] != "https://cdn.example.com/generated.png" {
+		t.Fatalf("urls = %#v, want temporary result URL", got)
+	}
+	if got := collectOpenAIResponseImageOutputBase64sFromJSONBytes(body); len(got) != 1 || got[0] != "" {
+		t.Fatalf("base64 payloads = %#v, want one empty URL-mode slot", got)
+	}
+}
+
 func TestOpenAIImageOutputCounter_TextOnlyMessage(t *testing.T) {
 	// Simulate a text-only response from /v1/responses
 	// The response.output_item.done event for a text message
