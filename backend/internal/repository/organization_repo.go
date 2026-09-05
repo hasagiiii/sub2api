@@ -2002,6 +2002,11 @@ func (r *organizationRepository) ListAuditEvents(ctx context.Context, organizati
 }
 
 func (r *organizationRepository) FinanceSummary(ctx context.Context, userID int64) (*service.FinanceSummary, error) {
+	started := time.Now()
+	logger.L().Debug("organization.finance.repository.start", zap.Int64("user_id", userID))
+	defer func() {
+		logger.L().Debug("organization.finance.repository.end", zap.Int64("user_id", userID), zap.Duration("duration", time.Since(started)))
+	}()
 	org, err := r.GetContextForUser(ctx, userID)
 	if err != nil || !org.Active() {
 		return nil, service.ErrOrganizationPermission
@@ -2019,8 +2024,50 @@ func (r *organizationRepository) FinanceSummary(ctx context.Context, userID int6
 	if viewRoot {
 		targetID = org.OwnerUserID
 	}
+	query := func(name, statement string, args []any, scan func(*sql.Rows) error) error {
+		queryStarted := time.Now()
+		acquireStarted := time.Now()
+		conn, err := r.db.Conn(ctx)
+		acquireDuration := time.Since(acquireStarted)
+		if err != nil {
+			logger.L().Debug("organization.finance.db.query", zap.String("query", name), zap.String("sql", organizationSQLWithArgs(statement, args)), zap.Int64("user_id", userID), zap.Duration("connection_acquire_duration", acquireDuration), zap.Duration("duration", time.Since(queryStarted)), zap.Error(err))
+			return err
+		}
+		defer func() { _ = conn.Close() }()
+		execStarted := time.Now()
+		rows, err := conn.QueryContext(ctx, statement, args...)
+		execDuration := time.Since(execStarted)
+		if err != nil {
+			logger.L().Debug("organization.finance.db.query", zap.String("query", name), zap.String("sql", organizationSQLWithArgs(statement, args)), zap.Int64("user_id", userID), zap.Duration("connection_acquire_duration", acquireDuration), zap.Duration("query_duration", execDuration), zap.Duration("duration", time.Since(queryStarted)), zap.Error(err))
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		scanStarted := time.Now()
+		if !rows.Next() {
+			err = rows.Err()
+			if err == nil {
+				err = sql.ErrNoRows
+			}
+		} else {
+			err = scan(rows)
+		}
+		scanDuration := time.Since(scanStarted)
+		fields := []zap.Field{
+			zap.String("query", name), zap.String("sql", organizationSQLWithArgs(statement, args)), zap.Int64("user_id", userID),
+			zap.Duration("connection_acquire_duration", acquireDuration), zap.Duration("query_duration", execDuration),
+			zap.Duration("scan_duration", scanDuration), zap.Duration("duration", time.Since(queryStarted)),
+		}
+		if err != nil {
+			fields = append(fields, zap.Error(err))
+		}
+		logger.L().Debug("organization.finance.db.query", fields...)
+		return err
+	}
 	var available, frozen string
-	if err := r.db.QueryRowContext(ctx, `SELECT balance::text,frozen_balance::text FROM users WHERE id=$1`, targetID).Scan(&available, &frozen); err != nil {
+	userBalanceSQL := `SELECT balance::text,frozen_balance::text FROM users WHERE id=$1`
+	if err := query("user_balance", userBalanceSQL, []any{targetID}, func(rows *sql.Rows) error {
+		return rows.Scan(&available, &frozen)
+	}); err != nil {
 		return nil, err
 	}
 	if shared && !viewRoot {
@@ -2040,7 +2087,10 @@ func (r *organizationRepository) FinanceSummary(ctx context.Context, userID int6
 	// independent from the personal balance reported above.
 	if viewRoot {
 		var companyAvailable, companyFrozen string
-		if err := r.db.QueryRowContext(ctx, `SELECT balance::text,frozen_balance::text FROM organizations WHERE id=$1`, org.OrganizationID).Scan(&companyAvailable, &companyFrozen); err != nil {
+		companyBalanceSQL := `SELECT balance::text,frozen_balance::text FROM organizations WHERE id=$1`
+		if err := query("company_balance", companyBalanceSQL, []any{org.OrganizationID}, func(rows *sql.Rows) error {
+			return rows.Scan(&companyAvailable, &companyFrozen)
+		}); err != nil {
 			return nil, err
 		}
 		companyTotal, err := decimal.NewFromString(companyAvailable)

@@ -814,15 +814,19 @@ func (h *OrganizationHandler) CancelSubscription(c *gin.Context) {
 }
 
 func (h *OrganizationHandler) Finance(c *gin.Context) {
+	started := time.Now()
 	userID, ok := organizationSubject(c)
 	if !ok {
 		return
 	}
+	logger.L().Debug("organization.finance.request.start", zap.Int64("user_id", userID))
 	summary, err := h.organization.FinanceSummary(c.Request.Context(), userID)
 	if err != nil {
+		logger.L().Debug("organization.finance.request.end", zap.Int64("user_id", userID), zap.Duration("duration", time.Since(started)), zap.Error(err))
 		response.ErrorFrom(c, err)
 		return
 	}
+	logger.L().Debug("organization.finance.request.end", zap.Int64("user_id", userID), zap.Duration("duration", time.Since(started)))
 	response.Success(c, summary)
 }
 

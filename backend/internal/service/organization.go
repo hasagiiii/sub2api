@@ -1428,7 +1428,15 @@ func (s *OrganizationService) DepositToCompany(ctx context.Context, ownerID int6
 }
 
 func (s *OrganizationService) FinanceSummary(ctx context.Context, userID int64) (*FinanceSummary, error) {
-	return s.repo.FinanceSummary(ctx, userID)
+	started := time.Now()
+	logger.L().Debug("organization.finance.service.start", zap.Int64("user_id", userID))
+	summary, err := s.repo.FinanceSummary(ctx, userID)
+	fields := []zap.Field{zap.Int64("user_id", userID), zap.Duration("duration", time.Since(started))}
+	if err != nil {
+		fields = append(fields, zap.Error(err))
+	}
+	logger.L().Debug("organization.finance.service.end", fields...)
+	return summary, err
 }
 
 // OrganizationAuditLogEntry is a single audit row returned by the operation log

@@ -1755,17 +1755,6 @@ function auditDetailText(event: OrganizationAuditEntry): string {
   return parts.join(', ')
 }
 
-// 切到 audit 子路由时按需拉取。使用 watch(route.path) 已在别处，这里追加一个
-// activeTab 侦听器只覆盖 audit 页；避免每次切换其他 tab 都触发一次审计请求。
-watch(activeTab, tab => {
-  if (tab === 'audit' && organization.value && isOwner.value) {
-    void loadAuditEvents(1)
-  }
-  if (tab === 'settings' && organization.value && canManageSubscriptions.value) {
-    void loadSettings()
-  }
-})
-
 // ── Company feature settings ────────────────────────────────────────────
 const settingsState = ref<{ auto_switch_subscription: boolean }>({ auto_switch_subscription: true })
 const settingsLoading = ref(false)
@@ -1978,6 +1967,55 @@ function onUsageErrorPageSize(pageSize: number) {
 	void loadUsageErrors(1)
 }
 
+async function loadCurrentTabData(tab: Tab) {
+  if (tab === 'finance') {
+    const memberData = await organizationAPI.listMembers()
+    members.value = memberData.items
+    memberLimit.value = memberData.member_limit
+    usedSlots.value = memberData.used_slots
+    return
+  }
+  if (tab === 'limits') {
+    const memberData = await organizationAPI.listMembers()
+    members.value = memberData.items
+    memberLimit.value = memberData.member_limit
+    usedSlots.value = memberData.used_slots
+    spendLimitUsage.value = await organizationAPI.getSpendLimitUsage()
+    if (canManageSpendLimits.value) {
+      const [policyData, rules] = await Promise.all([
+        organizationAPI.listPolicies(), organizationAPI.listSpendLimits(),
+      ])
+      policies.value = policyData
+      spendLimitRules.value = rules
+    }
+    return
+  }
+  if (tab === 'dashboard') {
+    const [dashboard] = await Promise.all([organizationAPI.getDashboard(), loadDashboardAggregates()])
+    dashboardStats.value = dashboard
+    return
+  }
+  if (tab === 'subscriptions') {
+    await loadSubscriptions()
+    if (canManageSubscriptions.value) void loadPlans()
+    return
+  }
+  if (tab === 'usage') {
+    const [memberData] = await Promise.all([
+      organizationAPI.listMembers(), loadUsage(usagePage.value.page || 1), loadUsageAggregates(),
+    ])
+    members.value = memberData.items
+    memberLimit.value = memberData.member_limit
+    usedSlots.value = memberData.used_slots
+    return
+  }
+  if (tab === 'audit') {
+    if (isOwner.value) await loadAuditEvents(1)
+    return
+  }
+  if (tab === 'settings' && canManageSubscriptions.value) await loadSettings()
+}
+
 async function load() {
   loading.value = true
   error.value = ''
@@ -1986,50 +2024,19 @@ async function load() {
     organization.value = context.organization
     finance.value = context.finance
     restoreTabFromRoute()
-    if (visibleTabs.value.includes('subscriptions')) {
-      await loadSubscriptions()
-      if (canManageSubscriptions.value) void loadPlans()
-    }
-    if (isOwner.value) {
-      const [memberData, policyData, rules, limitUsage] = await Promise.all([
-        organizationAPI.listMembers(), organizationAPI.listPolicies(), organizationAPI.listSpendLimits(), organizationAPI.getSpendLimitUsage(),
-      ])
-      members.value = memberData.items
-      memberLimit.value = memberData.member_limit
-      usedSlots.value = memberData.used_slots
-      policies.value = policyData
-      spendLimitRules.value = rules
-      spendLimitUsage.value = limitUsage
-      const [, , dashboard] = await Promise.all([loadUsage(usagePage.value.page || 1), loadUsageAggregates(), organizationAPI.getDashboard(), loadDashboardAggregates()])
-      dashboardStats.value = dashboard
-    } else {
-      const memberData = await organizationAPI.listMembers()
-      members.value = memberData.items
-      memberLimit.value = memberData.member_limit
-      usedSlots.value = memberData.used_slots
-      spendLimitUsage.value = await organizationAPI.getSpendLimitUsage()
-      if (canManageSpendLimits.value) {
-        try { spendLimitRules.value = await organizationAPI.listSpendLimits() } catch { /* ignored */ }
-      }
-      if (hasFinanceReadOnly.value) {
-        // 财务只读 / 财务管理成员同样能看仪表盘与使用记录。
-        try {
-          const [, , dashboard] = await Promise.all([
-            loadUsage(usagePage.value.page || 1),
-            loadUsageAggregates(),
-            organizationAPI.getDashboard(),
-            loadDashboardAggregates(),
-          ])
-          dashboardStats.value = dashboard
-        } catch { /* ignored */ }
-      }
-    }
+    await loadCurrentTabData(activeTab.value)
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
     loading.value = false
   }
 }
+
+watch(activeTab, tab => {
+  if (organization.value && !loading.value) {
+    void loadCurrentTabData(tab).catch(cause => { error.value = errorMessage(cause) })
+  }
+})
 
 async function createMember() {
   operationKey.value = 'create'
