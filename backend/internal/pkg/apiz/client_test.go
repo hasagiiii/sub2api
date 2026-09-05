@@ -34,7 +34,27 @@ func TestStatusPollLogsRequestAndResponseAtInfo(t *testing.T) {
 	require.Contains(t, text, "apiz_status_poll_request")
 	require.Contains(t, text, "apiz_status_poll_response")
 	require.Contains(t, text, `\"task_id\":\"task-123\"`)
+	require.Contains(t, text, "Authorization")
+	require.Contains(t, text, "Bearer secr...-key")
 	require.NotContains(t, text, "secret-apiz-key")
+}
+
+func TestHeadersForLogRedactsAuthorizationAPIKey(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer 1234567890abcdef")
+	headers.Set("X-Trace-ID", "trace-123")
+
+	logged := headersForLog(headers)
+	require.Equal(t, "Bearer 1234...cdef", logged.Get("Authorization"))
+	require.Equal(t, "trace-123", logged.Get("X-Trace-ID"))
+	require.Equal(t, "Bearer 1234567890abcdef", headers.Get("Authorization"))
+}
+
+func TestHeadersForLogRedactsShortAuthorizationValue(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Authorization", "api-key short")
+	logged := headersForLog(headers)
+	require.Equal(t, "api-key [REDACTED]", logged.Get("Authorization"))
 }
 
 // adaptSubmitParams 是网关与 apiz 上游之间唯一的参数适配点：

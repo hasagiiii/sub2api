@@ -767,6 +767,17 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, reqBody an
 
 	requestID := newRequestID()
 	if info || slog.Default().Enabled(ctx, slog.LevelDebug) {
+		slogAttrs := []any{
+			"request_id", requestID,
+			"method", method,
+			"endpoint", endpoint,
+			"headers", headersForLog(req.Header),
+		}
+		if info {
+			slog.InfoContext(ctx, requestEvent, slogAttrs...)
+		} else {
+			slog.DebugContext(ctx, requestEvent, slogAttrs...)
+		}
 		// 完整 request body 分块打印，便于线上排障（如 apiz 422 时看真实提交内容）。
 		// 分块长度参照 async_video_executor 里对 upstream error dump 的做法，
 		// 保证单条 log 记录不会撑爆日志系统。
@@ -793,6 +804,37 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, reqBody an
 		return nil, &fal.APIError{StatusCode: resp.StatusCode, Body: string(raw), RequestID: requestID}
 	}
 	return raw, nil
+}
+
+// headersForLog 返回可安全写入日志的请求头副本。
+// Authorization 保留认证方案及 api-key 首尾少量字符，避免日志泄露完整密钥。
+func headersForLog(headers http.Header) http.Header {
+	logged := headers.Clone()
+	for name, values := range logged {
+		if !strings.EqualFold(name, "Authorization") {
+			continue
+		}
+		for i, value := range values {
+			logged[name][i] = redactAuthorization(value)
+		}
+	}
+	return logged
+}
+
+func redactAuthorization(value string) string {
+	parts := strings.Fields(value)
+	if len(parts) != 2 {
+		return redactAPIKey(value)
+	}
+	return parts[0] + " " + redactAPIKey(parts[1])
+}
+
+func redactAPIKey(value string) string {
+	const visible = 4
+	if len(value) <= visible*2 {
+		return "[REDACTED]"
+	}
+	return value[:visible] + "..." + value[len(value)-visible:]
 }
 
 // isTerminalSuccess / isTerminalFailure 判定归一化后的状态是否为终态。

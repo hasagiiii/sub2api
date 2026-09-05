@@ -2406,14 +2406,44 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 		logger.L().Debug("organization.dashboard.repository.end", zap.Int64("user_id", userID), zap.Duration("duration", time.Since(started)))
 	}()
 
-	query := func(name, statement string, args []any, fn func() error) error {
+	query := func(name, statement string, args []any, scan func(*sql.Rows) error) error {
+		started := time.Now()
+		acquireStarted := time.Now()
+		conn, err := r.db.Conn(ctx)
+		acquireDuration := time.Since(acquireStarted)
+		if err != nil {
+			logger.L().Debug("organization.dashboard.db.query", zap.String("query", name), zap.String("sql", organizationSQLWithArgs(statement, args)), zap.Int64("user_id", userID), zap.Duration("connection_acquire_duration", acquireDuration), zap.Duration("duration", time.Since(started)), zap.Error(err))
+			return err
+		}
+		defer func() { _ = conn.Close() }()
+
 		queryStarted := time.Now()
-		err := fn()
+		rows, err := conn.QueryContext(ctx, statement, args...)
+		queryDuration := time.Since(queryStarted)
+		if err != nil {
+			logger.L().Debug("organization.dashboard.db.query", zap.String("query", name), zap.String("sql", organizationSQLWithArgs(statement, args)), zap.Int64("user_id", userID), zap.Duration("connection_acquire_duration", acquireDuration), zap.Duration("query_duration", queryDuration), zap.Duration("duration", time.Since(started)), zap.Error(err))
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+
+		scanStarted := time.Now()
+		if !rows.Next() {
+			err = rows.Err()
+			if err == nil {
+				err = sql.ErrNoRows
+			}
+		} else {
+			err = scan(rows)
+		}
+		scanDuration := time.Since(scanStarted)
 		fields := []zap.Field{
 			zap.String("query", name),
 			zap.String("sql", organizationSQLWithArgs(statement, args)),
 			zap.Int64("user_id", userID),
-			zap.Duration("duration", time.Since(queryStarted)),
+			zap.Duration("connection_acquire_duration", acquireDuration),
+			zap.Duration("query_duration", queryDuration),
+			zap.Duration("scan_duration", scanDuration),
+			zap.Duration("duration", time.Since(started)),
 		}
 		if err != nil {
 			fields = append(fields, zap.Error(err))
@@ -2450,9 +2480,8 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 			count(*) FILTER (WHERE role='member' AND status='active')
 		FROM organization_memberships
 		WHERE organization_id=$1 AND status<>'archived'`
-	if err := query("membership_counts", membershipSQL, []any{org.OrganizationID, todayStart}, func() error {
-		return r.db.QueryRowContext(ctx, membershipSQL, org.OrganizationID, todayStart).
-			Scan(&stats.TotalUsers, &stats.TodayNewUsers, &totalIAMUsers, &activeIAMUsers)
+	if err := query("membership_counts", membershipSQL, []any{org.OrganizationID, todayStart}, func(rows *sql.Rows) error {
+		return rows.Scan(&stats.TotalUsers, &stats.TodayNewUsers, &totalIAMUsers, &activeIAMUsers)
 	}); err != nil {
 		return nil, err
 	}
@@ -2460,9 +2489,8 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 		SELECT count(*), count(*) FILTER (WHERE k.status='active')
 		FROM api_keys k JOIN organization_memberships m ON m.user_id=k.user_id
 		WHERE m.organization_id=$1 AND m.status<>'archived' AND k.deleted_at IS NULL`
-	if err := query("api_key_counts", apiKeysSQL, []any{org.OrganizationID}, func() error {
-		return r.db.QueryRowContext(ctx, apiKeysSQL, org.OrganizationID).
-			Scan(&stats.TotalAPIKeys, &stats.ActiveAPIKeys)
+	if err := query("api_key_counts", apiKeysSQL, []any{org.OrganizationID}, func(rows *sql.Rows) error {
+		return rows.Scan(&stats.TotalAPIKeys, &stats.ActiveAPIKeys)
 	}); err != nil {
 		return nil, err
 	}
@@ -2479,9 +2507,8 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 			count(*) FILTER (WHERE a.overload_until IS NOT NULL AND a.overload_until > $4)
 		FROM accounts a JOIN used_accounts ua ON ua.account_id=a.id
 		WHERE a.deleted_at IS NULL`
-	if err := query("account_counts", accountsSQL, []any{org.OrganizationID, org.EffectiveAt, org.OwnerUserID, now}, func() error {
-		return r.db.QueryRowContext(ctx, accountsSQL, org.OrganizationID, org.EffectiveAt, org.OwnerUserID, now).
-			Scan(&stats.TotalAccounts, &stats.NormalAccounts, &stats.ErrorAccounts, &stats.RateLimitAccounts, &stats.OverloadAccounts)
+	if err := query("account_counts", accountsSQL, []any{org.OrganizationID, org.EffectiveAt, org.OwnerUserID, now}, func(rows *sql.Rows) error {
+		return rows.Scan(&stats.TotalAccounts, &stats.NormalAccounts, &stats.ErrorAccounts, &stats.RateLimitAccounts, &stats.OverloadAccounts)
 	}); err != nil {
 		return nil, err
 	}
@@ -2494,11 +2521,10 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 			COALESCE(sum(COALESCE(l.account_stats_cost,l.total_cost)*COALESCE(l.account_rate_multiplier,1)),0)::float8,
 			COALESCE(avg(l.duration_ms),0)::float8
 		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND ` + excludeOwnerSelfSpend
-	if err := query("usage_totals", usageTotalsSQL, []any{org.OrganizationID, org.EffectiveAt, org.OwnerUserID}, func() error {
-		return r.db.QueryRowContext(ctx, usageTotalsSQL, org.OrganizationID, org.EffectiveAt, org.OwnerUserID).
-			Scan(&stats.TotalRequests, &stats.TotalInputTokens, &stats.TotalOutputTokens,
-				&stats.TotalCacheCreationTokens, &stats.TotalCacheReadTokens, &stats.TotalCost,
-				&stats.TotalActualCost, &stats.TotalAccountCost, &stats.AverageDurationMs)
+	if err := query("usage_totals", usageTotalsSQL, []any{org.OrganizationID, org.EffectiveAt, org.OwnerUserID}, func(rows *sql.Rows) error {
+		return rows.Scan(&stats.TotalRequests, &stats.TotalInputTokens, &stats.TotalOutputTokens,
+			&stats.TotalCacheCreationTokens, &stats.TotalCacheReadTokens, &stats.TotalCost,
+			&stats.TotalActualCost, &stats.TotalAccountCost, &stats.AverageDurationMs)
 	}); err != nil {
 		return nil, err
 	}
@@ -2508,11 +2534,10 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 			COALESCE(sum(l.total_cost),0)::float8, COALESCE(sum(l.actual_cost),0)::float8,
 			COALESCE(sum(COALESCE(l.account_stats_cost,l.total_cost)*COALESCE(l.account_rate_multiplier,1)),0)::float8
 		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND ` + excludeOwnerSelfSpend
-	if err := query("today_usage_totals", todayUsageSQL, []any{org.OrganizationID, todayStart, org.OwnerUserID}, func() error {
-		return r.db.QueryRowContext(ctx, todayUsageSQL, org.OrganizationID, todayStart, org.OwnerUserID).
-			Scan(&stats.TodayRequests, &stats.ActiveUsers, &stats.TodayInputTokens, &stats.TodayOutputTokens,
-				&stats.TodayCacheCreationTokens, &stats.TodayCacheReadTokens, &stats.TodayCost,
-				&stats.TodayActualCost, &stats.TodayAccountCost)
+	if err := query("today_usage_totals", todayUsageSQL, []any{org.OrganizationID, todayStart, org.OwnerUserID}, func(rows *sql.Rows) error {
+		return rows.Scan(&stats.TodayRequests, &stats.ActiveUsers, &stats.TodayInputTokens, &stats.TodayOutputTokens,
+			&stats.TodayCacheCreationTokens, &stats.TodayCacheReadTokens, &stats.TodayCost,
+			&stats.TodayActualCost, &stats.TodayAccountCost)
 	}); err != nil {
 		return nil, err
 	}
@@ -2523,9 +2548,8 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 	recentUsageSQL := `
 		SELECT count(*), COALESCE(sum(l.input_tokens+l.output_tokens+l.cache_creation_tokens+l.cache_read_tokens),0)
 		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND ` + excludeOwnerSelfSpend
-	if err := query("recent_usage_rates", recentUsageSQL, []any{org.OrganizationID, now.Add(-5 * time.Minute), org.OwnerUserID}, func() error {
-		return r.db.QueryRowContext(ctx, recentUsageSQL, org.OrganizationID, now.Add(-5*time.Minute), org.OwnerUserID).
-			Scan(&recentRequests, &recentTokens)
+	if err := query("recent_usage_rates", recentUsageSQL, []any{org.OrganizationID, now.Add(-5 * time.Minute), org.OwnerUserID}, func(rows *sql.Rows) error {
+		return rows.Scan(&recentRequests, &recentTokens)
 	}); err != nil {
 		return nil, err
 	}
