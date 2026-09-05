@@ -4,6 +4,7 @@ export default {
     roleValue: { owner: 'Organization owner', member: 'IAM member' },
     status: { pending: 'Pending', approved: 'Approved', rejected: 'Rejected', withdrawn: 'Withdrawn', active: 'Active', disabled: 'Disabled', archived: 'Archived', suspended: 'Suspended' },
     tabs: { members: 'Members', allocation: 'Allocation', finance: 'Finance', limits: 'Member limits', dashboard: 'Dashboard', subscriptions: 'Subscriptions', usage: 'Usage', audit: 'Audit log', settings: 'Feature settings' },
+    membersActions: { deleteTitle: 'Permanently delete archived member', deleteConfirm: 'Permanently delete member "{name}"? All data belonging to this user will be removed and cannot be recovered.' },
     audit: {
       title: 'Audit log',
       description: 'Records of company recharge, authorization, allocation and spend-limit configuration events.',

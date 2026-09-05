@@ -180,6 +180,19 @@ func TestAdaptSubmitParamsDoubaoSeedance20Ratio(t *testing.T) {
 		require.Equal(t, apizAutoAspectRatioFallback, m["aspect_ratio"])
 		require.NotContains(t, m, "ratio")
 	})
+
+	t.Run("preserves generate_audio for doubao seedance 2.0", func(t *testing.T) {
+		m, ok := adaptSubmitParamsForModel(map[string]any{"generate_audio": true}, apizDoubaoSeedance20Model).(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, true, m["generate_audio"])
+		require.NotContains(t, m, "audio")
+	})
+
+	t.Run("lowercases resolution suffix for doubao seedance 2.0", func(t *testing.T) {
+		m, ok := adaptSubmitParamsForModel(map[string]any{"resolution": "720P"}, apizDoubaoSeedance20Model).(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "720p", m["resolution"])
+	})
 }
 
 func TestAdaptSubmitParamsNonMapPassthrough(t *testing.T) {

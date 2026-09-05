@@ -774,6 +774,7 @@ export default {
       resetsAt: 'Resets {time}',
       noLimit: 'unlimited',
       disabled: 'Disabled',
+      archived: 'Archived',
     },
     tokenUsageTrend: 'Token Usage Trend',
     noDataAvailable: 'No data available',
@@ -2110,7 +2111,7 @@ export default {
       soraStorageQuotaHint: 'In GB, 0 means use group or system default quota',
       amountRequired: 'Please enter a valid amount',
       insufficientBalance: 'Insufficient balance',
-      deleteConfirm: "Are you sure you want to delete '{email}'? This action cannot be undone.",
+      deleteConfirm: "Permanently delete '{email}'? All data belonging to this user will be removed and cannot be recovered.",
       setAllowedGroups: 'Set Allowed Groups',
       allowedGroupsHint:
         'Select which standard groups this user can use. Subscription groups are managed separately.',

@@ -37,6 +37,7 @@ func RegisterOrganizationRoutes(
 		organizationScoped.POST("/members", h.Organization.CreateMember)
 		organizationScoped.GET("/members/:member_id", h.Organization.GetMember)
 		organizationScoped.PATCH("/members/:member_id/status", h.Organization.SetMemberStatus)
+		organizationScoped.DELETE("/members/:member_id", h.Organization.DeleteArchivedMember)
 		organizationScoped.POST("/members/:member_id/reset-password", h.Organization.ResetMemberPassword)
 		organizationScoped.PUT("/password", h.Organization.ChangePassword)
 		organizationScoped.POST("/recovery-email/send-code", h.Organization.SendRecoveryEmailCode)

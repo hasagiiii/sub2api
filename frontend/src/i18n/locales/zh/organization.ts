@@ -4,6 +4,7 @@ export default {
     roleValue: { owner: '组织管理员', member: 'IAM 成员' },
     status: { pending: '待审批', approved: '已通过', rejected: '已拒绝', withdrawn: '已撤回', active: '正常', disabled: '已禁用', archived: '已归档', suspended: '已暂停' },
     tabs: { members: '成员', allocation: '资金划拨', finance: '财务管理', limits: '限额配置', dashboard: '仪表盘', subscriptions: '订阅套餐', usage: '使用记录', audit: '操作记录', settings: '功能设置' },
+    membersActions: { deleteTitle: '永久删除已归档成员', deleteConfirm: "确定要永久删除成员 '{name}' 吗？删除后该用户的所有数据都会被清理，且无法恢复。" },
     audit: {
       title: '操作记录',
       description: '记录企业相关的充值、授权、划拨与限额配置操作。',

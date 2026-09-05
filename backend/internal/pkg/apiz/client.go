@@ -186,11 +186,13 @@ const apizDoubaoSeedance20Model = "doubao-seedance-2-0-260128-betydance"
 
 // adaptSubmitParams 把调用方（fal 兼容协议）传入的 params 转换为 apiz 上游
 // 期望的参数命名与取值。当前处理的差异：
-//   - generate_audio -> audio（bool 值直接搬运）：apiz 侧字段名是 audio；
+//   - generate_audio -> audio（bool 值直接搬运）：普通 apiz 模型侧字段名是 audio；
+//     doubao-seedance-2-0-260128-betydance 保留 generate_audio 原字段名；
 //     若调用方已显式传 audio，尊重 audio 并丢弃 generate_audio；
-//   - resolution 大小写：apiz 只接受大写 P（480P / 720P），
+//   - resolution 大小写：普通 apiz 模型只接受大写 P（480P / 720P），
 //     而客户端 / 内部通常用小写 p（480p / 720p / 1080p），
-//     这里把末尾的小写 p 统一改成大写 P。非 480/720 也一并处理，
+//     这里把末尾的 p 统一成大写 P；doubao Seedance 2.0 则统一成小写 p。
+//     非 480/720 也一并处理，
 //     保持向前兼容（apiz 若新增分辨率将来只需在其侧新增校验）。
 //   - duration=auto：apiz 不接受 "auto"，收到会 422；这里替换为 apiz 兜底
 //     秒数（8s），与业务侧“auto 预扣兜底时长”的口径一致。其他字符串数字
@@ -215,11 +217,14 @@ func adaptSubmitParamsForModel(body any, model string) any {
 	for k, v := range src {
 		out[k] = v
 	}
-	// generate_audio → audio：fal 系用 generate_audio，apiz 用 audio。
-	renameKeyIfAbsent(out, "generate_audio", "audio")
+	// 普通 apiz 模型使用 audio；doubao Seedance 2.0 保留调用方的
+	// generate_audio 字段名。
+	if !strings.EqualFold(strings.TrimSpace(model), apizDoubaoSeedance20Model) {
+		renameKeyIfAbsent(out, "generate_audio", "audio")
+	}
 	if v, exists := out["resolution"]; exists {
 		if s, isStr := v.(string); isStr {
-			out["resolution"] = normalizeApizResolution(s)
+			out["resolution"] = normalizeApizResolutionForModel(s, model)
 		}
 	}
 	if v, exists := out["duration"]; exists {
@@ -299,6 +304,17 @@ func normalizeApizResolution(s string) string {
 		return trimmed[:len(trimmed)-1] + "P"
 	}
 	return trimmed
+}
+
+func normalizeApizResolutionForModel(s, model string) string {
+	trimmed := strings.TrimSpace(s)
+	if strings.EqualFold(strings.TrimSpace(model), apizDoubaoSeedance20Model) && trimmed != "" {
+		if last := trimmed[len(trimmed)-1]; last == 'p' || last == 'P' {
+			return trimmed[:len(trimmed)-1] + "p"
+		}
+		return trimmed
+	}
+	return normalizeApizResolution(s)
 }
 
 // SubmitRaw 向 tasks/create 端点提交异步视频任务。

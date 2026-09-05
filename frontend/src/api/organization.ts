@@ -137,6 +137,9 @@ export const organizationAPI = {
   async setMemberStatus(id: number, status: IAMMember['status']): Promise<void> {
     await apiClient.patch(`/organization/members/${id}/status`, { status })
   },
+  async deleteArchivedMember(id: number): Promise<void> {
+    await apiClient.delete(`/organization/members/${id}`)
+  },
   async resetMemberPassword(id: number): Promise<{ initial_password: string }> {
     const { data } = await apiClient.post(`/organization/members/${id}/reset-password`)
     return data

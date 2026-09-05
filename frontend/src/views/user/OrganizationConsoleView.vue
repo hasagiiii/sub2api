@@ -138,6 +138,7 @@
                     <button v-if="isOwner && member.status === 'active'" class="btn btn-ghost btn-sm" :disabled="isBusy(member)" @click="setStatus(member, 'disabled')">{{ t('organization.members.disable') }}</button>
                     <button v-else-if="isOwner && member.status === 'disabled'" class="btn btn-ghost btn-sm" :disabled="isBusy(member)" @click="setStatus(member, 'active')">{{ t('organization.members.enable') }}</button>
                     <button v-if="isOwner && member.status !== 'archived'" class="btn btn-ghost btn-sm text-red-600" :disabled="isBusy(member)" @click="archiveMember(member)">{{ t('organization.members.archive') }}</button>
+                    <button v-if="isOwner && member.status === 'archived'" class="btn btn-ghost btn-sm text-red-600" :disabled="isBusy(member)" @click="openDeleteMember(member)">{{ t('organization.membersActions.delete') }}</button>
                   </div>
                 </td>
               </tr>
@@ -923,6 +924,14 @@
         <div class="flex justify-end gap-2"><button type="button" class="btn btn-secondary" :disabled="operationKey !== ''" @click="showRename = false">{{ t('common.cancel') }}</button><button class="btn btn-primary" :disabled="operationKey !== ''">{{ t('organization.nameChange.submit') }}</button></div>
       </form>
     </div>
+    <ConfirmDialog
+      :show="showDeleteMemberDialog"
+      :title="t('organization.membersActions.deleteTitle')"
+      :message="t('organization.membersActions.deleteConfirm', { name: deletingMember?.login_name })"
+      :danger="true"
+      @confirm="confirmDeleteMember"
+      @cancel="closeDeleteMember"
+    />
     </div>
   </AppLayout>
 </template>
@@ -936,6 +945,7 @@ import type { OrganizationAuditEntry } from '@/api/organization'
 import { plazaAPI } from '@/api/plaza'
 import { Icon } from '@/components/icons'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import PaymentView from '@/views/user/PaymentView.vue'
 import PlanPlazaCards from '@/components/plaza/PlanPlazaCards.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
@@ -1060,6 +1070,8 @@ const memberLimit = ref(20)
 const usedSlots = ref(0)
 const showCreate = ref(false)
 const showRename = ref(false)
+const showDeleteMemberDialog = ref(false)
+const deletingMember = ref<IAMMember | null>(null)
 const requestedName = ref('')
 const renameMessage = ref('')
 const credential = ref<{ principal: string; password: string } | null>(null)
@@ -2075,6 +2087,31 @@ async function setStatus(member: IAMMember, status: IAMMember['status']) {
 async function archiveMember(member: IAMMember) {
   if (!window.confirm(t('organization.members.archiveConfirm', { name: member.login_name }))) return
   await setStatus(member, 'archived')
+}
+
+function openDeleteMember(member: IAMMember) {
+  deletingMember.value = member
+  showDeleteMemberDialog.value = true
+}
+
+function closeDeleteMember() {
+  showDeleteMemberDialog.value = false
+  deletingMember.value = null
+}
+
+async function confirmDeleteMember() {
+  if (!deletingMember.value) return
+  operationKey.value = `${deletingMember.value.user_id}:delete`
+  error.value = ''
+  try {
+    await organizationAPI.deleteArchivedMember(deletingMember.value.user_id)
+    closeDeleteMember()
+    await load()
+  } catch (cause) {
+    error.value = errorMessage(cause)
+  } finally {
+    operationKey.value = ''
+  }
 }
 
 async function resetPassword(member: IAMMember) {

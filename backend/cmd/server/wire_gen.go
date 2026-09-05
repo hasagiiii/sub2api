@@ -415,6 +415,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	notificationOutboxWorker := service.ProvideNotificationOutboxWorker(notificationOutboxRepository, notificationEmailService, configConfig)
 	companyOperationsMonitor := service.ProvideCompanyOperationsMonitor(organizationService, notificationOutboxWorker, apiKeyService, configConfig)
 	organizationHandler := handler.NewOrganizationHandler(organizationService, authService, companyOperationsMonitor, opsService, ssoSessionService, asyncVideoService)
+	organizationHandler.SetAdminService(adminService)
 	videoModelHandler := handler.NewVideoModelHandler(apiKeyService, accountRepository, modelPricingResolver, modelIntroService, asyncVideoService, asyncMediaService)
 	userMaterialHandler := handler.NewUserMaterialHandler(userMaterialService)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)

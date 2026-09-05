@@ -18,9 +18,37 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
+	"go.uber.org/zap"
 )
 
 type organizationRepository struct{ db *sql.DB }
+
+func organizationSQLLiteral(value any) string {
+	switch v := value.(type) {
+	case nil:
+		return "NULL"
+	case time.Time:
+		return "'" + strings.ReplaceAll(v.Format(time.RFC3339Nano), "'", "''") + "'"
+	case string:
+		return "'" + strings.ReplaceAll(v, "'", "''") + "'"
+	case []byte:
+		return "'" + strings.ReplaceAll(string(v), "'", "''") + "'"
+	case bool:
+		if v {
+			return "TRUE"
+		}
+		return "FALSE"
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func organizationSQLWithArgs(statement string, args []any) string {
+	for i := len(args); i >= 1; i-- {
+		statement = strings.ReplaceAll(statement, fmt.Sprintf("$%d", i), organizationSQLLiteral(args[i-1]))
+	}
+	return strings.Join(strings.Fields(statement), " ")
+}
 
 func organizationCorrelationID(ctx context.Context) any {
 	if ctx == nil {
@@ -73,6 +101,7 @@ func (r *organizationRepository) GetContextForUser(ctx context.Context, userID i
 		LEFT JOIN managed_policy_actions pa ON pa.policy_id = p.id
 		WHERE m.user_id = $1
 		GROUP BY o.id, m.id`
+	logger.L().Debug("organization.db.query", zap.String("query", "organization_context"), zap.String("sql", organizationSQLWithArgs(query, []any{userID})), zap.Int64("user_id", userID))
 	var out service.OrganizationContext
 	err := r.db.QueryRowContext(ctx, query, userID).Scan(
 		&out.OrganizationID, &out.AccountID, &out.CompanyID, &out.OwnerUserID, &out.CompanyName, &out.OrganizationStatus,
@@ -2371,7 +2400,35 @@ func (r *organizationRepository) UsageCharts(ctx context.Context, userID int64, 
 }
 
 func (r *organizationRepository) OrganizationDashboard(ctx context.Context, userID int64) (*usagestats.DashboardStats, error) {
+	started := time.Now()
+	logger.L().Debug("organization.dashboard.repository.start", zap.Int64("user_id", userID))
+	defer func() {
+		logger.L().Debug("organization.dashboard.repository.end", zap.Int64("user_id", userID), zap.Duration("duration", time.Since(started)))
+	}()
+
+	query := func(name, statement string, args []any, fn func() error) error {
+		queryStarted := time.Now()
+		err := fn()
+		fields := []zap.Field{
+			zap.String("query", name),
+			zap.String("sql", organizationSQLWithArgs(statement, args)),
+			zap.Int64("user_id", userID),
+			zap.Duration("duration", time.Since(queryStarted)),
+		}
+		if err != nil {
+			fields = append(fields, zap.Error(err))
+		}
+		logger.L().Debug("organization.dashboard.db.query", fields...)
+		return err
+	}
+
+	permissionStarted := time.Now()
 	org, err := r.GetContextForUser(ctx, userID)
+	permissionFields := []zap.Field{zap.String("query", "organization_context"), zap.Int64("user_id", userID), zap.Duration("duration", time.Since(permissionStarted))}
+	if err != nil {
+		permissionFields = append(permissionFields, zap.Error(err))
+	}
+	logger.L().Debug("organization.dashboard.db.query", permissionFields...)
 	if err != nil || !org.Active() || (!org.Owner() && !org.HasAction(service.ActionFinanceBalanceRead)) {
 		return nil, service.ErrOrganizationPermission
 	}
@@ -2387,27 +2444,33 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 	// 企业订阅记录保留 API Key 绑定判断，但显式 self 始终排除。
 	excludeOwnerSelfSpend := "(l.user_id <> $3 OR (l.balance_source IS NOT NULL AND l.balance_source <> 'self') OR (l.balance_source IS NULL AND l.billing_type=1 AND EXISTS(SELECT 1 FROM api_keys ak WHERE ak.id=l.api_key_id AND ak.organization_subscription_id IS NOT NULL)))"
 	var totalIAMUsers, activeIAMUsers int64
-	if err := r.db.QueryRowContext(ctx, `
+	membershipSQL := `
 		SELECT count(*), count(*) FILTER (WHERE created_at >= $2),
 			count(*) FILTER (WHERE role='member'),
 			count(*) FILTER (WHERE role='member' AND status='active')
 		FROM organization_memberships
-		WHERE organization_id=$1 AND status<>'archived'`, org.OrganizationID, todayStart).
-		Scan(&stats.TotalUsers, &stats.TodayNewUsers, &totalIAMUsers, &activeIAMUsers); err != nil {
+		WHERE organization_id=$1 AND status<>'archived'`
+	if err := query("membership_counts", membershipSQL, []any{org.OrganizationID, todayStart}, func() error {
+		return r.db.QueryRowContext(ctx, membershipSQL, org.OrganizationID, todayStart).
+			Scan(&stats.TotalUsers, &stats.TodayNewUsers, &totalIAMUsers, &activeIAMUsers)
+	}); err != nil {
 		return nil, err
 	}
-	if err := r.db.QueryRowContext(ctx, `
+	apiKeysSQL := `
 		SELECT count(*), count(*) FILTER (WHERE k.status='active')
 		FROM api_keys k JOIN organization_memberships m ON m.user_id=k.user_id
-		WHERE m.organization_id=$1 AND m.status<>'archived' AND k.deleted_at IS NULL`, org.OrganizationID).
-		Scan(&stats.TotalAPIKeys, &stats.ActiveAPIKeys); err != nil {
+		WHERE m.organization_id=$1 AND m.status<>'archived' AND k.deleted_at IS NULL`
+	if err := query("api_key_counts", apiKeysSQL, []any{org.OrganizationID}, func() error {
+		return r.db.QueryRowContext(ctx, apiKeysSQL, org.OrganizationID).
+			Scan(&stats.TotalAPIKeys, &stats.ActiveAPIKeys)
+	}); err != nil {
 		return nil, err
 	}
-	if err := r.db.QueryRowContext(ctx, `
+	accountsSQL := `
 		WITH used_accounts AS (
 			SELECT DISTINCT l.account_id FROM usage_logs l
 			WHERE l.organization_id=$1 AND l.created_at >= $2 AND l.account_id IS NOT NULL
-			  AND `+excludeOwnerSelfSpend+`
+			  AND ` + excludeOwnerSelfSpend + `
 		)
 		SELECT count(*),
 			count(*) FILTER (WHERE a.status='active' AND a.schedulable=true),
@@ -2415,43 +2478,55 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 			count(*) FILTER (WHERE a.rate_limited_at IS NOT NULL AND a.rate_limit_reset_at > $4),
 			count(*) FILTER (WHERE a.overload_until IS NOT NULL AND a.overload_until > $4)
 		FROM accounts a JOIN used_accounts ua ON ua.account_id=a.id
-		WHERE a.deleted_at IS NULL`, org.OrganizationID, org.EffectiveAt, org.OwnerUserID, now).
-		Scan(&stats.TotalAccounts, &stats.NormalAccounts, &stats.ErrorAccounts, &stats.RateLimitAccounts, &stats.OverloadAccounts); err != nil {
+		WHERE a.deleted_at IS NULL`
+	if err := query("account_counts", accountsSQL, []any{org.OrganizationID, org.EffectiveAt, org.OwnerUserID, now}, func() error {
+		return r.db.QueryRowContext(ctx, accountsSQL, org.OrganizationID, org.EffectiveAt, org.OwnerUserID, now).
+			Scan(&stats.TotalAccounts, &stats.NormalAccounts, &stats.ErrorAccounts, &stats.RateLimitAccounts, &stats.OverloadAccounts)
+	}); err != nil {
 		return nil, err
 	}
 	stats.TotalAccounts += totalIAMUsers
 	stats.NormalAccounts += activeIAMUsers
-	if err := r.db.QueryRowContext(ctx, `
+	usageTotalsSQL := `
 		SELECT count(*), COALESCE(sum(l.input_tokens),0), COALESCE(sum(l.output_tokens),0),
 			COALESCE(sum(l.cache_creation_tokens),0), COALESCE(sum(l.cache_read_tokens),0),
 			COALESCE(sum(l.total_cost),0)::float8, COALESCE(sum(l.actual_cost),0)::float8,
 			COALESCE(sum(COALESCE(l.account_stats_cost,l.total_cost)*COALESCE(l.account_rate_multiplier,1)),0)::float8,
 			COALESCE(avg(l.duration_ms),0)::float8
-		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND `+excludeOwnerSelfSpend, org.OrganizationID, org.EffectiveAt, org.OwnerUserID).
-		Scan(&stats.TotalRequests, &stats.TotalInputTokens, &stats.TotalOutputTokens,
-			&stats.TotalCacheCreationTokens, &stats.TotalCacheReadTokens, &stats.TotalCost,
-			&stats.TotalActualCost, &stats.TotalAccountCost, &stats.AverageDurationMs); err != nil {
+		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND ` + excludeOwnerSelfSpend
+	if err := query("usage_totals", usageTotalsSQL, []any{org.OrganizationID, org.EffectiveAt, org.OwnerUserID}, func() error {
+		return r.db.QueryRowContext(ctx, usageTotalsSQL, org.OrganizationID, org.EffectiveAt, org.OwnerUserID).
+			Scan(&stats.TotalRequests, &stats.TotalInputTokens, &stats.TotalOutputTokens,
+				&stats.TotalCacheCreationTokens, &stats.TotalCacheReadTokens, &stats.TotalCost,
+				&stats.TotalActualCost, &stats.TotalAccountCost, &stats.AverageDurationMs)
+	}); err != nil {
 		return nil, err
 	}
-	if err := r.db.QueryRowContext(ctx, `
+	todayUsageSQL := `
 		SELECT count(*), count(DISTINCT l.user_id), COALESCE(sum(l.input_tokens),0), COALESCE(sum(l.output_tokens),0),
 			COALESCE(sum(l.cache_creation_tokens),0), COALESCE(sum(l.cache_read_tokens),0),
 			COALESCE(sum(l.total_cost),0)::float8, COALESCE(sum(l.actual_cost),0)::float8,
 			COALESCE(sum(COALESCE(l.account_stats_cost,l.total_cost)*COALESCE(l.account_rate_multiplier,1)),0)::float8
-		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND `+excludeOwnerSelfSpend, org.OrganizationID, todayStart, org.OwnerUserID).
-		Scan(&stats.TodayRequests, &stats.ActiveUsers, &stats.TodayInputTokens, &stats.TodayOutputTokens,
-			&stats.TodayCacheCreationTokens, &stats.TodayCacheReadTokens, &stats.TodayCost,
-			&stats.TodayActualCost, &stats.TodayAccountCost); err != nil {
+		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND ` + excludeOwnerSelfSpend
+	if err := query("today_usage_totals", todayUsageSQL, []any{org.OrganizationID, todayStart, org.OwnerUserID}, func() error {
+		return r.db.QueryRowContext(ctx, todayUsageSQL, org.OrganizationID, todayStart, org.OwnerUserID).
+			Scan(&stats.TodayRequests, &stats.ActiveUsers, &stats.TodayInputTokens, &stats.TodayOutputTokens,
+				&stats.TodayCacheCreationTokens, &stats.TodayCacheReadTokens, &stats.TodayCost,
+				&stats.TodayActualCost, &stats.TodayAccountCost)
+	}); err != nil {
 		return nil, err
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
 
 	var recentRequests, recentTokens int64
-	if err := r.db.QueryRowContext(ctx, `
+	recentUsageSQL := `
 		SELECT count(*), COALESCE(sum(l.input_tokens+l.output_tokens+l.cache_creation_tokens+l.cache_read_tokens),0)
-		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND `+excludeOwnerSelfSpend, org.OrganizationID, now.Add(-5*time.Minute), org.OwnerUserID).
-		Scan(&recentRequests, &recentTokens); err != nil {
+		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND ` + excludeOwnerSelfSpend
+	if err := query("recent_usage_rates", recentUsageSQL, []any{org.OrganizationID, now.Add(-5 * time.Minute), org.OwnerUserID}, func() error {
+		return r.db.QueryRowContext(ctx, recentUsageSQL, org.OrganizationID, now.Add(-5*time.Minute), org.OwnerUserID).
+			Scan(&recentRequests, &recentTokens)
+	}); err != nil {
 		return nil, err
 	}
 	stats.Rpm = recentRequests / 5

@@ -12,14 +12,17 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 type OrganizationHandler struct {
 	organization *service.OrganizationService
+	admin        service.AdminService
 	auth         *service.AuthService
 	operations   *service.CompanyOperationsMonitor
 	ops          *service.OpsService
@@ -75,6 +78,10 @@ func (f optionalDecimalString) Pointer() *string {
 
 func NewOrganizationHandler(organization *service.OrganizationService, auth *service.AuthService, operations *service.CompanyOperationsMonitor, ops *service.OpsService, sso *service.SsoSessionService, video *service.AsyncVideoService) *OrganizationHandler {
 	return &OrganizationHandler{organization: organization, auth: auth, operations: operations, ops: ops, sso: sso, video: video}
+}
+
+func (h *OrganizationHandler) SetAdminService(admin service.AdminService) {
+	h.admin = admin
 }
 
 // issueIAMSsoSession 在 IAM 子账号登录/改密后，尽力签发 OIDC Provider 的 HttpOnly SSO cookie，
@@ -338,6 +345,22 @@ func (h *OrganizationHandler) SetMemberStatus(c *gin.Context) {
 		h.revokeIAMSsoSessions(c, memberID)
 	}
 	response.Success(c, gin.H{"status": req.Status})
+}
+
+func (h *OrganizationHandler) DeleteArchivedMember(c *gin.Context) {
+	ownerID, ok := organizationSubject(c)
+	if !ok {
+		return
+	}
+	memberID, ok := parseOrganizationIDParam(c, "member_id")
+	if !ok {
+		return
+	}
+	if err := h.organization.DeleteArchivedIAMMember(c.Request.Context(), ownerID, memberID, h.admin); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Archived member deleted successfully"})
 }
 
 func (h *OrganizationHandler) ResetMemberPassword(c *gin.Context) {
@@ -1037,15 +1060,24 @@ func (h *OrganizationHandler) UsageCharts(c *gin.Context) {
 }
 
 func (h *OrganizationHandler) Dashboard(c *gin.Context) {
+	started := time.Now()
 	userID, ok := organizationSubject(c)
 	if !ok {
 		return
 	}
+	logger.L().Debug("organization.dashboard.request.start",
+		zap.Int64("user_id", userID),
+		zap.String("timezone", c.Query("timezone")),
+	)
 	stats, err := h.organization.OrganizationDashboard(c.Request.Context(), userID)
 	if err != nil {
+		logger.L().Debug("organization.dashboard.request.end",
+			zap.Int64("user_id", userID), zap.Duration("duration", time.Since(started)), zap.Error(err))
 		response.ErrorFrom(c, err)
 		return
 	}
+	logger.L().Debug("organization.dashboard.request.end",
+		zap.Int64("user_id", userID), zap.Duration("duration", time.Since(started)))
 	response.Success(c, stats)
 }
 

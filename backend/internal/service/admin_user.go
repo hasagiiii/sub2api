@@ -358,7 +358,7 @@ func sameInt64Set(a, b []int64) bool {
 
 func (s *adminServiceImpl) DeleteUser(ctx context.Context, id int64) error {
 	// Protect admin users: cannot delete admin accounts
-	user, err := s.userRepo.GetByID(ctx, id)
+	user, err := s.userRepo.GetByIDIncludeDeleted(ctx, id)
 	if err != nil {
 		return err
 	}

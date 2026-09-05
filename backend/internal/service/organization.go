@@ -14,8 +14,10 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/shopspring/decimal"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -1210,6 +1212,24 @@ func (s *OrganizationService) SetIAMMemberStatus(ctx context.Context, ownerID, m
 	return nil
 }
 
+func (s *OrganizationService) DeleteArchivedIAMMember(ctx context.Context, ownerID, memberUserID int64, admin AdminService) error {
+	org, err := s.repo.GetContextForUser(ctx, ownerID)
+	if err != nil || !org.Active() || !org.Owner() {
+		return ErrOrganizationPermission
+	}
+	member, err := s.repo.GetIAMMember(ctx, ownerID, memberUserID)
+	if err != nil {
+		return err
+	}
+	if member.Status != MembershipStatusArchived {
+		return infraerrors.Conflict("IAM_MEMBER_NOT_ARCHIVED", "only archived IAM members can be permanently deleted")
+	}
+	if admin == nil {
+		return ErrOrganizationPermission
+	}
+	return admin.DeleteUser(ctx, memberUserID)
+}
+
 func (s *OrganizationService) ResetIAMPassword(ctx context.Context, ownerID, memberUserID int64) (string, error) {
 	password, err := generateInitialPassword()
 	if err != nil {
@@ -1640,7 +1660,14 @@ func (s *OrganizationService) UsageCharts(ctx context.Context, userID int64, fil
 }
 
 func (s *OrganizationService) OrganizationDashboard(ctx context.Context, userID int64) (*usagestats.DashboardStats, error) {
-	return s.repo.OrganizationDashboard(ctx, userID)
+	started := time.Now()
+	stats, err := s.repo.OrganizationDashboard(ctx, userID)
+	fields := []zap.Field{zap.Int64("user_id", userID), zap.Duration("duration", time.Since(started))}
+	if err != nil {
+		fields = append(fields, zap.Error(err))
+	}
+	logger.L().Debug("organization.dashboard.service.end", fields...)
+	return stats, err
 }
 
 func (s *OrganizationService) OrganizationSpendingRanking(ctx context.Context, userID int64, filter OrganizationUsageFilter, limit int) (*usagestats.UserSpendingRankingResponse, error) {

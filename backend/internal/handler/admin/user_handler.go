@@ -140,6 +140,7 @@ func (h *UserHandler) List(c *gin.Context) {
 		EnterpriseIdentity: normalizeEnterpriseIdentityFilter(c.Query("enterprise_identity")),
 		GroupName:          strings.TrimSpace(c.Query("group_name")),
 		Attributes:         parseAttributeFilters(c),
+		IncludeDeleted:     true,
 	}
 	if raw := strings.TrimSpace(c.Query("api_key_group_id")); raw != "" {
 		if id, parseErr := strconv.ParseInt(raw, 10, 64); parseErr == nil && id > 0 {

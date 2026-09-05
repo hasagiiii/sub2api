@@ -646,7 +646,7 @@
             />
           </template>
 
-          <template #cell-status="{ value }">
+          <template #cell-status="{ value, row }">
             <div class="flex items-center gap-1.5">
               <span
                 :class="[
@@ -655,7 +655,7 @@
                 ]"
               ></span>
               <span class="text-sm text-gray-700 dark:text-gray-300">
-                {{ value === 'active' ? t('common.active') : t('admin.users.disabled') }}
+                {{ value === 'active' ? t('common.active') : (row?.deleted_at ? t('admin.users.archived') : t('admin.users.disabled')) }}
               </span>
             </div>
           </template>

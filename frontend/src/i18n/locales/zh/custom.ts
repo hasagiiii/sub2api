@@ -2034,6 +2034,7 @@ export default {
       admin: '管理员',
       user: '用户',
       disabled: '禁用',
+      archived: '已归档',
       email: '邮箱',
       password: '密码',
       username: '用户名',
@@ -2121,7 +2122,7 @@ export default {
       failedToDelete: '删除用户失败',
       failedToToggle: '更新用户状态失败',
       failedToLoadApiKeys: '加载用户 API 密钥失败',
-      deleteConfirm: "确定要删除用户 '{email}' 吗？此操作无法撤销。",
+      deleteConfirm: "确定要永久删除用户 '{email}' 吗？删除后该用户的所有数据都会被清理，且无法恢复。",
       roles: {
         admin: '管理员',
         user: '用户'
