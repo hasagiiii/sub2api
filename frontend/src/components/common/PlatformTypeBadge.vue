@@ -105,6 +105,7 @@ const platformLabel = computed(() => {
   if (props.platform === 'atlascloud') return 'AtlasCloud'
   if (props.platform === 'apiz') return 'apiz'
   if (props.platform === 'higgsfield') return 'Higgsfield'
+  if (props.platform === 'bytedance') return 'ByteDance'
   if (props.platform === 'kimi') return 'Kimi'
   if (props.platform === 'zhipu') return 'Zhipu GLM'
   if (props.platform === 'deepseek') return 'DeepSeek'

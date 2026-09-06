@@ -109,6 +109,29 @@ describe('VideoPlaygroundSchemaField media arrays', () => {
     wrapper.unmount()
   })
 
+  it('shows the image name and resolution in the large preview info bar', async () => {
+    const url = 'https://cdn.example.com/uploads/cat-photo.png?token=test'
+    const wrapper = mountField({
+      reference_images: {
+        items: { value: '', widget: 'image' },
+        widget: 'ImageUrls',
+        value: [url],
+      },
+    })
+
+    await wrapper.find('.img-cell .img-drag').trigger('click')
+    const preview = document.body.querySelector('[data-testid="image-preview"]')
+    const image = preview?.querySelector('img')
+    expect(preview?.querySelector('[data-testid="image-preview-info"]')?.textContent).toContain('cat-photo.png')
+
+    Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 1920 })
+    Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 1080 })
+    await image?.dispatchEvent(new Event('load'))
+
+    expect(preview?.querySelector('[data-testid="image-preview-info"]')?.textContent).toContain('1920 × 1080')
+    wrapper.unmount()
+  })
+
   it('renders an ordinary textarea for a prompt field unless the schema selects PromptTextArea', () => {
     const spec = extractFieldSpecs({ prompt: { value: '', widget: 'textarea' } })[0]
     const wrapper = mount(VideoPlaygroundSchemaField, {

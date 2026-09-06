@@ -209,7 +209,15 @@
           </button>
           <button
             type="button"
+            @click="form.platform = 'bytedance'"
+            :class="['flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2 py-2.5 text-xs font-medium transition-all sm:gap-2 sm:px-4 sm:text-sm', form.platform === 'bytedance' ? 'bg-white text-teal-600 shadow-sm dark:bg-dark-600 dark:text-teal-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400']"
+          >
+            <PlatformIcon platform="bytedance" size="sm" />
+            ByteDance
+          </button>
+          <button
             @click="form.platform = 'higgsfield'"
+            type="button"
             :class="[
               'flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-2 py-2.5 text-xs font-medium transition-all sm:gap-2 sm:px-4 sm:text-sm',
               form.platform === 'higgsfield'
@@ -4640,6 +4648,7 @@ const apiKeyHint = computed(() => {
 
 // Base URL / API Key 占位符：国产供应商随账号类型变化。
 const apiKeyBaseUrlPlaceholder = computed(() => {
+	if (form.platform === 'bytedance') return 'https://ark.cn-beijing.volces.com/api/v3'
   if (isCNPlatform.value) {
     return defaultCNBaseUrl(form.platform, accountMode.value, apiProtocol.value) || 'https://api.example.com'
   }
@@ -4658,6 +4667,7 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
 })
 
 const apiKeyValuePlaceholder = computed(() => {
+	if (form.platform === 'bytedance') return 'ARK_API_KEY'
   switch (form.platform) {
     case 'openai':
       return 'sk-proj-...'
@@ -5540,6 +5550,8 @@ watch(
             ? 'https://api.apiz.ai'
           : newPlatform === 'higgsfield'
             ? 'https://platform.higgsfield.ai'
+          : newPlatform === 'bytedance'
+            ? 'https://ark.cn-beijing.volces.com/api/v3'
               : 'https://api.anthropic.com'
     }
     // Clear model-related settings
@@ -5587,7 +5599,7 @@ watch(
       accountCategory.value = 'oauth-based'
     }
     // fal / atlascloud / apiz / higgsfield 仅支持 apikey 类型，强制走通用 apikey 输入
-    if (newPlatform === 'fal' || newPlatform === 'leonardo' || newPlatform === 'atlascloud' || newPlatform === 'apiz' || newPlatform === 'higgsfield') {
+    if (newPlatform === 'bytedance' || newPlatform === 'fal' || newPlatform === 'leonardo' || newPlatform === 'atlascloud' || newPlatform === 'apiz' || newPlatform === 'higgsfield') {
       accountCategory.value = 'apikey'
     }
     // Reset Bedrock fields when switching platforms
@@ -6663,6 +6675,8 @@ const handleSubmit = async () => {
           ? 'https://api.x.ai/v1'
           : form.platform === 'leonardo'
             ? 'http://127.0.0.1:28080'
+          : form.platform === 'bytedance'
+            ? 'https://ark.cn-beijing.volces.com/api/v3'
           : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
@@ -6760,7 +6774,9 @@ const handleSubmit = async () => {
     ...form,
     group_ids: form.group_ids,
     extra: withUpstreamRequestIdHeader(extra),
-    upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value,
+    upstream_billing_probe_enabled: supportsUpstreamBillingProbe(form.platform, form.type)
+      ? upstreamBillingAutoProbeEnabled.value
+      : false,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

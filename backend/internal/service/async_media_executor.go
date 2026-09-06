@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -61,8 +62,15 @@ type AsyncMediaService struct {
 		InvalidateUserBalance(ctx context.Context, userID int64) error
 	}
 
-	pollInterval time.Duration
-	failTimeout  time.Duration
+	pollInterval           time.Duration
+	failTimeout            time.Duration
+	bytedanceMu            sync.Mutex
+	bytedanceWorkers       map[int64]bool
+	bytedanceCtx           context.Context
+	bytedanceCancel        context.CancelFunc
+	bytedanceWG            sync.WaitGroup
+	bytedanceStopped       bool
+	bytedanceClientFactory func(*Account) (bytedanceImageClient, error)
 }
 
 func (s *AsyncMediaService) SetBalanceCache(cache interface {
@@ -200,6 +208,9 @@ func (s *AsyncMediaService) SubmitAsync(ctx context.Context, in *AsyncMediaSubmi
 	}
 	if in.Account == nil {
 		return nil, errors.New("async media: account is required")
+	}
+	if in.Account.Platform == PlatformBytedance {
+		return s.submitBytedance(ctx, in)
 	}
 	if strings.TrimSpace(in.InternalRequestID) == "" {
 		// The Leonardo proxy requires an idempotency key for every submit. Keep
@@ -343,6 +354,10 @@ func (s *AsyncMediaService) GetTaskByID(ctx context.Context, id int64) (*AsyncMe
 	return s.taskRepo.GetByID(ctx, id)
 }
 
+func (s *AsyncMediaService) GetTaskForMutation(ctx context.Context, requestID string) (*AsyncMediaTask, error) {
+	return s.taskRepo.GetByUpstreamRequestID(ctx, requestID)
+}
+
 // ListByUserAndModel returns image tasks for the model playground history.
 func (s *AsyncMediaService) ListByUserAndModel(ctx context.Context, userID int64, requestedModel string, offset, limit int) ([]*AsyncMediaTask, int64, error) {
 	return s.taskRepo.ListByUserAndModel(ctx, userID, requestedModel, offset, limit)
@@ -484,6 +499,10 @@ func (s *AsyncMediaService) AdvanceTask(ctx context.Context, task *AsyncMediaTas
 	if task.IsTerminal() {
 		return task, true, nil
 	}
+	if task.RequestParameters["_provider"] == PlatformBytedance || (account != nil && account.Platform == PlatformBytedance) {
+		s.startBytedanceWorker(task, account)
+		return task, false, nil
+	}
 	if account == nil {
 		return task, false, errors.New("async media advance: account is nil")
 	}
@@ -497,6 +516,9 @@ func (s *AsyncMediaService) CancelTask(ctx context.Context, task *AsyncMediaTask
 	}
 	if task.IsTerminal() {
 		return nil
+	}
+	if task.RequestParameters["_provider"] == PlatformBytedance || (account != nil && account.Platform == PlatformBytedance) {
+		return s.cancelBytedance(ctx, task)
 	}
 	if account != nil {
 		task.statusCacheUpstream = account.Platform
@@ -521,6 +543,10 @@ func (s *AsyncMediaService) ReconcileTask(ctx context.Context, task *AsyncMediaT
 		return nil
 	}
 	if task.IsTerminal() {
+		return nil
+	}
+	if task.RequestParameters["_provider"] == PlatformBytedance || (account != nil && account.Platform == PlatformBytedance) {
+		s.startBytedanceWorker(task, account)
 		return nil
 	}
 	billingType := BillingTypeBalance // 兜底退费按余额账本（订阅额度由 usage_log 路径核算）
@@ -887,10 +913,14 @@ func (s *AsyncMediaService) recordTerminalMediaError(ctx context.Context, task *
 		statusCode = http.StatusBadGateway
 	}
 	userID, apiKeyID := task.UserID, task.APIKeyID
+	platform := task.Facade
+	if task.RequestParameters["_provider"] == PlatformBytedance {
+		platform = PlatformBytedance
+	}
 	entry := &OpsInsertErrorLogInput{
 		RequestID: task.InternalRequestID, ClientRequestID: task.InternalRequestID,
 		UserID: &userID, APIKeyID: &apiKeyID, GroupID: task.GroupID,
-		Platform: task.Facade, Model: task.RequestedModel,
+		Platform: platform, Model: task.RequestedModel,
 		RequestedModel: task.RequestedModel, UpstreamModel: amDerefStr(task.UpstreamModel),
 		InboundEndpoint: amDerefStr(task.InboundEndpoint), UpstreamEndpoint: amDerefStr(task.UpstreamEndpoint),
 		UserAgent: amDerefStr(task.UserAgent), ErrorPhase: "upstream", ErrorType: "upstream_error",

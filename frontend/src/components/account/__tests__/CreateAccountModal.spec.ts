@@ -496,6 +496,23 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(flow.props('initialInputMethod')).toBe('manual')
   })
 
+  it('creates a ByteDance API key account with the Ark endpoint', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'ByteDance')
+    expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Seedream')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('ark-test-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'bytedance', type: 'apikey',
+      credentials: { api_key: 'ark-test-key', base_url: 'https://ark.cn-beijing.volces.com/api/v3' },
+      upstream_billing_probe_enabled: false,
+    })
+    expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['camelCase', { authMode: 'agentIdentity', agentIdentity: { agentRuntimeId: 'runtime' } }],
     ['nested identity without auth_mode', { agent_identity: { agent_runtime_id: 'runtime' } }],
@@ -545,7 +562,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       platform,
       type: 'apikey',
       extra: { video_models_enabled: true },
+      upstream_billing_probe_enabled: false,
     })
+    expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
   })
 
   it('sends an explicit disabled state when the non-OpenAI create toggle is turned off', async () => {

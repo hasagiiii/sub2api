@@ -405,8 +405,9 @@ func (s *GatewayService) SelectAsyncImageAccountInGroup(
 	falAPI string,
 ) (*Account, error) {
 	allowedPlatforms := map[string]struct{}{
-		PlatformFal:      {},
-		PlatformLeonardo: {},
+		PlatformFal:       {},
+		PlatformLeonardo:  {},
+		PlatformBytedance: {},
 	}
 	state := APIKeyRoutingStateFromContext(ctx)
 	if state == nil || len(state.Candidates(groupID)) == 0 {
@@ -450,6 +451,13 @@ func (s *GatewayService) selectImageAccountMixedSingle(
 	accounts, err := s.listSchedulableImageAccounts(ctx, groupID)
 	if err != nil {
 		return nil, err
+	}
+	if _, enabled := allowedPlatforms[PlatformBytedance]; enabled {
+		bytedanceAccounts, _, listErr := s.listSchedulableAccounts(ctx, groupID, PlatformBytedance, false)
+		if listErr != nil {
+			return nil, listErr
+		}
+		accounts = append(accounts, bytedanceAccounts...)
 	}
 	if len(accounts) == 0 {
 		return nil, ErrNoAvailableAccounts
@@ -619,7 +627,7 @@ func (s *GatewayService) buildImageSelectionDiagnostic(
 	case PlatformFal:
 		diagnostic.ModelSupported = s.isModelSupportedByAccountWithContext(ctx, account, requestedModel, falAPI)
 		diagnostic.CapabilitySupported = true
-	case PlatformLeonardo:
+	case PlatformLeonardo, PlatformBytedance:
 		diagnostic.ModelSupported = s.isModelSupportedByAccountWithContext(ctx, account, requestedModel, "")
 		diagnostic.CapabilitySupported = true
 	}
@@ -850,7 +858,7 @@ func (s *GatewayService) imageAccountSupportsRequest(ctx context.Context, accoun
 		return (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel, "")) && account.SupportsOpenAIImageCapability(capability)
 	case PlatformFal:
 		return s.isModelSupportedByAccountWithContext(ctx, account, requestedModel, falAPI)
-	case PlatformLeonardo:
+	case PlatformLeonardo, PlatformBytedance:
 		return s.isModelSupportedByAccountWithContext(ctx, account, requestedModel, "")
 	default:
 		return false
@@ -858,13 +866,16 @@ func (s *GatewayService) imageAccountSupportsRequest(ctx context.Context, accoun
 }
 
 func (s *GatewayService) falAccountPricingConfigured(ctx context.Context, account *Account, requestedModel, falAPI string, groupID *int64) bool {
-	if account == nil || (account.Platform != PlatformFal && account.Platform != PlatformLeonardo) {
+	if account == nil || (account.Platform != PlatformFal && account.Platform != PlatformLeonardo && account.Platform != PlatformBytedance) {
 		return true
 	}
 	if s.resolver == nil {
 		return false
 	}
 	upstreamModel := resolveFalUpstreamModel(account, requestedModel, falAPI == FalAPIEdit)
+	if account.Platform == PlatformBytedance {
+		upstreamModel = account.GetMappedModel(requestedModel)
+	}
 	if account.Platform == PlatformLeonardo {
 		upstreamModel = strings.TrimSpace(account.GetModelMapping()[requestedModel])
 		if upstreamModel == "" {

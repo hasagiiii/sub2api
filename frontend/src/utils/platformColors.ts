@@ -14,6 +14,7 @@ export type Platform =
   | 'grok'
   | 'fal'
   | 'leonardo'
+  | 'bytedance'
   | 'atlascloud'
   | 'apiz'
   | 'higgsfield'
@@ -30,6 +31,7 @@ const BADGE: Record<Platform, string> = {
   gemini: 'bg-blue-500/10 text-blue-600 border-blue-500/30 dark:text-blue-400',
   fal: 'bg-pink-500/10 text-pink-600 border-pink-500/30 dark:text-pink-400',
   leonardo: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30 dark:text-indigo-400',
+  bytedance: 'bg-teal-500/10 text-teal-600 border-teal-500/30 dark:text-teal-400',
   atlascloud: 'bg-sky-500/10 text-sky-600 border-sky-500/30 dark:text-sky-400',
   apiz: 'bg-teal-500/10 text-teal-600 border-teal-500/30 dark:text-teal-400',
   higgsfield: 'bg-fuchsia-500/10 text-fuchsia-600 border-fuchsia-500/30 dark:text-fuchsia-400',
@@ -50,6 +52,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   gemini: 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300',
   fal: 'bg-pink-500/10 text-pink-600 dark:bg-pink-500/10 dark:text-pink-300',
   leonardo: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300',
+  bytedance: 'bg-teal-500/10 text-teal-600 dark:bg-teal-500/10 dark:text-teal-300',
   atlascloud: 'bg-sky-500/10 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300',
   apiz: 'bg-teal-500/10 text-teal-600 dark:bg-teal-500/10 dark:text-teal-300',
   higgsfield: 'bg-fuchsia-500/10 text-fuchsia-600 dark:bg-fuchsia-500/10 dark:text-fuchsia-300',
@@ -69,6 +72,7 @@ const BORDER: Record<Platform, string> = {
   gemini: 'border-blue-500/20 dark:border-blue-500/20',
   fal: 'border-pink-500/20 dark:border-pink-500/20',
   leonardo: 'border-indigo-500/20 dark:border-indigo-500/20',
+  bytedance: 'border-teal-500/20 dark:border-teal-500/20',
   atlascloud: 'border-sky-500/20 dark:border-sky-500/20',
   apiz: 'border-teal-500/20 dark:border-teal-500/20',
   higgsfield: 'border-fuchsia-500/20 dark:border-fuchsia-500/20',
@@ -89,6 +93,7 @@ const BORDER_STRONG: Record<Platform, string> = {
   gemini: 'border-blue-500/35 dark:border-blue-500/30',
   fal: 'border-pink-500/35 dark:border-pink-500/30',
   leonardo: 'border-indigo-500/35 dark:border-indigo-500/30',
+  bytedance: 'border-teal-500/35 dark:border-teal-500/30',
   atlascloud: 'border-sky-500/35 dark:border-sky-500/30',
   apiz: 'border-teal-500/35 dark:border-teal-500/30',
   higgsfield: 'border-fuchsia-500/35 dark:border-fuchsia-500/30',
@@ -110,6 +115,7 @@ const ACCENT: Record<Platform, string> = {
   gemini: '#3b82f6', // blue-500
   fal: '#ec4899', // pink-500
   leonardo: '#6366f1', // indigo-500
+  bytedance: '#14b8a6', // teal-500
   atlascloud: '#0ea5e9', // sky-500
   apiz: '#14b8a6', // teal-500
   higgsfield: '#d946ef', // fuchsia-500
@@ -130,6 +136,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   gemini: 'bg-gradient-to-r from-blue-400 to-blue-500',
   fal: 'bg-gradient-to-r from-pink-400 to-pink-500',
   leonardo: 'bg-gradient-to-r from-indigo-400 to-indigo-500',
+  bytedance: 'bg-gradient-to-r from-teal-400 to-teal-500',
   atlascloud: 'bg-gradient-to-r from-sky-400 to-sky-500',
   apiz: 'bg-gradient-to-r from-teal-400 to-teal-500',
   higgsfield: 'bg-gradient-to-r from-fuchsia-400 to-fuchsia-500',
@@ -150,6 +157,7 @@ const TEXT: Record<Platform, string> = {
   gemini: 'text-blue-600 dark:text-blue-400',
   fal: 'text-pink-600 dark:text-pink-400',
   leonardo: 'text-indigo-600 dark:text-indigo-400',
+  bytedance: 'text-teal-600 dark:text-teal-400',
   atlascloud: 'text-sky-600 dark:text-sky-400',
   apiz: 'text-teal-600 dark:text-teal-400',
   higgsfield: 'text-fuchsia-600 dark:text-fuchsia-400',
@@ -170,6 +178,7 @@ const ICON: Record<Platform, string> = {
   gemini: 'text-blue-500 dark:text-blue-400',
   fal: 'text-pink-500 dark:text-pink-400',
   leonardo: 'text-indigo-500 dark:text-indigo-400',
+  bytedance: 'text-teal-500 dark:text-teal-400',
   atlascloud: 'text-sky-500 dark:text-sky-400',
   apiz: 'text-teal-500 dark:text-teal-400',
   higgsfield: 'text-fuchsia-500 dark:text-fuchsia-400',
@@ -190,6 +199,7 @@ const BUTTON: Record<Platform, string> = {
   gemini: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500/80 dark:hover:bg-blue-500',
   fal: 'bg-pink-500 text-white hover:bg-pink-600 active:bg-pink-700 dark:bg-pink-500/80 dark:hover:bg-pink-500',
   leonardo: 'bg-indigo-500 text-white hover:bg-indigo-600 active:bg-indigo-700 dark:bg-indigo-500/80 dark:hover:bg-indigo-500',
+  bytedance: 'bg-teal-500 text-white hover:bg-teal-600 active:bg-teal-700 dark:bg-teal-500/80 dark:hover:bg-teal-500',
   atlascloud: 'bg-sky-500 text-white hover:bg-sky-600 active:bg-sky-700 dark:bg-sky-500/80 dark:hover:bg-sky-500',
   apiz: 'bg-teal-500 text-white hover:bg-teal-600 active:bg-teal-700 dark:bg-teal-500/80 dark:hover:bg-teal-500',
   higgsfield: 'bg-fuchsia-500 text-white hover:bg-fuchsia-600 active:bg-fuchsia-700 dark:bg-fuchsia-500/80 dark:hover:bg-fuchsia-500',
@@ -210,6 +220,7 @@ const DISCOUNT: Record<Platform, string> = {
   gemini: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
   fal: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
   leonardo: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+  bytedance: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
   atlascloud: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300',
   apiz: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
   higgsfield: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-300',
@@ -230,6 +241,7 @@ const GRADIENT: Record<Platform, string> = {
   gemini: 'from-blue-500 to-blue-600',
   fal: 'from-pink-500 to-pink-600',
   leonardo: 'from-indigo-500 to-indigo-600',
+  bytedance: 'from-teal-500 to-teal-600',
   atlascloud: 'from-sky-500 to-sky-600',
   apiz: 'from-teal-500 to-teal-600',
   higgsfield: 'from-fuchsia-500 to-fuchsia-600',
@@ -250,6 +262,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   gemini: 'text-blue-100',
   fal: 'text-pink-100',
   leonardo: 'text-indigo-100',
+  bytedance: 'text-teal-100',
   atlascloud: 'text-sky-100',
   apiz: 'text-teal-100',
   higgsfield: 'text-fuchsia-100',
@@ -269,6 +282,7 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   gemini: 'text-blue-200',
   fal: 'text-pink-200',
   leonardo: 'text-indigo-200',
+  bytedance: 'text-teal-200',
   atlascloud: 'text-sky-200',
   apiz: 'text-teal-200',
   higgsfield: 'text-fuchsia-200',
@@ -293,6 +307,7 @@ function isPlatform(p: string): p is Platform {
     p === 'grok' ||
     p === 'fal' ||
     p === 'leonardo' ||
+    p === 'bytedance' ||
     p === 'atlascloud' ||
     p === 'apiz' ||
     p === 'kimi' ||
@@ -362,6 +377,7 @@ export function platformLabel(p: string): string {
     case 'gemini': return 'Gemini'
     case 'fal': return 'fal'
     case 'leonardo': return 'Leonardo'
+    case 'bytedance': return 'ByteDance'
     case 'atlascloud': return 'AtlasCloud'
     case 'apiz': return 'apiz'
     case 'higgsfield': return 'Higgsfield'

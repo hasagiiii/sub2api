@@ -40,7 +40,7 @@ export type SchemaRowType = 'string' | 'number' | 'boolean' | 'object' | 'array'
  * 存储侧：默认 'input' 时不写该字段，以保持存储 shape 精简与向后兼容；
  * 其余取值会持久化（'textarea' 时连同 rows 一起写）。
  */
-export type SchemaWidget = 'input' | 'textarea' | 'PromptTextArea' | 'image' | MediaUrlWidget
+export type SchemaWidget = 'input' | 'textarea' | 'PromptTextArea' | 'image' | 'image-annotations' | MediaUrlWidget
 
 /** textarea 行数默认值（rows 属性缺省时使用）。 */
 export const DEFAULT_TEXTAREA_ROWS = 3
@@ -88,6 +88,7 @@ export interface SchemaRow {
   optionsText: string
   /** string 叶子：input/textarea/image；array：input/媒体 URL 组控件。默认 'input'。 */
   widget: SchemaWidget
+  promptField?: string
   /** 仅 widget='textarea' 有意义。默认 DEFAULT_TEXTAREA_ROWS。 */
   textareaRows: number
   /** PromptTextArea 可通过 @ 引用的 schema 字段路径。 */
@@ -126,6 +127,7 @@ export function makeSchemaRow(overrides: Partial<SchemaRow> = {}): SchemaRow {
     isEnum: overrides.isEnum ?? false,
     optionsText: overrides.optionsText ?? '',
     widget: overrides.widget ?? 'input',
+    promptField: overrides.promptField ?? 'prompt',
     textareaRows: overrides.textareaRows ?? DEFAULT_TEXTAREA_ROWS,
     referenceFields: overrides.referenceFields ?? [],
     maxItems: overrides.maxItems ?? 0,
@@ -381,6 +383,7 @@ export function rowToSchema(row: SchemaRow): Record<string, unknown> {
     // 默认 'input' 不写入，保持存储 shape 与旧数据一致。
     const mediaWidget = normalizeMediaUrlWidget(row.widget)
     if (mediaWidget) out.widget = mediaWidget
+    if (row.widget === 'image-annotations') { out.widget = row.widget; out.prompt_field = row.promptField || 'prompt' }
     // maxItems：元素个数上限；<=0 视为不限制，不落库。
     const max = Number.isFinite(row.maxItems) ? Math.trunc(row.maxItems) : 0
     if (max > 0) out.maxItems = max
@@ -541,7 +544,7 @@ export function schemaToRow(key: string, raw: unknown): SchemaRow {
       // 强制 items.key 为空（数组元素无名）。
       items.key = ''
       // 兼容旧 imageUrls，读入后统一归一成 canonical 名称。
-      const arrWidget: SchemaWidget = normalizeMediaUrlWidget(obj.widget) ?? 'input'
+      const arrWidget: SchemaWidget = obj.widget === 'image-annotations' ? 'image-annotations' : normalizeMediaUrlWidget(obj.widget) ?? 'input'
       // maxItems：非法 / <=0 一律归零（不限制）。上限 100 防手滑填出天量输入框。
       const rawMax = Number(obj.maxItems)
       const maxItems =
@@ -556,6 +559,7 @@ export function schemaToRow(key: string, raw: unknown): SchemaRow {
         description: typeof obj.description === 'string' ? (obj.description as string) : '',
         descriptionEn: typeof obj.description_en === 'string' ? (obj.description_en as string) : '',
         widget: arrWidget,
+        promptField: typeof obj.prompt_field === 'string' ? obj.prompt_field : 'prompt',
         maxItems,
         arrayDefaults: maxItems > 0 ? arrayDefaults.slice(0, maxItems) : arrayDefaults,
         items,

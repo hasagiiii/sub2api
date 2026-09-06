@@ -47,6 +47,7 @@ const (
 	PlatformKiro        = domain.PlatformKiro
 	PlatformFal         = domain.PlatformFal
 	PlatformLeonardo    = domain.PlatformLeonardo
+	PlatformBytedance   = domain.PlatformBytedance
 	PlatformAtlasCloud  = domain.PlatformAtlasCloud
 	PlatformApiz        = domain.PlatformApiz
 	PlatformHiggsfield  = domain.PlatformHiggsfield
@@ -66,6 +67,7 @@ func AllPlatforms() []string {
 		PlatformKiro,
 		PlatformFal,
 		PlatformLeonardo,
+		PlatformBytedance,
 		PlatformAtlasCloud,
 		PlatformApiz,
 		PlatformHiggsfield,

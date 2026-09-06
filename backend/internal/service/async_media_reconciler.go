@@ -118,6 +118,9 @@ func (r *AsyncMediaReconciler) Stop() {
 	r.mu.Unlock()
 	r.parentCancel()
 	r.wg.Wait()
+	if r.exec != nil {
+		r.exec.StopBytedanceWorkers()
+	}
 }
 
 func (r *AsyncMediaReconciler) loop() {

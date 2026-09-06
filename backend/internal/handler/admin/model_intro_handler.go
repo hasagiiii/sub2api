@@ -237,7 +237,7 @@ func (h *ModelIntroHandler) ListCandidates(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	accounts := make([]service.Account, 0, 16)
-	for _, platform := range []string{domain.PlatformFal, domain.PlatformAtlasCloud, domain.PlatformApiz, domain.PlatformHiggsfield} {
+	for _, platform := range []string{domain.PlatformFal, domain.PlatformAtlasCloud, domain.PlatformApiz, domain.PlatformHiggsfield, domain.PlatformBytedance} {
 		platformAccounts, err := h.accountService.ListByPlatform(ctx, platform)
 		if err != nil {
 			response.ErrorFrom(c, err)
@@ -251,10 +251,15 @@ func (h *ModelIntroHandler) ListCandidates(c *gin.Context) {
 	original := make(map[string]string, 16)
 	for i := range accounts {
 		a := &accounts[i]
-		if !domain.IsVideoModelsEnabled(a.Extra) {
+		if a.Platform != domain.PlatformBytedance && !domain.IsVideoModelsEnabled(a.Extra) {
 			continue
 		}
 		slugs := domain.VideoModelSlugs(a.Platform, a.GetModelMapping())
+		if a.Platform == domain.PlatformBytedance {
+			for model := range a.GetModelMapping() {
+				slugs = append(slugs, model)
+			}
+		}
 		if len(slugs) == 0 {
 			continue
 		}

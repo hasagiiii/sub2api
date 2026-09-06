@@ -653,6 +653,9 @@ func (a *Account) GetModelMapping() map[string]string {
 }
 
 func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
+	if a.Platform == PlatformBytedance && len(rawMapping) == 0 {
+		return domain.DefaultBytedanceModelMapping
+	}
 	if a.Credentials == nil {
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {

@@ -66,6 +66,7 @@
           <td class="border-r border-gray-100 py-2.5 pl-5 pr-4 align-middle dark:border-dark-700/60">
             <div class="flex flex-wrap items-center gap-1.5">
               <span class="font-medium text-gray-900 dark:text-white">{{ m.name }}</span>
+              <RouterLink v-if="m.platform === 'bytedance'" :to="{ name: 'VideoPlayground', params: { slug: m.name } }" class="inline-flex text-teal-600" :title="t('common.open', 'Open')" aria-label="Open playground"><Icon name="play" size="sm" /></RouterLink>
               <!-- 时段徽章紧跟模型名,其余徽章排在后面,空间不足时先换行的是它们 -->
               <span
                 v-if="period"
@@ -304,6 +305,8 @@
 </template>
 
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
+import { Icon } from '@/components/icons'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatScaled } from '@/utils/pricing'

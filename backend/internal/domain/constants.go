@@ -31,12 +31,18 @@ const (
 	PlatformAtlasCloud  = "atlascloud"
 	PlatformApiz        = "apiz"
 	PlatformHiggsfield  = "higgsfield"
+	PlatformBytedance   = "bytedance"
 	// 国产 OpenAI 兼容供应商（经 OpenAI 网关转发，按 Chat Completions 协议）。
 	PlatformKimi      = "kimi"     // Kimi (月之暗面 / Moonshot)
 	PlatformZhipu     = "zhipu"    // 智谱 GLM (bigmodel)
 	PlatformDeepseek  = "deepseek" // DeepSeek
 	PlatformComposite = "composite"
 )
+
+const BytedanceBaseURL = "https://ark.cn-beijing.volces.com/api/v3"
+const SeedreamModel = "doubao-seedream-5-0-pro-260628"
+
+var DefaultBytedanceModelMapping = map[string]string{SeedreamModel: SeedreamModel}
 
 // Account mode constants 区分国产供应商的「按量付费（余额）」与「Coding Plan」两种接入方式。
 // 存储于 credentials["account_mode"]，决定 base_url 预设与额度监控方式。

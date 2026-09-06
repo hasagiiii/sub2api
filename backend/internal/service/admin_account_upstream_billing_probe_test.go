@@ -161,6 +161,25 @@ func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) 
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
 }
 
+func TestCreateBytedanceAccountRequiresBillingProbeDisabled(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		repo := &upstreamBillingProbeAccountRepo{}
+		created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+			Name: "seedream", Platform: PlatformBytedance, Type: AccountTypeAPIKey,
+			Credentials:  map[string]any{"api_key": "ark-test-key"},
+			ProbeEnabled: &enabled, SkipDefaultGroupBind: true,
+		})
+		if enabled {
+			require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+			require.Nil(t, created)
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, PlatformBytedance, created.Platform)
+			require.NotContains(t, created.Extra, UpstreamBillingProbeEnabledExtraKey)
+		}
+	}
+}
+
 func TestUpdateAccountPreservesManagedUpstreamBillingProbeStateForUnrelatedEdit(t *testing.T) {
 	accountID := int64(110)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{

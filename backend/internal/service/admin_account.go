@@ -399,6 +399,9 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if input.Platform == PlatformBytedance && input.Type != AccountTypeAPIKey {
+		return nil, errors.New("bytedance accounts require apikey authentication")
+	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -632,6 +635,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.Name = input.Name
 	}
 	if input.Type != "" {
+		if account.Platform == PlatformBytedance && input.Type != AccountTypeAPIKey {
+			return nil, errors.New("bytedance accounts require apikey authentication")
+		}
 		account.Type = input.Type
 	}
 	if input.Notes != nil {

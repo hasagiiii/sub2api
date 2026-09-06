@@ -347,6 +347,9 @@
               :model-value="formData[f.key]"
               :disabled="playground.isBusy.value"
               :media-references="promptMediaReferences"
+              :annotations="annotationState[f.key]"
+              @update:annotations="annotationState[f.key] = $event"
+              @apply-annotations="applyImageAnnotations(f, $event)"
               @update:model-value="onFieldValueChange(f.key, $event)"
             />
 
@@ -381,6 +384,9 @@
                   :model-value="formData[f.key]"
                   :disabled="playground.isBusy.value"
                   :media-references="promptMediaReferences"
+                  :annotations="annotationState[f.key]"
+                  @update:annotations="annotationState[f.key] = $event"
+                  @apply-annotations="applyImageAnnotations(f, $event)"
                   @update:model-value="onFieldValueChange(f.key, $event)"
                 />
               </div>
@@ -528,9 +534,9 @@
                     <!-- 计算公式：resolution 单价 × 时长 = 预估
                          使用小灰字，展示到 4 位小数保持视觉一致。 -->
                     <span class="font-mono text-[11px] text-gray-500 dark:text-gray-400">
-                      = ${{ estimateBreakdown.unitPricePerSecond.toFixed(4) }}/s
+                      = ${{ estimateBreakdown.unitPricePerSecond.toFixed(4) }}{{ estimateBreakdown.imageCount ? '/image' : '/s' }}
                       ({{ estimateBreakdown.resolution }})
-                      × {{ estimateBreakdown.durationSeconds }}s
+                      × {{ estimateBreakdown.imageCount || estimateBreakdown.durationSeconds }}{{ estimateBreakdown.imageCount ? '' : 's' }}
                       <span v-if="estimateBreakdown.isAutoDuration" class="ml-1 rounded bg-amber-50 px-1 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                         {{ t('videoModels.playground.estimatedAutoBadge', { n: AUTO_DURATION_FALLBACK_SECONDS }) }}
                       </span>
@@ -714,6 +720,20 @@
             >
               {{ primaryPreview.url }}
             </a>
+          </div>
+
+          <div v-if="additionalImageResults.length" class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2" data-test="image-result-layers">
+            <figure v-for="(layer, index) in additionalImageResults" :key="`${layer.url}-${index}`" class="min-w-0 space-y-2">
+              <img :src="layer.url" :alt="layer.name" loading="lazy" class="h-48 w-full rounded border border-gray-200 bg-gray-50 object-contain dark:border-gray-700 dark:bg-gray-900" />
+              <figcaption class="break-words text-sm">
+                {{ layer.name }} <span v-if="layer.zIndex !== undefined" class="text-xs text-gray-500">z_index: {{ layer.zIndex }}</span>
+              </figcaption>
+              <div class="flex flex-wrap items-center gap-2">
+                <a :href="layer.url" :download="imageDownloadFileName(layer.url)" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" :title="t('videoModels.playground.downloadImage')" :aria-label="t('videoModels.playground.downloadImage')"><Icon name="download" size="sm" /></a>
+                <button type="button" class="btn btn-secondary text-xs" :disabled="savingMaterialURLs.has(layer.url) || savedMaterialURLs.has(layer.url)" @click="saveImageToMaterials(layer.url)">{{ savedMaterialURLs.has(layer.url) ? t('videoModels.playground.savedToMaterials') : t('videoModels.playground.saveToMaterials') }}</button>
+              </div>
+              <details v-if="layer.metadata" class="text-xs"><summary>{{ layer.size || 'JSON' }}</summary><pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words">{{ JSON.stringify(layer.metadata, null, 2) }}</pre></details>
+            </figure>
           </div>
 
           <!-- idle：无任何任务 -->
@@ -948,6 +968,8 @@ import Select, { type SelectOption } from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import VideoPlaygroundSchemaField from '@/components/video/VideoPlaygroundSchemaField.vue'
+import { readAnnotationDocument, replaceAnnotationPrompt, serializeImageReferences, type AnnotationDocument } from '@/components/video/imageAnnotations'
+import { estimateImage } from '@/api/videoPlayground'
 import VideoPlaygroundHistory from '@/components/video/VideoPlaygroundHistory.vue'
 import OutputSchemaValueTree, {
   type SchemaNode,
@@ -1290,11 +1312,20 @@ async function submitCreateKey() {
 
 // ============ 表单值 ============
 const formData = reactive<Record<string, unknown>>({})
+const annotationState = reactive<Record<string, AnnotationDocument>>({})
+const annotationPrompts = reactive<Record<string, string>>({})
+function applyImageAnnotations(field: FieldSpec, next: string) {
+  const key = field.promptField || 'prompt'
+  formData[key] = replaceAnnotationPrompt(String(formData[key] || ''), annotationPrompts[field.key] || '', next)
+  annotationPrompts[field.key] = next
+}
 const promptMediaReferences = computed(() =>
   collectPromptMediaReferences(fieldSpecs.value, formData)
 )
 
 function initFormDefaults() {
+  for (const key of Object.keys(annotationState)) delete annotationState[key]
+  for (const key of Object.keys(annotationPrompts)) delete annotationPrompts[key]
   for (const k of Object.keys(formData)) delete formData[k]
   for (const f of fieldSpecs.value) {
     formData[f.key] = fieldSpecToDefaultValue(f)
@@ -1363,10 +1394,19 @@ function onSwitchToHistory() {
 // 同步把 jsonInput 也刷新一份，用户切到 JSON tab 也能看到完整原始 payload。
 function onReplayTask(payload: Record<string, unknown> | null) {
   if (!payload || typeof payload !== 'object') return
+  for (const key of Object.keys(annotationState)) delete annotationState[key]
+  for (const key of Object.keys(annotationPrompts)) delete annotationPrompts[key]
+  const saved = payload._annotations && typeof payload._annotations === 'object' ? payload._annotations as Record<string, unknown> : {}
+  const prompts = payload._annotation_prompt && typeof payload._annotation_prompt === 'object' ? payload._annotation_prompt as Record<string, unknown> : {}
+  for (const field of fieldSpecs.value) {
+    if (field.widget !== 'image-annotations') continue
+    annotationState[field.key] = readAnnotationDocument(saved[field.key])
+    annotationPrompts[field.key] = typeof prompts[field.key] === 'string' ? prompts[field.key] as string : ''
+  }
   // 1) 按 fieldSpecs 覆盖/回填 formData
   for (const f of fieldSpecs.value) {
     if (Object.prototype.hasOwnProperty.call(payload, f.key)) {
-      formData[f.key] = payload[f.key]
+      formData[f.key] = f.widget === 'image-annotations' && typeof payload[f.key] === 'string' ? [payload[f.key]] : payload[f.key]
     } else {
       formData[f.key] = fieldSpecToDefaultValue(f)
     }
@@ -1413,8 +1453,10 @@ function currentFormBody(): Record<string, unknown> {
     // 空数组视为"未填"：媒体 URL 组初始化就是 []，
     // 原样提交会让上游收到一个无意义的空 images 参数，部分平台会直接报错。
     if (Array.isArray(v) && v.length === 0) continue
-    body[f.key] = v
+    body[f.key] = f.widget === 'image-annotations' ? serializeImageReferences(v) : v
   }
+  if (Object.keys(annotationState).length) body._annotations = JSON.parse(JSON.stringify(annotationState))
+  if (Object.keys(annotationPrompts).length) body._annotation_prompt = { ...annotationPrompts }
   return body
 }
 
@@ -1630,6 +1672,18 @@ const resolvedOutputs = computed<ResolvedOutput[]>(() => {
 const nonPrimaryOutputs = computed<ResolvedOutput[]>(() =>
   resolvedOutputs.value.filter((item) => !item.isPrimary)
 )
+
+const additionalImageResults = computed(() => {
+  const payload = playground.resultPayload.value
+  const path = resultField.value?.trim() || ''
+  if (resultType.value !== 'image' || !payload || !path) return []
+  const parents = path.endsWith('.url') ? pickByPath(payload, path.slice(0, -4)) : []
+  return pickByPath(payload, path).map((leaf, index) => {
+    const raw = parents[index]
+    const metadata = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined
+    return { url: leafToUrl(leaf), name: typeof metadata?.name === 'string' ? metadata.name : '', size: typeof metadata?.size === 'string' ? metadata.size : '', zIndex: typeof metadata?.z_index === 'number' ? metadata.z_index : undefined, metadata }
+  }).filter(layer => layer.url && layer.url !== primaryPreview.value?.url)
+})
 
 function leafToText(v: unknown): string {
   if (v === null || v === undefined) return ''
@@ -1988,6 +2042,7 @@ const AUTO_DURATION_FALLBACK_SECONDS = 30
 // isAutoDuration：body 里 duration 是 "auto" / 缺失时置 true，UI 会在时长旁标出
 //   "auto 按 30s 预估"以避免用户误以为是精确值。
 interface EstimateBreakdown {
+  imageCount?: number
   resolution: string
   unitPricePerSecond: number
   durationSeconds: number
@@ -1995,7 +2050,27 @@ interface EstimateBreakdown {
   total: number
 }
 
+const imageEstimate = ref<EstimateBreakdown | null>(null)
+let imageEstimateTimer: ReturnType<typeof setTimeout> | undefined
+let imageEstimateVersion = 0
+watch([selectedKey, () => resultType.value, () => JSON.stringify(tryPeekBody()), slug], () => {
+  const version = ++imageEstimateVersion
+  clearTimeout(imageEstimateTimer)
+  imageEstimate.value = null
+  if (resultType.value !== 'image' || !selectedKey.value) return
+  imageEstimateTimer = setTimeout(async () => {
+    const body = tryPeekBody(), key = selectedKey.value?.key
+    if (!body || !key) return
+    try {
+      const estimate = await estimateImage(slug.value, body, key)
+      if (version === imageEstimateVersion) imageEstimate.value = { total: estimate.estimated_price, unitPricePerSecond: estimate.unit_price * estimate.rate_multiplier, imageCount: estimate.image_count, resolution: estimate.tier, durationSeconds: 0, isAutoDuration: false }
+    } catch { if (version === imageEstimateVersion) imageEstimate.value = null }
+  }, 300)
+})
+onBeforeUnmount(() => { clearTimeout(imageEstimateTimer); imageEstimateVersion++ })
+
 const estimateBreakdown = computed<EstimateBreakdown | null>(() => {
+  if (resultType.value === 'image') return imageEstimate.value
   const m = model.value
   if (!m || !m.pricing || m.pricing.length === 0) return null
   const body = tryPeekBody()

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -49,6 +50,9 @@ func (h *ModelAPIGatewayHandler) estimatePricing(c *gin.Context, path string) {
 		return
 	}
 	count, err := extractEstimateImageCount(params)
+	if params["layer_decomposition"] == true && endpoint == domain.SeedreamModel {
+		count = 16
+	}
 	if err != nil {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -115,7 +119,11 @@ func (h *ModelAPIGatewayHandler) estimatePricingBatch(c *gin.Context) {
 			})
 			continue
 		}
-		estimate, estimateErr := h.gatewayService.EstimateImagePricing(c.Request.Context(), apiKey, endpoint, dimensions, quality, count)
+		modelCount := count
+		if params["layer_decomposition"] == true && endpoint == domain.SeedreamModel {
+			modelCount = 16
+		}
+		estimate, estimateErr := h.gatewayService.EstimateImagePricing(c.Request.Context(), apiKey, endpoint, dimensions, quality, modelCount)
 		if estimateErr != nil {
 			errType := "invalid_request_error"
 			if errors.Is(estimateErr, service.ErrImagePricingModelUnsupported) {
@@ -167,6 +175,12 @@ func extractEstimateDimensions(params map[string]any) (service.ImageDimensions, 
 
 func knownFALImageSize(value string) (service.ImageDimensions, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1k":
+		return service.ImageDimensions{Width: 1024, Height: 1024}, true
+	case "2k":
+		return service.ImageDimensions{Width: 2048, Height: 2048}, true
+	case "4k":
+		return service.ImageDimensions{Width: 4096, Height: 4096}, true
 	case "square":
 		return service.ImageDimensions{Width: 512, Height: 512}, true
 	case "square_hd":

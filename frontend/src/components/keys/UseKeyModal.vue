@@ -1224,6 +1224,7 @@ function generateRoutedCodexFiles(
   const preferredModel = preferredModels[platform] || ''
   const model = selectCodexCatalogModel(preferredModel)
   const labels: Record<GroupPlatform, string> = {
+    bytedance: 'ByteDance',
     anthropic: 'Anthropic',
     openai: 'OpenAI',
     gemini: 'Gemini',

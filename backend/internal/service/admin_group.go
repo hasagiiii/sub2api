@@ -256,6 +256,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 			ids = append(ids, id)
 		}
 		return ids
+	case PlatformBytedance:
+		return []string{domain.SeedreamModel}
 	case PlatformComposite:
 		return compositeDefaultModelsListCandidateIDs()
 	default:
@@ -270,7 +272,7 @@ func defaultModelsListCandidateIDs(platform string) []string {
 func defaultAllowImageGenerationForPlatform(platform string) bool {
 	// Grok image and video generation routes share the legacy image-generation gate.
 	// Older clients send the false zero value, so Grok groups must default enabled.
-	return platform == PlatformGrok
+	return platform == PlatformGrok || platform == PlatformBytedance
 }
 
 func compositeDefaultModelsListCandidateIDs() []string {

@@ -34,7 +34,7 @@ func TestUpstreamBillingProbeIdentityCoversAllAPIKeyPlatforms(t *testing.T) {
 // 前端 utils/upstreamBillingProbe.ts 的白名单需与本判定保持一致，
 // 否则会出现"UI 允许开启但后端以 UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID 拒绝"的错位。
 func TestUpstreamBillingProbeIdentityExcludesMediaPlatforms(t *testing.T) {
-	for _, platform := range []string{PlatformFal, PlatformAtlasCloud, PlatformApiz, PlatformHiggsfield} {
+	for _, platform := range []string{PlatformFal, PlatformLeonardo, PlatformAtlasCloud, PlatformApiz, PlatformHiggsfield, PlatformBytedance} {
 		require.False(t, IsUpstreamBillingProbeIdentity(platform, AccountTypeAPIKey), platform)
 		require.False(t, isUpstreamBillingProbeAccount(&Account{Platform: platform, Type: AccountTypeAPIKey}), platform)
 	}

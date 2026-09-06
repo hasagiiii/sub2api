@@ -300,6 +300,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	// Route to platform-specific test method
+	if account.Platform == PlatformBytedance {
+		return s.sendErrorAndEnd(c, "ByteDance image accounts do not support text connectivity tests; use the model playground to submit an image task")
+	}
 	if account.IsCNProvider() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:

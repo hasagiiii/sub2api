@@ -166,7 +166,7 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 			for j := range supported {
 				m := supported[j]
 				if pg.Platform == PlatformComposite {
-					if !isConcreteRequestPlatform(m.Platform) {
+					if !isConcreteRequestPlatform(m.Platform) && m.Platform != PlatformBytedance {
 						continue
 					}
 				} else if m.Platform != pg.Platform {

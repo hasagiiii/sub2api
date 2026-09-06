@@ -22,5 +22,6 @@ func TestAllPlatformsIncludesEveryConcretePlatform(t *testing.T) {
 		"atlascloud",
 		"apiz",
 		"higgsfield",
+		"bytedance",
 	}, AllPlatforms())
 }

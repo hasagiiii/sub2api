@@ -53,4 +53,16 @@ describe('PlatformTypeBadge', () => {
 
     expect(wrapper.text()).not.toContain('Overage')
   })
+
+  it('shows ByteDance instead of the Gemini fallback', () => {
+    const wrapper = mount(PlatformTypeBadge, {
+      props: {
+        platform: 'bytedance',
+        type: 'apikey'
+      }
+    })
+
+    expect(wrapper.text()).toContain('ByteDance')
+    expect(wrapper.text()).not.toContain('Gemini')
+  })
 })

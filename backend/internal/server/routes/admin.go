@@ -890,6 +890,8 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	if h.VideoModel != nil {
 		admin.GET("/video-tasks/by-id/:id", h.VideoModel.GetTaskByIDAdmin)
 		admin.PATCH("/video-tasks/by-id/:id/billing", h.VideoModel.CompleteManualBillingAdmin)
+		admin.PATCH("/image-tasks/by-id/:id/billing", h.VideoModel.CompleteImageManualBillingAdmin)
+		admin.GET("/image-tasks/by-id/:id", h.VideoModel.GetImageTaskByIDAdmin)
 	}
 }
 

@@ -19,6 +19,7 @@ export default {
     renamePlaceholder: '输入新的素材名称',
     renameSuccess: '素材名称已更新',
     previewImage: '点击查看大图',
+    previewResolutionLoading: '读取分辨率中…',
     // 列表
     empty: '暂无素材。可以上传一张图片，或从 URL 导入。',
     // 弹窗

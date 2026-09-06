@@ -77,7 +77,8 @@ export interface FieldSpec {
    *   - rawType='string'：'input' | 'textarea' | 'image'
    *   - rawType='array' ：'input'（逐元素递归渲染）| 媒体 URL 组控件
    */
-  widget: 'input' | 'textarea' | 'PromptTextArea' | SingleMediaWidget | MediaUrlWidget
+  widget: 'input' | 'textarea' | 'PromptTextArea' | 'image-annotations' | SingleMediaWidget | MediaUrlWidget
+  promptField?: string
   /** 仅 widget==='textarea' 时有意义。默认 3。 */
   textareaRows: number
   /** PromptTextArea 可引用的字段路径；空数组表示不提供 @ 候选。 */
@@ -248,7 +249,7 @@ function parseFieldSpec(key: string, raw: unknown): FieldSpec | null {
       items = makeLeafFromPlain('', itemsRaw)
     }
     // 兼容旧 imageUrls，读入后统一归一成 canonical 名称。
-    const arrWidget: FieldSpec['widget'] = normalizeMediaUrlWidget(obj.widget) ?? 'input'
+    const arrWidget: FieldSpec['widget'] = obj.widget === 'image-annotations' ? 'image-annotations' : normalizeMediaUrlWidget(obj.widget) ?? 'input'
     // maxItems：非法 / <=0 归 0（不限制）；上限 100，与编辑器写侧保持一致。
     const rawMax = Number(obj.maxItems)
     const maxItems = Number.isFinite(rawMax) && rawMax > 0 ? Math.min(100, Math.trunc(rawMax)) : 0
@@ -265,6 +266,7 @@ function parseFieldSpec(key: string, raw: unknown): FieldSpec | null {
       rawDefaultValue: rawDefaults,
       rawType: 'array',
       widget: arrWidget,
+      promptField: typeof obj.prompt_field === 'string' ? obj.prompt_field : 'prompt',
       textareaRows: 3,
       referenceFields: [],
       maxItems,

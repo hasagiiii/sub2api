@@ -200,22 +200,22 @@
   />
   <BaseDialog
     :show="manualVideoBillingRow !== null"
-    :title="t('admin.usage.manualVideoBilling')"
+    :title="t(manualVideoBillingRow?.billing_mode === 'image' ? 'admin.usage.manualImageBilling' : 'admin.usage.manualVideoBilling')"
     width="narrow"
     @close="closeManualVideoBilling"
   >
     <form class="space-y-4" @submit.prevent="submitManualVideoBilling">
       <div class="rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-        {{ t('admin.usage.manualVideoBillingHint', { held: manualVideoHeldCost.toFixed(6) }) }}
+        {{ t(manualVideoBillingRow?.billing_mode === 'image' ? 'admin.usage.manualImageBillingHint' : 'admin.usage.manualVideoBillingHint', { held: manualVideoHeldCost.toFixed(6) }) }}
       </div>
       <div>
         <label class="input-label" for="manual-video-final-cost">{{ t('admin.usage.finalVideoCost') }}</label>
-        <input id="manual-video-final-cost" v-model.trim="manualVideoFinalCost" class="input w-full" type="number" min="0.000001" step="0.000001" required>
+        <input id="manual-video-final-cost" v-model.trim="manualVideoFinalCost" class="input w-full" type="number" :min="manualVideoBillingRow?.billing_mode === 'image' ? 0 : 0.000001" step="0.000001" required>
       </div>
       <p v-if="manualVideoBillingError" class="text-sm text-red-600 dark:text-red-400">{{ manualVideoBillingError }}</p>
       <div class="flex justify-end gap-2">
         <button type="button" class="btn btn-secondary" :disabled="manualVideoBillingSubmitting" @click="closeManualVideoBilling">{{ t('common.cancel') }}</button>
-        <button type="submit" class="btn btn-primary" :disabled="manualVideoBillingSubmitting || !(Number(manualVideoFinalCost) > 0)">{{ t('common.confirm') }}</button>
+        <button type="submit" class="btn btn-primary" :disabled="manualVideoBillingSubmitting || !validManualCost">{{ t('common.confirm') }}</button>
       </div>
     </form>
   </BaseDialog>
@@ -296,6 +296,7 @@ const manualVideoFinalCost = ref('')
 const manualVideoHeldCost = ref(0)
 const manualVideoBillingSubmitting = ref(false)
 const manualVideoBillingError = ref('')
+const validManualCost = computed(() => manualVideoFinalCost.value !== '' && Number.isFinite(Number(manualVideoFinalCost.value)) && (manualVideoBillingRow.value?.billing_mode === 'image' ? Number(manualVideoFinalCost.value) >= 0 : Number(manualVideoFinalCost.value) > 0))
 
 const openManualVideoBilling = async (row: AdminUsageLog) => {
   if (!row.task_id) return
@@ -304,7 +305,7 @@ const openManualVideoBilling = async (row: AdminUsageLog) => {
   manualVideoHeldCost.value = 0
   manualVideoBillingError.value = ''
   try {
-    const { data } = await videoModelsAPI.getTaskByIdAdmin(row.task_id)
+    const { data } = await (row.billing_mode === 'image' ? videoModelsAPI.getImageTaskByIdAdmin(row.task_id) : videoModelsAPI.getTaskByIdAdmin(row.task_id))
     manualVideoHeldCost.value = data.held_cost || 0
     manualVideoFinalCost.value = (data.held_cost || 0).toFixed(6)
   } catch (error) {
@@ -319,17 +320,19 @@ const closeManualVideoBilling = () => {
 
 const submitManualVideoBilling = async () => {
   const taskId = manualVideoBillingRow.value?.task_id
+  const imageTask = manualVideoBillingRow.value?.billing_mode === 'image'
   const finalCost = Number(manualVideoFinalCost.value)
-  if (!taskId || !Number.isFinite(finalCost) || finalCost <= 0) return
+  if (!taskId || !validManualCost.value) return
   manualVideoBillingSubmitting.value = true
   manualVideoBillingError.value = ''
   try {
-    await videoModelsAPI.completeManualBillingAdmin(taskId, finalCost)
+    if (imageTask) await videoModelsAPI.completeImageManualBillingAdmin(taskId, finalCost)
+    else await videoModelsAPI.completeManualBillingAdmin(taskId, finalCost)
     manualVideoBillingRow.value = null
-    appStore.showSuccess(t('admin.usage.manualVideoBillingSuccess'))
+    appStore.showSuccess(t(imageTask ? 'admin.usage.manualImageBillingSuccess' : 'admin.usage.manualVideoBillingSuccess'))
     refreshData()
   } catch (error) {
-    manualVideoBillingError.value = error instanceof Error ? error.message : t('admin.usage.manualVideoBillingFailed')
+    manualVideoBillingError.value = error instanceof Error ? error.message : t(imageTask ? 'admin.usage.manualImageBillingFailed' : 'admin.usage.manualVideoBillingFailed')
   } finally {
     manualVideoBillingSubmitting.value = false
   }

@@ -987,6 +987,23 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_responses_supported).toBe(false)
   })
 
+  it('does not submit billing probe settings for ByteDance accounts', async () => {
+    const account = buildAccount()
+    account.platform = 'bytedance'
+    account.credentials = { api_key: 'ark-test-key', base_url: 'https://ark.cn-beijing.volces.com/api/v3' }
+    account.extra = { upstream_billing_probe_enabled: true }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('upstream_billing_probe_enabled')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('upstream_billing_probe_enabled')
+  })
+
   it('submits the account upstream billing auto-probe setting', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()

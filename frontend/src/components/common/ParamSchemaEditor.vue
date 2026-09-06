@@ -200,6 +200,10 @@
         </div>
       </div>
       <!-- array 专属：元素个数上限（0 / 留空 = 不限制） -->
+      <label v-if="node.type === 'array' && node.widget === 'image-annotations'" class="flex flex-col gap-1 text-xs">
+        prompt_field
+        <input v-model="node.promptField" class="input h-8" @input="emitChange" />
+      </label>
       <div v-if="node.type === 'array'" class="flex w-28 flex-col gap-1">
         <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400">
           {{ t('admin.modelIntros.fields.labelMaxItems') }}
@@ -669,6 +673,7 @@ const widgetOptions = computed<SelectOption[]>(() => {
     return [
       { value: 'input', label: 'input' },
       { value: 'ImageUrls', label: 'ImageUrls' },
+      { value: 'image-annotations', label: 'Image annotations' },
       { value: 'VideoUrls', label: 'VideoUrls' },
       { value: 'AudioUrls', label: 'AudioUrls' },
     ]
@@ -779,7 +784,7 @@ function onTypeChange(v: string | number | boolean | null) {
 function onWidgetChange(v: string | number | boolean | null) {
   const raw = v == null ? 'input' : String(v)
   if (node.type === 'array') {
-    node.widget = normalizeMediaUrlWidget(raw) ?? 'input'
+    node.widget = raw === 'image-annotations' ? 'image-annotations' : normalizeMediaUrlWidget(raw) ?? 'input'
     if (normalizeMediaUrlWidget(node.widget)) {
       // 元素恒为 URL 字符串。ImageUrls 继续复用单图控件声明；视频和音频
       // 暂无单值控件，切回 input 时按普通字符串编辑。

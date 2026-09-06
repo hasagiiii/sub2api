@@ -735,7 +735,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 
 	// Leonardo exposes task submission/status endpoints rather than a models
 	// listing endpoint. Return the configured/default bridge models locally.
-	if account.Platform == PlatformLeonardo {
+	if account.Platform == PlatformLeonardo || account.Platform == PlatformBytedance {
 		models := make([]string, 0, len(account.GetModelMapping()))
 		for model := range account.GetModelMapping() {
 			if strings.TrimSpace(model) != "" {

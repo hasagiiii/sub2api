@@ -218,5 +218,5 @@ func canBeCompositeMemberPlatform(platform string) bool {
 	if isConcreteRequestPlatform(platform) {
 		return true
 	}
-	return platform == PlatformFal || platform == PlatformLeonardo || platform == PlatformAtlasCloud || platform == PlatformApiz || platform == PlatformHiggsfield
+	return platform == PlatformBytedance || platform == PlatformFal || platform == PlatformLeonardo || platform == PlatformAtlasCloud || platform == PlatformApiz || platform == PlatformHiggsfield
 }

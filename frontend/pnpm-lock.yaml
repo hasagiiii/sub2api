@@ -46,6 +46,9 @@ importers:
       file-saver:
         specifier: ^2.0.5
         version: 2.0.5
+      konva:
+        specifier: 10.3.3
+        version: 10.3.3
       marked:
         specifier: ^17.0.1
         version: 17.0.1
@@ -2965,6 +2968,17 @@ packages:
 
   khroma@2.1.0:
     resolution: {integrity: sha512-Ls993zuzfayK269Svk9hzpeGUKob/sIgZzyHYdjQoAdQetRKpOLj+k/QQQ/6Qi0Yz65mlROrfd+Ev+1+7dz9Kw==}
+
+  konva@10.3.3:
+    resolution: {integrity: sha512-j3Rrn504bYFwJ0zV0ZbSOQRsM9KMBLOpEq6xZuyIjbaKeFbBXwgiM5SA4IDq4nwM1l49GVKs66Mo+sl7+4G7PQ==}
+    peerDependencies:
+      canvas: ^3.0.0
+      skia-canvas: ^3.0.0
+    peerDependenciesMeta:
+      canvas:
+        optional: true
+      skia-canvas:
+        optional: true
 
   langium@4.2.2:
     resolution: {integrity: sha512-JUshTRAfHI4/MF9dH2WupvjSXyn8JBuUEWazB8ZVJUtXutT0doDlAv1XKbZ1Pb5sMexa8FF4CFBc0iiul7gbUQ==}
@@ -7772,6 +7786,8 @@ snapshots:
       json-buffer: 3.0.1
 
   khroma@2.1.0: {}
+
+  konva@10.3.3: {}
 
   langium@4.2.2:
     dependencies:

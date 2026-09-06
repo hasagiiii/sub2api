@@ -74,7 +74,7 @@ var (
 		"UPSTREAM_BILLING_PROBE_UNAVAILABLE", "upstream billing probe is unavailable",
 	)
 	ErrUpstreamBillingProbeAccountInvalid = infraerrors.BadRequest(
-		"UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID", "account is not an API key account",
+		"UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID", "account type or platform does not support upstream billing probes",
 	)
 	ErrUpstreamBillingProbeIdentityChanged = infraerrors.Conflict(
 		"UPSTREAM_BILLING_PROBE_IDENTITY_CHANGED", "account identity changed during upstream billing probe; retry the probe",

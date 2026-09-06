@@ -61,6 +61,11 @@ function authHeader(apiKey: string): Record<string, string> {
   return { Authorization: `Bearer ${apiKey.trim()}` }
 }
 
+export async function estimateImage(slug: string, body: Record<string, unknown>, apiKey: string) {
+  const { data } = await playgroundClient.post<{ estimated_price: number; unit_price: number; image_count: number; rate_multiplier: number; tier: string }>(`/${slug}/estimate_pricing`, body, { headers: authHeader(apiKey) })
+  return data
+}
+
 /**
  * 提交视频任务
  * @param slug 完整 fal slug（例如 fal-ai/bytedance/seedance-2.5/text-to-video）

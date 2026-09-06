@@ -224,7 +224,17 @@ func (h *ModelAPIGatewayHandler) nativeImageSubmit(
 	var requestParameters map[string]any
 	var upscaleRequest *fal.UpscaleRequest
 	var rawRequestBody []byte
-	if service.IsSeedVRUpscaleModel(model) {
+	if account.Platform == service.PlatformBytedance {
+		var size string
+		var count int
+		var err error
+		rawRequestBody, size, count, err = service.BytedanceRequestInput(body, account.GetMappedModel(model))
+		if err != nil {
+			h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+		input = fal.ImageGenInput{Size: size, N: count}
+	} else if service.IsSeedVRUpscaleModel(model) {
 		var request fal.UpscaleRequest
 		if err := json.Unmarshal(body, &request); err != nil {
 			h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "Invalid image request body")
@@ -469,6 +479,10 @@ func (h *ModelAPIGatewayHandler) nativeCancel(c *gin.Context, reqID string) {
 		err = h.videoService.CancelTask(c.Request.Context(), videoTask, account)
 	}
 	if err != nil {
+		if errors.Is(err, service.ErrBytedanceAlreadyRunning) {
+			h.jsonError(c, http.StatusConflict, "conflict_error", err.Error())
+			return
+		}
 		h.jsonError(c, http.StatusBadGateway, "api_error", "Failed to cancel task")
 		return
 	}
@@ -488,6 +502,9 @@ func (h *ModelAPIGatewayHandler) loadTaskAndAccount(c *gin.Context, reqID string
 	if h.mediaService != nil {
 		var mediaErr error
 		mediaTask, mediaErr = h.mediaService.GetTaskByUpstreamID(c.Request.Context(), reqID)
+		if c.Request.Method != http.MethodGet {
+			mediaTask, mediaErr = h.mediaService.GetTaskForMutation(c.Request.Context(), reqID)
+		}
 		if mediaErr != nil {
 			h.jsonError(c, http.StatusInternalServerError, "api_error", "Failed to load request")
 			return nil, nil, nil
@@ -683,6 +700,9 @@ func modelAPIImageAPI(model string) string {
 func modelAPIIsKnownImageModel(model string) bool {
 	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(model), "/"))
 	normalized = strings.TrimPrefix(normalized, "fal-ai/")
+	if normalized == domain.SeedreamModel {
+		return true
+	}
 	// SeedVR upscale is an image-facade endpoint even though its multi-segment
 	// slug also matches the generic video-model naming convention.
 	if normalized == "seedvr/upscale/image" {

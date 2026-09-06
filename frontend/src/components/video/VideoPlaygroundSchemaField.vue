@@ -131,6 +131,16 @@
     <!-- array 媒体组控件：把整个 URL 数组当成一个整体展示，支持上传、素材库、
          粘贴 URL 与拖拽排序。
          注意这一分支不要求 spec.items 存在：元素形态已被 widget 固定为字符串 URL。 -->
+    <ImageAnnotationsField
+      v-else-if="spec.rawType === 'array' && spec.widget === 'image-annotations'"
+      :model-value="modelValue"
+      :annotations="annotations"
+      :disabled="disabled"
+      :max-items="spec.maxItems"
+      @update:model-value="emit('update:modelValue', $event)"
+      @update:annotations="emit('update:annotations', $event)"
+      @apply="emit('applyAnnotations', $event)"
+    />
     <ImageUrlsField
       v-else-if="spec.rawType === 'array' && mediaKind"
       :model-value="modelValue"
@@ -215,6 +225,8 @@ import ImageInputField from '@/components/video/ImageInputField.vue'
 import PromptMediaReferenceInput from '@/components/video/PromptMediaReferenceInput.vue'
 // ImageUrlsField：array 媒体 URL 组的统一输入控件。
 import ImageUrlsField from '@/components/video/ImageUrlsField.vue'
+import ImageAnnotationsField from './ImageAnnotationsField.vue'
+import type { AnnotationDocument } from './imageAnnotations'
 import type { FieldSpec } from '@/components/video/paramSpec'
 import type { PromptMediaReference } from '@/components/video/promptMediaReferences'
 import { mediaKindForWidget, normalizeMediaUrlWidget } from '@/utils/mediaUrlWidget'
@@ -231,6 +243,7 @@ const props = defineProps<{
   label?: string
   /** 当前表单中可通过 @ 引用的媒体；由顶层按 schema 顺序统一编号。 */
   mediaReferences?: PromptMediaReference[]
+  annotations?: AnnotationDocument
 }>()
 
 const mediaReferences = computed(() => props.mediaReferences ?? [])
@@ -264,6 +277,8 @@ const mediaKind = computed(() => {
 
 const emit = defineEmits<{
   (e: 'update:modelValue', v: unknown): void
+  (e: 'update:annotations', v: AnnotationDocument): void
+  (e: 'applyAnnotations', v: string): void
 }>()
 
 /**

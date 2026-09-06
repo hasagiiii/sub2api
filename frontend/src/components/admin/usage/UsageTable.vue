@@ -298,11 +298,11 @@
               A ${{ accountBilled(row).toFixed(6) }}
             </div>
             <button
-              v-if="row.billing_status === 'billing_failed' && isVideoUsage(row) && row.task_id"
+              v-if="row.billing_status === 'billing_failed' && (isVideoUsage(row) || row.billing_mode === 'image') && row.task_id"
               type="button"
               data-testid="manual-video-billing-button"
               class="mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-300 hover:bg-amber-50 dark:text-amber-300 dark:ring-amber-700 dark:hover:bg-amber-900/20"
-              :title="t('admin.usage.manualVideoBilling')"
+              :title="t(row.billing_mode === 'image' ? 'admin.usage.manualImageBilling' : 'admin.usage.manualVideoBilling')"
               @click="emit('manualVideoBilling', row)"
             >
               <Icon name="edit" size="xs" />

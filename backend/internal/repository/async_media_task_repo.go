@@ -13,11 +13,12 @@ import (
 
 type asyncMediaTaskRepository struct {
 	sql sqlExecutor
+	db  *sql.DB
 }
 
 // NewAsyncMediaTaskRepository 创建异步媒体任务仓储。
 func NewAsyncMediaTaskRepository(_ *dbent.Client, sqlDB *sql.DB) service.AsyncMediaTaskRepository {
-	return &asyncMediaTaskRepository{sql: sqlDB}
+	return &asyncMediaTaskRepository{sql: sqlDB, db: sqlDB}
 }
 
 const asyncMediaTaskColumns = `

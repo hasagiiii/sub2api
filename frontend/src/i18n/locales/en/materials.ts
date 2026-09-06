@@ -17,6 +17,7 @@ export default {
     renamePlaceholder: 'Enter a new material name',
     renameSuccess: 'Material name updated',
     previewImage: 'Click to preview',
+    previewResolutionLoading: 'Loading size…',
     empty: 'No materials yet. Upload an image or import from a URL.',
     pickerTitle: 'Pick a material',
     uploadSuccess: 'Uploaded to library',

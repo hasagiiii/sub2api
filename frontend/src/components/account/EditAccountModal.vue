@@ -205,6 +205,7 @@
                         ? 'leo-proxy-api-key'
                       : account.platform === 'grok'
                         ? 'xai-...'
+                        : account.platform === 'bytedance' ? 'ARK_API_KEY'
                         : 'sk-ant-...'
             "
           />
@@ -3986,6 +3987,7 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'kiro') return ''
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   if (props.account?.platform === 'leonardo') return 'http://127.0.0.1:28080'
+  if (props.account?.platform === 'bytedance') return 'https://ark.cn-beijing.volces.com/api/v3'
   // CN 供应商：按当前模式/协议回落到官方预设（清空输入框提交时使用），
   // 不能落到 anthropic 默认值（会被当 CC base 拼出错误端点）。
   if (

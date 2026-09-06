@@ -137,6 +137,12 @@ const videoModelsAPI = {
       final_cost: finalCost,
     })
   },
+  getImageTaskByIdAdmin(id: number) {
+    return apiClient.get<VideoTaskItem>(`/admin/image-tasks/by-id/${id}`)
+  },
+  completeImageManualBillingAdmin(id: number, finalCost: number) {
+    return apiClient.patch(`/admin/image-tasks/by-id/${id}/billing`, { final_cost: finalCost })
+  },
 }
 
 export default videoModelsAPI

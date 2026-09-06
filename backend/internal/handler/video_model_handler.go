@@ -141,7 +141,7 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 
 	// 2. 所有视频平台账号（含非 active 的一并拉，稍后按 status 过滤）。
 	accounts := make([]service.Account, 0, 16)
-	for _, platform := range []string{domain.PlatformFal, domain.PlatformAtlasCloud, domain.PlatformApiz, domain.PlatformHiggsfield} {
+	for _, platform := range []string{domain.PlatformFal, domain.PlatformAtlasCloud, domain.PlatformApiz, domain.PlatformHiggsfield, domain.PlatformBytedance} {
 		platformAccounts, listErr := h.accountRepo.ListByPlatform(ctx, platform)
 		if listErr != nil {
 			response.Error(c, http.StatusInternalServerError, "list "+platform+" accounts: "+listErr.Error())
@@ -163,7 +163,7 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 		if !accountBelongsToAny(a, groupSet) {
 			continue
 		}
-		if !domain.IsVideoModelsEnabled(a.Extra) {
+		if a.Platform != domain.PlatformBytedance && !domain.IsVideoModelsEnabled(a.Extra) {
 			continue
 		}
 		for _, slug := range videoModelSlugsForAccount(a) {
@@ -193,6 +193,14 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 func videoModelSlugsForAccount(account *service.Account) []string {
 	if account == nil {
 		return nil
+	}
+	if account.Platform == domain.PlatformBytedance {
+		models := make([]string, 0, len(account.GetModelMapping()))
+		for model := range account.GetModelMapping() {
+			models = append(models, model)
+		}
+		sort.Strings(models)
+		return models
 	}
 	return domain.VideoModelSlugs(account.Platform, account.GetModelMapping())
 }
@@ -594,6 +602,52 @@ func (h *VideoModelHandler) CompleteManualBillingAdmin(c *gin.Context) {
 		return
 	}
 	response.Success(c, toVideoTaskItem(task))
+}
+
+func (h *VideoModelHandler) CompleteImageManualBillingAdmin(c *gin.Context) {
+	if h.mediaService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "image service unavailable")
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.Error(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	var req struct {
+		FinalCost *float64 `json:"final_cost" binding:"required,gte=0"`
+	}
+	if err = c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid final_cost")
+		return
+	}
+	if err = h.mediaService.CompleteBytedanceManualBilling(c.Request.Context(), id, *req.FinalCost); err != nil {
+		response.Error(c, http.StatusConflict, err.Error())
+		return
+	}
+	response.Success(c, gin.H{"settled": true})
+}
+
+func (h *VideoModelHandler) GetImageTaskByIDAdmin(c *gin.Context) {
+	if h.mediaService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "image service unavailable")
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.Error(c, http.StatusBadRequest, "invalid id")
+		return
+	}
+	task, err := h.mediaService.GetTaskByID(c.Request.Context(), id)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "failed to load image task")
+		return
+	}
+	if task == nil {
+		response.Error(c, http.StatusNotFound, "image task not found")
+		return
+	}
+	response.Success(c, toMediaTaskItem(task))
 }
 
 // toVideoTaskItem 将领域模型映射为对外 DTO；nil 指针字段展开为空字符串，避免前端处理 optional。

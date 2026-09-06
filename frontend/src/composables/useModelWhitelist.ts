@@ -514,6 +514,7 @@ export function getModelsByPlatform(platform: string): string[] {
     // 这里返回空，避免回退到 claudeModels 造成"模型限制显示 Claude 模型"的错觉。
     case 'fal': return []
     case 'leonardo': return leonardoModels
+    case 'bytedance': return ['doubao-seedream-5-0-pro-260628']
     case 'atlascloud': return atlascloudModels
     case 'apiz': return apizModels
     case 'higgsfield': return higgsfieldModels
@@ -547,6 +548,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'kiro') return kiroPresetMappings
   if (platform === 'leonardo') return leonardoPresetMappings
+  if (platform === 'bytedance') return [{ label: 'Seedream 5.0 Pro', from: 'doubao-seedream-5-0-pro-260628', to: 'doubao-seedream-5-0-pro-260628', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' }]
   if (platform === 'bedrock') return bedrockPresetMappings
   // apiz 是视频类平台，模型映射需要用户根据自身账号里配置的真实上游 model
   // 手动填写（例如 fal-ai/bytedance/... -> bytedance-seedance-1-0-pro-t2v），

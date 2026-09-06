@@ -265,12 +265,28 @@
         >
           <Icon name="chevronLeft" size="md" />
         </button>
-        <img
-          :src="previewUrl"
-          :alt="`image ${previewIndex + 1}`"
-          class="max-h-[90vh] max-w-[90vw] object-contain shadow-2xl"
+        <div
+          class="flex max-h-[calc(100vh-2rem)] max-w-[90vw] flex-col items-stretch gap-2"
           @click.stop
-        />
+        >
+          <div
+            data-testid="image-preview-info"
+            class="flex min-w-0 items-center justify-between gap-3 rounded-md bg-black/65 px-3 py-2 text-xs text-white shadow-lg backdrop-blur-sm"
+          >
+            <span class="min-w-0 truncate font-medium" :title="previewFileName">
+              {{ previewFileName }}
+            </span>
+            <span class="shrink-0 font-mono text-white/75">
+              {{ previewResolution || t('materials.previewResolutionLoading') }}
+            </span>
+          </div>
+          <img
+            :src="previewUrl"
+            :alt="`image ${previewIndex + 1}`"
+            class="max-h-[calc(100vh-5rem)] max-w-[90vw] object-contain shadow-2xl"
+            @load="onPreviewLoad"
+          />
+        </div>
         <button
           v-if="draggableUrls.length > 1"
           type="button"
@@ -355,6 +371,7 @@ const showUrlInput = ref(false)
 const urlInputValue = ref('')
 const dragOver = ref(false)
 const previewIndex = ref<number | null>(null)
+const previewResolution = ref('')
 // busy / busyText：上传或导入进行中；文案带进度（3/8），批量操作时用户能看到推进。
 const busy = ref(false)
 const busyText = ref('')
@@ -375,6 +392,16 @@ const draggableUrls = ref<string[]>([...urls.value])
 const previewUrl = computed(() =>
   previewIndex.value === null ? '' : draggableUrls.value[previewIndex.value] ?? ''
 )
+const previewFileName = computed(() => {
+  if (!previewUrl.value) return ''
+  try {
+    const pathname = new URL(previewUrl.value).pathname
+    const name = decodeURIComponent(pathname.split('/').pop() || '')
+    return name || `image-${(previewIndex.value ?? 0) + 1}`
+  } catch {
+    return `image-${(previewIndex.value ?? 0) + 1}`
+  }
+})
 watch(
   urls,
   (v) => {
@@ -458,21 +485,32 @@ function clearAll() {
 
 function openImagePreview(index: number) {
   previewIndex.value = index
+  previewResolution.value = ''
 }
 
 function closeImagePreview() {
   previewIndex.value = null
+  previewResolution.value = ''
+}
+
+function onPreviewLoad(event: Event) {
+  const image = event.target as HTMLImageElement
+  previewResolution.value = image.naturalWidth > 0 && image.naturalHeight > 0
+    ? `${image.naturalWidth} × ${image.naturalHeight}`
+    : ''
 }
 
 function showPreviousImage() {
   if (previewIndex.value === null || draggableUrls.value.length === 0) return
   previewIndex.value =
     (previewIndex.value - 1 + draggableUrls.value.length) % draggableUrls.value.length
+  previewResolution.value = ''
 }
 
 function showNextImage() {
   if (previewIndex.value === null || draggableUrls.value.length === 0) return
   previewIndex.value = (previewIndex.value + 1) % draggableUrls.value.length
+  previewResolution.value = ''
 }
 
 function openPicker() {
