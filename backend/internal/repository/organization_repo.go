@@ -2527,7 +2527,6 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 	if org.EffectiveAt.After(todayStart) {
 		todayStart = org.EffectiveAt
 	}
-	var totalIAMUsers, activeIAMUsers int64
 	membershipSQL := `
 		SELECT count(*), count(*) FILTER (WHERE created_at >= $2),
 			count(*) FILTER (WHERE role='member'),
@@ -2535,7 +2534,7 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 		FROM organization_memberships
 		WHERE organization_id=$1 AND status<>'archived'`
 	if err := query("membership_counts", membershipSQL, []any{org.OrganizationID, todayStart}, func(rows *sql.Rows) error {
-		return rows.Scan(&stats.TotalUsers, &stats.TodayNewUsers, &totalIAMUsers, &activeIAMUsers)
+		return rows.Scan(&stats.TotalUsers, &stats.TodayNewUsers, &stats.TotalAccounts, &stats.NormalAccounts)
 	}); err != nil {
 		return nil, err
 	}
@@ -2548,25 +2547,6 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 	}); err != nil {
 		return nil, err
 	}
-	accountsSQL := `
-		WITH used_accounts AS (
-			SELECT DISTINCT l.account_id FROM usage_logs l
-			WHERE l.organization_id=$1 AND l.created_at >= $2
-		)
-		SELECT count(*),
-			count(*) FILTER (WHERE a.status='active' AND a.schedulable=true),
-			count(*) FILTER (WHERE a.status='error'),
-			count(*) FILTER (WHERE a.rate_limited_at IS NOT NULL AND a.rate_limit_reset_at > $3),
-			count(*) FILTER (WHERE a.overload_until IS NOT NULL AND a.overload_until > $3)
-		FROM accounts a JOIN used_accounts ua ON ua.account_id=a.id
-		WHERE a.deleted_at IS NULL`
-	if err := query("account_counts", accountsSQL, []any{org.OrganizationID, org.EffectiveAt, now}, func(rows *sql.Rows) error {
-		return rows.Scan(&stats.TotalAccounts, &stats.NormalAccounts, &stats.ErrorAccounts, &stats.RateLimitAccounts, &stats.OverloadAccounts)
-	}); err != nil {
-		return nil, err
-	}
-	stats.TotalAccounts += totalIAMUsers
-	stats.NormalAccounts += activeIAMUsers
 	usageTotalsSQL := `
 		SELECT count(*), COALESCE(sum(l.input_tokens),0), COALESCE(sum(l.output_tokens),0),
 			COALESCE(sum(l.cache_creation_tokens),0), COALESCE(sum(l.cache_read_tokens),0),

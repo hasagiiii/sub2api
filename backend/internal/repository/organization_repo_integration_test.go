@@ -971,6 +971,44 @@ func TestOrganizationUsageWritesSelfBalanceWithoutOrganizationWithEnterpriseAPIK
 	require.Zero(t, dashboard.TotalActualCost)
 }
 
+func TestOrganizationDashboardAccountsOnlyCountUnarchivedMembers(t *testing.T) {
+	isolateOrganizationIntegrationTest(t)
+	ctx := context.Background()
+	repo := NewOrganizationRepository(integrationDB)
+	owner := createOrganizationRoot(t, integrationEntClient, 100, service.RoleUser)
+	organizationID := createActiveOrganization(t, owner, 20)
+
+	stats, err := repo.OrganizationDashboard(ctx, owner.ID)
+	require.NoError(t, err)
+	require.Zero(t, stats.TotalAccounts)
+	require.Zero(t, stats.NormalAccounts)
+
+	activeID := createIAMMemberForOrganizationTest(t, owner.ID, "dashboard-active")
+	disabledID := createIAMMemberForOrganizationTest(t, owner.ID, "dashboard-disabled")
+	archivedID := createIAMMemberForOrganizationTest(t, owner.ID, "dashboard-archived")
+	require.NoError(t, repo.SetIAMMemberStatus(ctx, owner.ID, disabledID, service.MembershipStatusDisabled))
+	require.NoError(t, repo.SetIAMMemberStatus(ctx, owner.ID, archivedID, service.MembershipStatusArchived))
+
+	apiKey := mustCreateApiKey(t, integrationEntClient, &service.APIKey{UserID: activeID})
+	account := mustCreateAccount(t, integrationEntClient, &service.Account{Name: "dashboard-upstream-account"})
+	_, err = integrationDB.ExecContext(ctx, `
+		INSERT INTO usage_logs(user_id,organization_id,api_key_id,account_id,request_id,model,input_tokens,output_tokens,total_cost,actual_cost,created_at)
+		VALUES($1,$2,$3,$4,$5,'dashboard-test',10,5,1,1,NOW())`,
+		activeID, organizationID, apiKey.ID, account.ID, uuid.NewString())
+	require.NoError(t, err)
+
+	stats, err = repo.OrganizationDashboard(ctx, owner.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, stats.TotalUsers)
+	require.EqualValues(t, 2, stats.TotalAccounts)
+	require.EqualValues(t, 1, stats.NormalAccounts)
+	require.Zero(t, stats.ErrorAccounts)
+	require.Zero(t, stats.RateLimitAccounts)
+	require.Zero(t, stats.OverloadAccounts)
+	require.EqualValues(t, 1, stats.TotalRequests)
+	require.EqualValues(t, 1, stats.TotalActualCost)
+}
+
 func TestOrganizationSpendingRankingIAMPrincipalAndModelDrillDown(t *testing.T) {
 	isolateOrganizationIntegrationTest(t)
 	ctx := context.Background()

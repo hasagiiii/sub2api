@@ -10,19 +10,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestOrganizationDashboardIncludesIAMUsersInAccountCounts(t *testing.T) {
+func TestOrganizationDashboardCountsOnlyIAMUsers(t *testing.T) {
 	for _, reuse := range []bool{false, true} {
 		name := "standalone"
 		if reuse {
 			name = "request_context"
 		}
 		t.Run(name, func(t *testing.T) {
-			testOrganizationDashboardIncludesIAMUsersInAccountCounts(t, reuse)
+			testOrganizationDashboardCountsOnlyIAMUsers(t, reuse)
 		})
 	}
 }
 
-func testOrganizationDashboardIncludesIAMUsersInAccountCounts(t *testing.T, reuse bool) {
+func testOrganizationDashboardCountsOnlyIAMUsers(t *testing.T, reuse bool) {
 	db, mock := newSQLMock(t)
 	repo := &organizationRepository{db: db}
 	effectiveAt := time.Now().UTC().Add(-24 * time.Hour)
@@ -48,10 +48,6 @@ func testOrganizationDashboardIncludesIAMUsersInAccountCounts(t *testing.T, reus
 	mock.ExpectQuery("FROM api_keys k JOIN organization_memberships").
 		WithArgs(int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"total_api_keys", "active_api_keys"}).AddRow(int64(0), int64(0)))
-	mock.ExpectQuery("WITH used_accounts AS").
-		WithArgs(int64(7), effectiveAt, sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"total_accounts", "normal_accounts", "error_accounts", "ratelimit_accounts", "overload_accounts"}).
-			AddRow(int64(2), int64(1), int64(0), int64(0), int64(0)))
 	mock.ExpectQuery("SELECT count\\(\\*\\), COALESCE\\(sum\\(l\\.input_tokens\\),0\\)").
 		WithArgs(int64(7), effectiveAt).
 		WillReturnRows(sqlmock.NewRows([]string{"requests", "input", "output", "cache_creation", "cache_read", "cost", "actual_cost", "account_cost", "duration"}).
@@ -66,8 +62,12 @@ func testOrganizationDashboardIncludesIAMUsersInAccountCounts(t *testing.T, reus
 
 	stats, err := repo.OrganizationDashboard(ctx, 99)
 	require.NoError(t, err)
-	require.EqualValues(t, 5, stats.TotalAccounts)
-	require.EqualValues(t, 3, stats.NormalAccounts)
+	require.EqualValues(t, 4, stats.TotalUsers)
+	require.EqualValues(t, 3, stats.TotalAccounts)
+	require.EqualValues(t, 2, stats.NormalAccounts)
+	require.Zero(t, stats.ErrorAccounts)
+	require.Zero(t, stats.RateLimitAccounts)
+	require.Zero(t, stats.OverloadAccounts)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
