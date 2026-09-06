@@ -495,12 +495,11 @@ const isAdmin = computed(() => authStore.isAdmin)
 const sidebarNavRef = ref<HTMLElement | null>(null)
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
-// Track which parent nav groups are expanded.
-// 显式状态优先于 isGroupActive 派生：
-//   'open'   → 用户显式展开（或首次自动展开后未再关闭）
-//   'closed' → 用户显式关闭（即使当前在其子路径下，也不再自动展开）
-// 未在 map 中的项：由 isGroupActive 派生。
-const expandedGroups = ref<Map<string, 'open' | 'closed'>>(new Map())
+// Per-group expand/collapse overrides. A group with no entry follows the
+// automatic behavior (expanded while the active route is one of its children);
+// a chevron click records the user's choice, which wins over the automatic
+// state so an active group can still be collapsed manually.
+const groupExpandOverrides = ref<Map<string, boolean>>(new Map())
 
 // Site settings from appStore (cached, no flicker)
 const siteName = computed(() => appStore.siteName)
@@ -1368,17 +1367,13 @@ function isGroupActive(item: NavItem): boolean {
 }
 
 function isGroupExpanded(item: NavItem): boolean {
-  const state = expandedGroups.value.get(item.path)
-  if (state === 'open') return true
-  if (state === 'closed') return false
+  const override = groupExpandOverrides.value.get(item.path)
+  if (override !== undefined) return override
   return isGroupActive(item)
 }
 
 function toggleGroup(item: NavItem) {
-  // 当前是展开态（无论来自显式 'open' 还是 isActive 派生）→ 点一下变 closed；
-  // 当前是收起态 → 点一下变 open。
-  const nextOpen = !isGroupExpanded(item)
-  expandedGroups.value.set(item.path, nextOpen ? 'open' : 'closed')
+  groupExpandOverrides.value.set(item.path, !isGroupExpanded(item))
 }
 
 /**
@@ -1398,7 +1393,7 @@ function handleGroupClick(item: NavItem) {
   if (route.path !== item.path) {
     router.push(item.path)
   }
-  expandedGroups.value.set(item.path, 'open')
+  groupExpandOverrides.value.set(item.path, true)
 }
 
 // Initialize theme

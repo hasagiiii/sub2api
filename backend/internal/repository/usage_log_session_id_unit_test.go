@@ -32,7 +32,7 @@ func newSessionIDUsageLog(sessionID *string) *service.UsageLog {
 // arg slice / arg-type table so the five INSERT column lists stay in sync. session_id
 // is followed by request_parameters and native_compaction_v2, with created_at always last.
 func TestPrepareUsageLogInsert_SessionIDArgWiring(t *testing.T) {
-	require.Len(t, usageLogInsertArgTypes, 70, "arg-type table must include image quality, enterprise fields, upstream response model, session_id, request parameters and native compaction")
+	require.Len(t, usageLogInsertArgTypes, 71, "arg-type table must include image quality, enterprise fields, upstream response model, upstream request ID, session_id, request parameters and native compaction")
 
 	sessionID := "sess-persisted-123"
 	prepared := prepareUsageLogInsert(newSessionIDUsageLog(&sessionID))

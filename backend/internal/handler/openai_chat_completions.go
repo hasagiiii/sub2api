@@ -117,6 +117,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
 
 	// 图像生成模型（如 gpt-image-2）不能作为 /v1/chat/completions 的顶层 model：
 	// OAuth(Codex) 账号会把它原样发到上游 /v1/responses，被上游 400 拒绝
@@ -183,7 +184,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			apiKey.GroupID,
 			"",
 			sessionHash,
-			reqModel,
+			forwardModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
 			service.OpenAIEndpointCapabilityChatCompletions,

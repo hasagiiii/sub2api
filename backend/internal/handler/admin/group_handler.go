@@ -162,6 +162,8 @@ type CreateGroupRequest struct {
 	DefaultMappedModel          string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            service.GroupModelsListConfig             `json:"models_list_config"`
+	// 固定账号 manifest 配置；创建路径禁止开启，仅编辑可配置。
+	CodexModelsManifestConfig service.GroupCodexModelsManifestConfig `json:"codex_models_manifest_config"`
 	// 分组 RPM 上限（0 = 不限制）
 	RPMLimit int `json:"rpm_limit"`
 	// Kiro 模拟缓存配置（仅 kiro 分组生效）
@@ -170,11 +172,11 @@ type CreateGroupRequest struct {
 	KiroStickySessionTTLSeconds *int     `json:"kiro_sticky_session_ttl_seconds"`
 	KiroCacheEmulationRatio     *float64 `json:"kiro_cache_emulation_ratio"`
 	KiroEndpointMode            *string  `json:"kiro_endpoint_mode"`
-	// OpenAI/Codex 请求推理强度上限，空字符串表示不限制。
+	// Anthropic/OpenAI 请求推理强度上限，空字符串表示不限制。
 	MaxReasoningEffort string `json:"max_reasoning_effort"`
 	// 超过上限时的访问控制：downgrade（默认）或 deny。
 	MaxReasoningEffortOverLimit string `json:"max_reasoning_effort_over_limit"`
-	// OpenAI/Codex 推理强度映射，可按模型精确名、前缀或后缀限定。
+	// Anthropic/OpenAI 推理强度映射，可按模型精确名、前缀或后缀限定。
 	ReasoningEffortMappings []service.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
 	// 从指定分组复制账号（创建后自动绑定）
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
@@ -248,6 +250,8 @@ type UpdateGroupRequest struct {
 	DefaultMappedModel          *string                                    `json:"default_mapped_model"`
 	MessagesDispatchModelConfig *service.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
 	ModelsListConfig            *service.GroupModelsListConfig             `json:"models_list_config"`
+	// 固定账号 manifest 配置；nil 表示不修改。
+	CodexModelsManifestConfig *service.GroupCodexModelsManifestConfig `json:"codex_models_manifest_config"`
 	// 分组 RPM 上限（0 = 不限制）；nil 表示未提供不改动
 	RPMLimit *int `json:"rpm_limit"`
 	// Kiro 模拟缓存配置（仅 kiro 分组生效）
@@ -256,7 +260,7 @@ type UpdateGroupRequest struct {
 	KiroStickySessionTTLSeconds *int     `json:"kiro_sticky_session_ttl_seconds"`
 	KiroCacheEmulationRatio     *float64 `json:"kiro_cache_emulation_ratio"`
 	KiroEndpointMode            *string  `json:"kiro_endpoint_mode"`
-	// OpenAI/Codex 请求推理强度上限；空字符串清除，nil 不修改。
+	// Anthropic/OpenAI 请求推理强度上限；空字符串清除，nil 不修改。
 	MaxReasoningEffort *string `json:"max_reasoning_effort"`
 	// 超过上限时的访问控制；空字符串视为 downgrade，nil 不修改。
 	MaxReasoningEffortOverLimit *string `json:"max_reasoning_effort_over_limit"`
@@ -599,6 +603,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		DefaultMappedModel:              req.DefaultMappedModel,
 		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
 		ModelsListConfig:                req.ModelsListConfig,
+		CodexModelsManifestConfig:       req.CodexModelsManifestConfig,
 		RPMLimit:                        req.RPMLimit,
 		KiroCacheEmulationEnabled:       req.KiroCacheEmulationEnabled,
 		KiroAutoStickyEnabled:           req.KiroAutoStickyEnabled,
@@ -743,6 +748,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		DefaultMappedModel:              req.DefaultMappedModel,
 		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
 		ModelsListConfig:                req.ModelsListConfig,
+		CodexModelsManifestConfig:       req.CodexModelsManifestConfig,
 		RPMLimit:                        req.RPMLimit,
 		KiroCacheEmulationEnabled:       req.KiroCacheEmulationEnabled,
 		KiroAutoStickyEnabled:           req.KiroAutoStickyEnabled,

@@ -66,6 +66,39 @@ func (s *UsageLogRepoSuite) createUsageLog(user *service.User, apiKey *service.A
 
 // --- Create / GetByID ---
 
+func (s *UsageLogRepoSuite) TestCreateMergedRequestMetadata() {
+	user := mustCreateUser(s.T(), s.client, &service.User{Email: "merged-metadata@test.com"})
+	apiKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "merged-metadata"})
+	organizationID := int64(987654)
+	source := service.BalanceSourceSelf
+	upstreamID, sessionID, quality := "upstream-merged", "session-merged", "high"
+	entry := &service.UsageLog{
+		UserID: user.ID, APIKeyID: apiKey.ID, AccountID: account.ID,
+		RequestID: uuid.NewString(), Model: "gpt-image-2",
+		OrganizationID: &organizationID, PayerUserID: &user.ID, BalanceSource: &source,
+		UpstreamRequestID: &upstreamID, SessionID: &sessionID, ImageQuality: &quality,
+		ImageURLs: []string{"https://example.test/image.png"}, CosURLs: []string{"https://example.test/copy.png"},
+		RequestParameters:  map[string]any{"prompt": "merged metadata"},
+		NativeCompactionV2: true, CreatedAt: time.Now().UTC(),
+	}
+	inserted, err := s.repo.Create(s.ctx, entry)
+	s.Require().NoError(err)
+	s.Require().True(inserted)
+	stored, err := s.repo.GetByID(s.ctx, entry.ID)
+	s.Require().NoError(err)
+	s.Require().Nil(stored.OrganizationID)
+	s.Require().Equal(entry.PayerUserID, stored.PayerUserID)
+	s.Require().Equal(entry.BalanceSource, stored.BalanceSource)
+	s.Require().Equal(entry.UpstreamRequestID, stored.UpstreamRequestID)
+	s.Require().Equal(entry.SessionID, stored.SessionID)
+	s.Require().Equal(entry.ImageQuality, stored.ImageQuality)
+	s.Require().Equal(entry.ImageURLs, stored.ImageURLs)
+	s.Require().Equal(entry.CosURLs, stored.CosURLs)
+	s.Require().Equal(entry.RequestParameters, stored.RequestParameters)
+	s.Require().True(stored.NativeCompactionV2)
+}
+
 func (s *UsageLogRepoSuite) TestCreate() {
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "create@test.com"})
 	apiKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-create", Name: "k"})
