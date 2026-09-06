@@ -1320,6 +1320,15 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 	return err
 }
 
+// Personal spending must not enter organization usage, even when the billing
+// context or API key is associated with an organization.
+func usageLogOrganizationID(organizationID *int64, balanceSource *string) *int64 {
+	if balanceSource != nil && strings.EqualFold(strings.TrimSpace(*balanceSource), service.BalanceSourceSelf) {
+		return nil
+	}
+	return organizationID
+}
+
 func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	createdAt := log.CreatedAt
 	if createdAt.IsZero() {
@@ -1364,6 +1373,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	upstreamModel := nullString(log.UpstreamModel)
 	upstreamResponseModel := nullString(log.UpstreamResponseModel)
 	upstreamModelMismatch := nullBool(log.UpstreamModelMismatch)
+	organizationID := usageLogOrganizationID(log.OrganizationID, log.BalanceSource)
 
 	var requestIDArg any
 	if requestID != "" {
@@ -1438,7 +1448,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			mustMarshalStringSlice(log.ImageURLs),
 			mustMarshalStringSlice(log.CosURLs),
 			log.KiroCredits,
-			nullInt64(log.OrganizationID),
+			nullInt64(organizationID),
 			nullInt64(log.PayerUserID),
 			nullString(log.BalanceSource),
 			nullInt64(log.AuthzGeneration),

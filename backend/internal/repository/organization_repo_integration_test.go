@@ -904,7 +904,7 @@ func TestOrganizationUsageFiltersCannotCrossOrganizationAndHistoricalNullsRemain
 	require.Nil(t, historical.PayerUserID)
 }
 
-func TestOrganizationUsageExcludesOwnerSelfBalanceWithEnterpriseAPIKey(t *testing.T) {
+func TestOrganizationUsageWritesSelfBalanceWithoutOrganizationWithEnterpriseAPIKey(t *testing.T) {
 	isolateOrganizationIntegrationTest(t)
 	ctx := context.Background()
 	repo := NewOrganizationRepository(integrationDB)
@@ -921,11 +921,42 @@ func TestOrganizationUsageExcludesOwnerSelfBalanceWithEnterpriseAPIKey(t *testin
 	t.Cleanup(func() {
 		_, _ = integrationDB.ExecContext(context.Background(), `DELETE FROM usage_logs WHERE request_id LIKE $1`, prefix+"%")
 	})
-	_, err = integrationDB.ExecContext(ctx, `
-		INSERT INTO usage_logs(user_id,organization_id,payer_user_id,balance_source,billing_type,api_key_id,account_id,request_id,model,input_tokens,output_tokens,total_cost,actual_cost,billing_status,created_at)
-		VALUES($1,$2,$1,'self',1,$3,$4,$5,'gpt-owner-self',10,5,1,1,'charged',NOW())`,
-		owner.ID, organizationID, ownerKey.ID, account.ID, prefix+"-balance")
+	self := service.BalanceSourceSelf
+	charged := service.BillingStatusCharged
+	inserted, err := NewUsageLogRepository(integrationEntClient, integrationDB).Create(ctx, &service.UsageLog{
+		UserID: owner.ID, OrganizationID: &organizationID, PayerUserID: &owner.ID, BalanceSource: &self,
+		APIKeyID: ownerKey.ID, AccountID: account.ID, RequestID: prefix + "-balance", Model: "gpt-owner-self",
+		InputTokens: 10, OutputTokens: 5, TotalCost: 1, ActualCost: 1,
+		BillingType: service.BillingTypeSubscription, BillingStatus: &charged,
+	})
 	require.NoError(t, err)
+	require.True(t, inserted)
+	inserted, err = NewAsyncMediaTaskRepository(integrationEntClient, integrationDB).InsertTerminalUsageLog(ctx, &service.TerminalUsageLogInput{
+		UserID: owner.ID, OrganizationID: &organizationID, PayerUserID: &owner.ID, BalanceSource: &self,
+		APIKeyID: ownerKey.ID, AccountID: account.ID, RequestID: prefix + "-image", Model: "image-owner-self",
+		TotalCost: 1, ActualCost: 1, RateMultiplier: 1, ImageCount: 1, ImageSize: "1K",
+		BillingType: service.BillingTypeSubscription, BillingStatus: charged,
+	})
+	require.NoError(t, err)
+	require.True(t, inserted)
+	inserted, err = NewAsyncVideoTaskRepository(integrationEntClient, integrationDB).InsertTerminalUsageLog(ctx, &service.VideoTerminalUsageLogInput{
+		UserID: owner.ID, OrganizationID: &organizationID, PayerUserID: &owner.ID, BalanceSource: &self,
+		APIKeyID: ownerKey.ID, AccountID: account.ID, RequestID: prefix + "-video", Model: "video-owner-self",
+		TotalCost: 1, ActualCost: 1,
+		BillingType: service.BillingTypeSubscription, BillingStatus: charged,
+	})
+	require.NoError(t, err)
+	require.True(t, inserted)
+	var personalRows, organizationRows int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		SELECT count(*), count(organization_id) FROM usage_logs WHERE request_id LIKE $1`, prefix+"%",
+	).Scan(&personalRows, &organizationRows))
+	require.EqualValues(t, 3, personalRows)
+	require.Zero(t, organizationRows)
+	var payerRows int64
+	err = integrationDB.QueryRowContext(ctx, `SELECT count(*) FROM usage_logs WHERE request_id LIKE $1 AND payer_user_id=$2 AND balance_source='self'`, prefix+"%", owner.ID).Scan(&payerRows)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, payerRows)
 
 	rows, total, err := repo.ListUsage(ctx, owner.ID, service.OrganizationUsageFilter{Page: 1, PageSize: 20})
 	require.NoError(t, err)
@@ -934,6 +965,10 @@ func TestOrganizationUsageExcludesOwnerSelfBalanceWithEnterpriseAPIKey(t *testin
 	stats, err := repo.UsageStats(ctx, owner.ID, service.OrganizationUsageFilter{})
 	require.NoError(t, err)
 	require.Zero(t, stats.Requests)
+	dashboard, err := repo.OrganizationDashboard(ctx, owner.ID)
+	require.NoError(t, err)
+	require.Zero(t, dashboard.TotalRequests)
+	require.Zero(t, dashboard.TotalActualCost)
 }
 
 func TestOrganizationSpendingRankingIAMPrincipalAndModelDrillDown(t *testing.T) {

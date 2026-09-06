@@ -101,7 +101,7 @@ func (r *organizationRepository) GetContextForUser(ctx context.Context, userID i
 		LEFT JOIN managed_policy_actions pa ON pa.policy_id = p.id
 		WHERE m.user_id = $1
 		GROUP BY o.id, m.id`
-	logger.L().Debug("organization.db.query", zap.String("query", "organization_context"), zap.String("sql", organizationSQLWithArgs(query, []any{userID})), zap.Int64("user_id", userID))
+	logger.FromContext(ctx).Debug("organization.db.query", zap.String("query", "organization_context"), zap.String("sql", organizationSQLWithArgs(query, []any{userID})), zap.Int64("user_id", userID))
 	var out service.OrganizationContext
 	err := r.db.QueryRowContext(ctx, query, userID).Scan(
 		&out.OrganizationID, &out.AccountID, &out.CompanyID, &out.OwnerUserID, &out.CompanyName, &out.OrganizationStatus,
@@ -2247,7 +2247,11 @@ func (r *organizationRepository) organizationExists(ctx context.Context, organiz
 }
 
 func (r *organizationRepository) organizationUsageScope(ctx context.Context, userID int64, filter service.OrganizationUsageFilter) (string, []any, error) {
-	org, err := r.GetContextForUser(ctx, userID)
+	org, ok := service.OrganizationReadContextFromContext(ctx, userID)
+	var err error
+	if !ok {
+		org, err = r.GetContextForUser(ctx, userID)
+	}
 	if err != nil || !org.Active() || (!org.Owner() && !org.HasAction(service.ActionFinanceBalanceRead)) {
 		return "", nil, service.ErrOrganizationPermission
 	}
@@ -2257,11 +2261,7 @@ func (r *organizationRepository) organizationUsageScope(ctx context.Context, use
 		args = append(args, value)
 		conditions = append(conditions, fmt.Sprintf(sqlCondition, len(args)))
 	}
-	// 排除主账号(owner)使用个人余额或个人套餐的消费记录，避免个人消费混入企业记录。
-	// 仅对 balance_source 为空的历史记录保留企业订阅 API Key 兼容判断；显式
-	// balance_source='self' 始终代表主账号个人余额，不应因为 API Key 仍绑定企业订阅而混入。
-	args = append(args, org.OwnerUserID)
-	conditions = append(conditions, fmt.Sprintf("(l.user_id <> $%d OR (l.balance_source IS NOT NULL AND l.balance_source <> 'self') OR (l.balance_source IS NULL AND l.billing_type=1 AND EXISTS(SELECT 1 FROM api_keys ak WHERE ak.id=l.api_key_id AND ak.organization_subscription_id IS NOT NULL)))", len(args)))
+	// organization_id 只标记企业计费记录；个人计费记录不会写入 organization_id。
 	if !filter.Start.IsZero() && filter.Start.After(org.EffectiveAt) {
 		args[1] = filter.Start
 	}
@@ -2369,6 +2369,10 @@ func (r *organizationRepository) UsageTrend(ctx context.Context, userID int64, f
 	if err != nil {
 		return nil, err
 	}
+	return r.usageTrendWithScope(ctx, filter, where, args)
+}
+
+func (r *organizationRepository) usageTrendWithScope(ctx context.Context, filter service.OrganizationUsageFilter, where string, args []any) ([]service.OrganizationUsageTrendPoint, error) {
 	granularity := "day"
 	if filter.Granularity == "hour" {
 		granularity = "hour"
@@ -2399,7 +2403,7 @@ func (r *organizationRepository) UsageCharts(ctx context.Context, userID int64, 
 	if err != nil {
 		return nil, err
 	}
-	trend, err := r.UsageTrend(ctx, userID, filter)
+	trend, err := r.usageTrendWithScope(ctx, filter, where, args)
 	if err != nil {
 		return nil, err
 	}
@@ -2503,12 +2507,16 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 	}
 
 	permissionStarted := time.Now()
-	org, err := r.GetContextForUser(ctx, userID)
-	permissionFields := []zap.Field{zap.String("query", "organization_context"), zap.Int64("user_id", userID), zap.Duration("duration", time.Since(permissionStarted))}
+	org, reused := service.OrganizationReadContextFromContext(ctx, userID)
+	var err error
+	if !reused {
+		org, err = r.GetContextForUser(ctx, userID)
+	}
+	permissionFields := []zap.Field{zap.Int64("user_id", userID), zap.Bool("reused", reused), zap.Duration("duration", time.Since(permissionStarted))}
 	if err != nil {
 		permissionFields = append(permissionFields, zap.Error(err))
 	}
-	logger.L().Debug("organization.dashboard.db.query", permissionFields...)
+	logger.FromContext(ctx).Debug("organization.dashboard.context.resolve", permissionFields...)
 	if err != nil || !org.Active() || (!org.Owner() && !org.HasAction(service.ActionFinanceBalanceRead)) {
 		return nil, service.ErrOrganizationPermission
 	}
@@ -2519,10 +2527,6 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 	if org.EffectiveAt.After(todayStart) {
 		todayStart = org.EffectiveAt
 	}
-	// 主账号(owner) 使用个人余额/个人套餐的消费不应计入企业统计。
-	// 使用 usage_logs 别名 l 时统一附加此过滤条件。对 balance_source 为空的历史
-	// 企业订阅记录保留 API Key 绑定判断，但显式 self 始终排除。
-	excludeOwnerSelfSpend := "(l.user_id <> $3 OR (l.balance_source IS NOT NULL AND l.balance_source <> 'self') OR (l.balance_source IS NULL AND l.billing_type=1 AND EXISTS(SELECT 1 FROM api_keys ak WHERE ak.id=l.api_key_id AND ak.organization_subscription_id IS NOT NULL)))"
 	var totalIAMUsers, activeIAMUsers int64
 	membershipSQL := `
 		SELECT count(*), count(*) FILTER (WHERE created_at >= $2),
@@ -2547,17 +2551,16 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 	accountsSQL := `
 		WITH used_accounts AS (
 			SELECT DISTINCT l.account_id FROM usage_logs l
-			WHERE l.organization_id=$1 AND l.created_at >= $2 AND l.account_id IS NOT NULL
-			  AND ` + excludeOwnerSelfSpend + `
+			WHERE l.organization_id=$1 AND l.created_at >= $2
 		)
 		SELECT count(*),
 			count(*) FILTER (WHERE a.status='active' AND a.schedulable=true),
 			count(*) FILTER (WHERE a.status='error'),
-			count(*) FILTER (WHERE a.rate_limited_at IS NOT NULL AND a.rate_limit_reset_at > $4),
-			count(*) FILTER (WHERE a.overload_until IS NOT NULL AND a.overload_until > $4)
+			count(*) FILTER (WHERE a.rate_limited_at IS NOT NULL AND a.rate_limit_reset_at > $3),
+			count(*) FILTER (WHERE a.overload_until IS NOT NULL AND a.overload_until > $3)
 		FROM accounts a JOIN used_accounts ua ON ua.account_id=a.id
 		WHERE a.deleted_at IS NULL`
-	if err := query("account_counts", accountsSQL, []any{org.OrganizationID, org.EffectiveAt, org.OwnerUserID, now}, func(rows *sql.Rows) error {
+	if err := query("account_counts", accountsSQL, []any{org.OrganizationID, org.EffectiveAt, now}, func(rows *sql.Rows) error {
 		return rows.Scan(&stats.TotalAccounts, &stats.NormalAccounts, &stats.ErrorAccounts, &stats.RateLimitAccounts, &stats.OverloadAccounts)
 	}); err != nil {
 		return nil, err
@@ -2570,8 +2573,8 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 			COALESCE(sum(l.total_cost),0)::float8, COALESCE(sum(l.actual_cost),0)::float8,
 			COALESCE(sum(COALESCE(l.account_stats_cost,l.total_cost)*COALESCE(l.account_rate_multiplier,1)),0)::float8,
 			COALESCE(avg(l.duration_ms),0)::float8
-		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND ` + excludeOwnerSelfSpend
-	if err := query("usage_totals", usageTotalsSQL, []any{org.OrganizationID, org.EffectiveAt, org.OwnerUserID}, func(rows *sql.Rows) error {
+		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2`
+	if err := query("usage_totals", usageTotalsSQL, []any{org.OrganizationID, org.EffectiveAt}, func(rows *sql.Rows) error {
 		return rows.Scan(&stats.TotalRequests, &stats.TotalInputTokens, &stats.TotalOutputTokens,
 			&stats.TotalCacheCreationTokens, &stats.TotalCacheReadTokens, &stats.TotalCost,
 			&stats.TotalActualCost, &stats.TotalAccountCost, &stats.AverageDurationMs)
@@ -2583,8 +2586,8 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 			COALESCE(sum(l.cache_creation_tokens),0), COALESCE(sum(l.cache_read_tokens),0),
 			COALESCE(sum(l.total_cost),0)::float8, COALESCE(sum(l.actual_cost),0)::float8,
 			COALESCE(sum(COALESCE(l.account_stats_cost,l.total_cost)*COALESCE(l.account_rate_multiplier,1)),0)::float8
-		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND ` + excludeOwnerSelfSpend
-	if err := query("today_usage_totals", todayUsageSQL, []any{org.OrganizationID, todayStart, org.OwnerUserID}, func(rows *sql.Rows) error {
+		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2`
+	if err := query("today_usage_totals", todayUsageSQL, []any{org.OrganizationID, todayStart}, func(rows *sql.Rows) error {
 		return rows.Scan(&stats.TodayRequests, &stats.ActiveUsers, &stats.TodayInputTokens, &stats.TodayOutputTokens,
 			&stats.TodayCacheCreationTokens, &stats.TodayCacheReadTokens, &stats.TodayCost,
 			&stats.TodayActualCost, &stats.TodayAccountCost)
@@ -2597,8 +2600,8 @@ func (r *organizationRepository) OrganizationDashboard(ctx context.Context, user
 	var recentRequests, recentTokens int64
 	recentUsageSQL := `
 		SELECT count(*), COALESCE(sum(l.input_tokens+l.output_tokens+l.cache_creation_tokens+l.cache_read_tokens),0)
-		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2 AND ` + excludeOwnerSelfSpend
-	if err := query("recent_usage_rates", recentUsageSQL, []any{org.OrganizationID, now.Add(-5 * time.Minute), org.OwnerUserID}, func(rows *sql.Rows) error {
+		FROM usage_logs l WHERE l.organization_id=$1 AND l.created_at >= $2`
+	if err := query("recent_usage_rates", recentUsageSQL, []any{org.OrganizationID, now.Add(-5 * time.Minute)}, func(rows *sql.Rows) error {
 		return rows.Scan(&recentRequests, &recentTokens)
 	}); err != nil {
 		return nil, err

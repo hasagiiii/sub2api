@@ -413,7 +413,7 @@ func (r *asyncMediaTaskRepository) InsertTerminalUsageLog(ctx context.Context, i
 		taskID, imageURLsJSON, cosURLsJSON, nullIfEmpty(in.BillingStatus),
 		requestParametersJSON,
 		nullIfEmpty(in.InboundEndpoint), nullIfEmpty(in.UpstreamEndpoint), durationMs, nullIfEmpty(in.ClientIP), nullIfEmpty(in.UserAgent),
-		in.OrganizationID, in.PayerUserID, in.BalanceSource, in.AuthzGeneration, in.AccountRateMultiplier,
+		usageLogOrganizationID(in.OrganizationID, in.BalanceSource), in.PayerUserID, in.BalanceSource, in.AuthzGeneration, in.AccountRateMultiplier,
 	)
 	if err != nil {
 		return false, err

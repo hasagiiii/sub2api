@@ -88,6 +88,31 @@ func TestRequestLogger_GenerateAndPropagateRequestID(t *testing.T) {
 	}
 }
 
+func TestRequestLogger_ContextLogIncludesEndpointAndRequestID(t *testing.T) {
+	sink := initMiddlewareTestLogger(t)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequestLogger())
+	r.GET("/api/v1/organization/dashboard", func(c *gin.Context) {
+		logger.FromContext(c.Request.Context()).Debug("test.context.query")
+		c.Status(http.StatusOK)
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/organization/dashboard?timezone=Asia%2FShanghai", nil)
+	r.ServeHTTP(w, req)
+	events := sink.list()
+	if len(events) != 1 {
+		t.Fatalf("expected one event, got %d", len(events))
+	}
+	fields := events[0].Fields
+	if fields["endpoint"] != "/api/v1/organization/dashboard" || fields["method"] != http.MethodGet {
+		t.Fatalf("incorrect endpoint/method: %+v", fields)
+	}
+	if id := w.Header().Get(requestIDHeader); id == "" || fields["request_id"] != id {
+		t.Fatalf("request ID mismatch: %+v", fields)
+	}
+}
+
 func TestRequestLogger_KeepIncomingRequestID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

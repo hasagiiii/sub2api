@@ -795,7 +795,7 @@ func (r *asyncVideoTaskRepository) InsertTerminalUsageLog(ctx context.Context, i
 		string(service.BillingModeVideo), billingTier,
 		taskID, videoURLsJSON, cosURLsJSON, nullIfEmpty(in.BillingStatus),
 		nullIfEmpty(in.InboundEndpoint), nullIfEmpty(in.UpstreamEndpoint), durationMs, nullIfEmpty(in.ClientIP), nullIfEmpty(in.UserAgent),
-		in.OrganizationID, in.PayerUserID, in.BalanceSource, in.AuthzGeneration,
+		usageLogOrganizationID(in.OrganizationID, in.BalanceSource), in.PayerUserID, in.BalanceSource, in.AuthzGeneration,
 	)
 	if err != nil {
 		return false, err

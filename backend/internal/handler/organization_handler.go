@@ -110,7 +110,8 @@ func (h *OrganizationHandler) revokeIAMSsoSessions(c *gin.Context, userID int64)
 
 // RequireOrganization derives organization scope exclusively from the
 // authenticated subject. Handlers and repositories still enforce their
-// action-specific owner/policy checks against current database state.
+// action-specific owner/policy checks. Read-only usage queries can reuse this
+// request's snapshot; mutations still load current database state.
 func (h *OrganizationHandler) RequireOrganization(c *gin.Context) {
 	userID, ok := organizationSubject(c)
 	if !ok {
@@ -127,6 +128,9 @@ func (h *OrganizationHandler) RequireOrganization(c *gin.Context) {
 		return
 	}
 	c.Set(OrganizationContextKey, organization)
+	if c.Request.Method == http.MethodGet {
+		c.Request = c.Request.WithContext(service.WithOrganizationReadContext(c.Request.Context(), userID, organization))
+	}
 	c.Next()
 }
 

@@ -46,6 +46,11 @@ func TestRequireOrganizationDerivesScopeFromAuthenticatedSubject(t *testing.T) {
 		func(c *gin.Context) {
 			resolved, exists := c.Get(OrganizationContextKey)
 			require.True(t, exists)
+			readContext, exists := service.OrganizationReadContextFromContext(c.Request.Context(), 42)
+			require.True(t, exists)
+			require.Same(t, repo.result, readContext)
+			_, exists = service.OrganizationReadContextFromContext(c.Request.Context(), 99)
+			require.False(t, exists)
 			c.JSON(http.StatusOK, resolved)
 		},
 	)
@@ -58,4 +63,25 @@ func TestRequireOrganizationDerivesScopeFromAuthenticatedSubject(t *testing.T) {
 	require.Equal(t, int64(42), repo.requestedUserID)
 	require.Contains(t, response.Body.String(), `"organization_id":7`)
 	require.NotContains(t, response.Body.String(), `999`)
+}
+
+func TestRequireOrganizationDoesNotShareReadContextForMutations(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &organizationContextRepositoryStub{result: &service.OrganizationContext{
+		OrganizationStatus: service.OrganizationStatusActive,
+		MembershipStatus:   service.MembershipStatusActive,
+		Role:               service.OrganizationRoleOwner,
+	}}
+	handler := NewOrganizationHandler(service.NewOrganizationService(repo, nil, &config.Config{}), nil, nil, nil, nil, nil)
+	router := gin.New()
+	router.POST("/organization", func(c *gin.Context) {
+		c.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 42})
+	}, handler.RequireOrganization, func(c *gin.Context) {
+		_, exists := service.OrganizationReadContextFromContext(c.Request.Context(), 42)
+		require.False(t, exists)
+		c.Status(http.StatusOK)
+	})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/organization", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
 }

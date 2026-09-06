@@ -3,6 +3,7 @@
 package repository
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
@@ -41,6 +42,40 @@ func TestSafeDateFormat(t *testing.T) {
 			require.Equal(t, tc.expected, got, "safeDateFormat(%q)", tc.granularity)
 		})
 	}
+}
+
+func TestPrepareUsageLogInsertClearsOrganizationForSelfBalance(t *testing.T) {
+	organizationID := int64(5)
+	balanceSource := service.BalanceSourceSelf
+	prepared := prepareUsageLogInsert(&service.UsageLog{
+		UserID:         1,
+		APIKeyID:       2,
+		AccountID:      3,
+		OrganizationID: &organizationID,
+		BalanceSource:  &balanceSource,
+	})
+
+	// organization_id is the 63rd value in prepareUsageLogInsert().args.
+	organizationValue, ok := prepared.args[62].(sql.NullInt64)
+	require.True(t, ok)
+	require.False(t, organizationValue.Valid)
+}
+
+func TestUsageLogOrganizationIDPreservesOtherBalanceSources(t *testing.T) {
+	organizationID := int64(5)
+	for _, source := range []string{"self", " SELF ", "shared", "allocated", "subscription", "future-source", ""} {
+		t.Run(source, func(t *testing.T) {
+			got := usageLogOrganizationID(&organizationID, &source)
+			if strings.EqualFold(strings.TrimSpace(source), service.BalanceSourceSelf) {
+				require.Nil(t, got)
+			} else {
+				require.Same(t, &organizationID, got)
+			}
+			require.Nil(t, usageLogOrganizationID(nil, &source))
+		})
+	}
+	require.Same(t, &organizationID, usageLogOrganizationID(&organizationID, nil))
+	require.EqualValues(t, 5, organizationID)
 }
 
 func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
