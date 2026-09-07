@@ -81,6 +81,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetNillableImagePrice1k(groupIn.ImagePrice1K).
 		SetNillableImagePrice2k(groupIn.ImagePrice2K).
 		SetNillableImagePrice4k(groupIn.ImagePrice4K).
+		SetNillableImageInputPricePerImage(groupIn.ImageInputPricePerImage).
 		SetImageResolution1k(groupIn.ImageResolution1K).
 		SetImageResolution2k(groupIn.ImageResolution2K).
 		SetImageResolution4k(groupIn.ImageResolution4K).
@@ -284,6 +285,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetNillableImagePrice1k(groupIn.ImagePrice1K).
 		SetNillableImagePrice2k(groupIn.ImagePrice2K).
 		SetNillableImagePrice4k(groupIn.ImagePrice4K).
+		SetNillableImageInputPricePerImage(groupIn.ImageInputPricePerImage).
 		SetImageResolution1k(groupIn.ImageResolution1K).
 		SetImageResolution2k(groupIn.ImageResolution2K).
 		SetImageResolution4k(groupIn.ImageResolution4K).
@@ -361,6 +363,9 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		builder = builder.SetImagePrice4k(*groupIn.ImagePrice4K)
 	} else {
 		builder = builder.ClearImagePrice4k()
+	}
+	if groupIn.ImageInputPricePerImage != nil {
+		builder = builder.SetImageInputPricePerImage(*groupIn.ImageInputPricePerImage)
 	}
 	if groupIn.VideoPrice480P != nil {
 		builder = builder.SetVideoPrice480p(*groupIn.VideoPrice480P)

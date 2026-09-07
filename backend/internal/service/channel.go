@@ -101,6 +101,7 @@ type ChannelModelPricing struct {
 	FlexMultiplier               *float64            `json:"flex_multiplier"`
 	MaxReasoningEffortMultiplier *float64            `json:"max_reasoning_effort_multiplier"`
 	ImageInputPrice              *float64            `json:"image_input_price"`
+	ImageInputPricePerImage      *float64            `json:"image_input_price_per_image"`
 	ImageOutputPrice             *float64            `json:"image_output_price"`
 	PerRequestPrice              *float64            `json:"per_request_price"`
 	Intervals                    []PricingInterval   `json:"intervals"`
@@ -131,6 +132,7 @@ type PricingInterval struct {
 	MaxTokens            *int      `json:"max_tokens"`
 	TierLabel            string    `json:"tier_label"`
 	Resolution           string    `json:"resolution"`
+	MaxPixels            *int64    `json:"max_pixels"`
 	Quality              string    `json:"quality"`
 	InputPrice           *float64  `json:"input_price"`
 	OutputPrice          *float64  `json:"output_price"`
@@ -361,6 +363,39 @@ func ValidateIntervals(intervals []PricingInterval, mode BillingMode) error {
 
 func validateImagePricingIntervals(intervals []PricingInterval) error {
 	if len(intervals) == 0 {
+		return nil
+	}
+	pixelMode := false
+	resolutionMode := false
+	for _, interval := range intervals {
+		if interval.MaxPixels != nil {
+			pixelMode = true
+		} else if strings.TrimSpace(interval.Resolution) != "" || imageTierLabel(interval.TierLabel) != "" {
+			resolutionMode = true
+		}
+	}
+	if pixelMode {
+		if resolutionMode {
+			return fmt.Errorf("pixel and resolution pricing tiers cannot be mixed")
+		}
+		var previousPixels int64
+		unlimitedSeen := false
+		for _, interval := range intervals {
+			if interval.Resolution != "" {
+				return fmt.Errorf("pixel pricing tier cannot define resolution")
+			}
+			if interval.MaxPixels == nil {
+				if unlimitedSeen {
+					return fmt.Errorf("only the last pixel pricing tier may be unlimited")
+				}
+				unlimitedSeen = true
+				continue
+			}
+			if unlimitedSeen || *interval.MaxPixels <= 0 || *interval.MaxPixels <= previousPixels {
+				return fmt.Errorf("image pixel pricing thresholds must increase")
+			}
+			previousPixels = *interval.MaxPixels
+		}
 		return nil
 	}
 	byLabel := make(map[string]ImagePricingTier, 3)

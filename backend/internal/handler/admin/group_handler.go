@@ -127,6 +127,7 @@ type CreateGroupRequest struct {
 	ImagePrice1K                    *float64                      `json:"image_price_1k"`
 	ImagePrice2K                    *float64                      `json:"image_price_2k"`
 	ImagePrice4K                    *float64                      `json:"image_price_4k"`
+	ImageInputPricePerImage         *float64                      `json:"image_input_price_per_image"`
 	ImageResolution1K               string                        `json:"image_resolution_1k"`
 	ImageResolution2K               string                        `json:"image_resolution_2k"`
 	ImageResolution4K               string                        `json:"image_resolution_4k"`
@@ -215,6 +216,7 @@ type UpdateGroupRequest struct {
 	ImagePrice1K                    *float64                      `json:"image_price_1k"`
 	ImagePrice2K                    *float64                      `json:"image_price_2k"`
 	ImagePrice4K                    *float64                      `json:"image_price_4k"`
+	ImageInputPricePerImage         *float64                      `json:"image_input_price_per_image"`
 	ImageResolution1K               *string                       `json:"image_resolution_1k"`
 	ImageResolution2K               *string                       `json:"image_resolution_2k"`
 	ImageResolution4K               *string                       `json:"image_resolution_4k"`
@@ -571,6 +573,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ImagePrice1K:                    req.ImagePrice1K,
 		ImagePrice2K:                    req.ImagePrice2K,
 		ImagePrice4K:                    req.ImagePrice4K,
+		ImageInputPricePerImage:         req.ImageInputPricePerImage,
 		ImageResolution1K:               req.ImageResolution1K,
 		ImageResolution2K:               req.ImageResolution2K,
 		ImageResolution4K:               req.ImageResolution4K,
@@ -716,6 +719,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ImagePrice1K:                    req.ImagePrice1K,
 		ImagePrice2K:                    req.ImagePrice2K,
 		ImagePrice4K:                    req.ImagePrice4K,
+		ImageInputPricePerImage:         req.ImageInputPricePerImage,
 		ImageResolution1K:               req.ImageResolution1K,
 		ImageResolution2K:               req.ImageResolution2K,
 		ImageResolution4K:               req.ImageResolution4K,

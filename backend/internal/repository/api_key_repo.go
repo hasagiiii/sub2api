@@ -1019,6 +1019,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		ImagePrice1K:                    g.ImagePrice1k,
 		ImagePrice2K:                    g.ImagePrice2k,
 		ImagePrice4K:                    g.ImagePrice4k,
+		ImageInputPricePerImage:         g.ImageInputPricePerImage,
 		ImageResolution1K:               g.ImageResolution1k,
 		ImageResolution2K:               g.ImageResolution2k,
 		ImageResolution4K:               g.ImageResolution4k,

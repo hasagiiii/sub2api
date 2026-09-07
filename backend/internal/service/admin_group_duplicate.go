@@ -121,6 +121,7 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		ImagePrice1K:                    cloneGroupValuePointer(source.ImagePrice1K),
 		ImagePrice2K:                    cloneGroupValuePointer(source.ImagePrice2K),
 		ImagePrice4K:                    cloneGroupValuePointer(source.ImagePrice4K),
+		ImageInputPricePerImage:         cloneGroupValuePointer(source.ImageInputPricePerImage),
 		ImageResolution1K:               source.ImageResolution1K,
 		ImageResolution2K:               source.ImageResolution2K,
 		ImageResolution4K:               source.ImageResolution4K,

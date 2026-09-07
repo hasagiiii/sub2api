@@ -1307,6 +1307,7 @@ type CostInput struct {
 	Group                     *Group
 	Tokens                    UsageTokens
 	RequestCount              int     // 按次计费时使用
+	ImageInputCount           int     // 图片模式引用图片数量
 	UsageUnits                float64 // 音频等连续计量单位（分钟/小时/百万字符）
 	SizeTier                  string  // 按次层级标签；图片模式也可传 WIDTHxHEIGHT 原始尺寸
 	Quality                   string  // 图片质量维度（auto/low/medium/high）；空 = 不区分质量（存量单维定价）
@@ -1601,7 +1602,12 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 			if err != nil {
 				return nil, err
 			}
-			unitPrice, _, err = input.Resolver.GetImageTierPrice(resolved, dimensions, input.Quality)
+			pixelMode := imagePricingUsesPixels(resolved.RequestTiers)
+			if pixelMode {
+				unitPrice, _, err = input.Resolver.GetImagePixelTierPrice(resolved, dimensions, input.Quality)
+			} else {
+				unitPrice, _, err = input.Resolver.GetImageTierPrice(resolved, dimensions, input.Quality)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -1621,12 +1627,33 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 	}
 
 	totalCost := unitPrice * units
+	if input.ImageInputCount > 0 && resolved.channelPricing != nil && resolved.channelPricing.ImageInputPricePerImage != nil {
+		inputPrice := *resolved.channelPricing.ImageInputPricePerImage
+		if inputPrice > 0 {
+			totalCost += inputPrice * float64(input.ImageInputCount)
+		}
+	}
 	actualCost := totalCost * input.RateMultiplier
 
 	return &CostBreakdown{
 		TotalCost:  totalCost,
 		ActualCost: actualCost,
 	}, nil
+}
+
+func imagePricingUsesPixels(intervals []PricingInterval) bool {
+	if len(intervals) == 0 {
+		return false
+	}
+	for _, interval := range intervals {
+		if interval.MaxPixels != nil {
+			return true
+		}
+		if strings.TrimSpace(interval.Resolution) != "" || imageTierLabel(interval.TierLabel) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // CalculateCost 计算使用费用
@@ -1877,12 +1904,13 @@ func (s *BillingService) ForceUpdatePricing() error {
 //
 // 任意一级缺失即跳到下一级；矩阵中只缺某 (tier,quality) 单元格也会回退。
 type ImagePriceConfig struct {
-	Price1K      *float64 // 1K 尺寸价格（nil 表示未配置）
-	Price2K      *float64 // 2K 尺寸价格（nil 表示未配置）
-	Price4K      *float64 // 4K 尺寸价格（nil 表示未配置）
-	Resolution1K string
-	Resolution2K string
-	Resolution4K string
+	InputPricePerImage *float64
+	Price1K            *float64 // 1K 尺寸价格（nil 表示未配置）
+	Price2K            *float64 // 2K 尺寸价格（nil 表示未配置）
+	Price4K            *float64 // 4K 尺寸价格（nil 表示未配置）
+	Resolution1K       string
+	Resolution2K       string
+	Resolution4K       string
 
 	// 二维定价矩阵：tier_key -> quality_key -> 单价（USD per image）。
 	// 为 nil/空 map 时视为分组未启用矩阵定价，跳到第 2 级。
@@ -1890,8 +1918,9 @@ type ImagePriceConfig struct {
 
 	// 原始请求尺寸（像素）。仅当 PricingMatrix 非空时才被使用。
 	// 任一字段 <=0 视为未提供，矩阵命中失败回退到第 2 级。
-	RawWidth  int
-	RawHeight int
+	RawWidth           int
+	RawHeight          int
+	RawInputImageCount int
 
 	// 原始 quality（"low"/"medium"/"high"/"auto"/空/任意大小写）。
 	// 仅当 PricingMatrix 非空时被使用，内部经 NormalizeImageQuality 归一。
@@ -2090,6 +2119,9 @@ func (s *BillingService) CalculateImageCostValidated(model string, imageSize str
 
 	// 计算总费用
 	totalCost := unitPrice * float64(imageCount)
+	if groupConfig != nil && groupConfig.InputPricePerImage != nil && *groupConfig.InputPricePerImage > 0 {
+		totalCost += *groupConfig.InputPricePerImage * float64(groupConfig.RawInputImageCount)
+	}
 
 	// 应用倍率（保存时强制 > 0；负数按 0 处理避免按 1x 误扣）
 	if rateMultiplier < 0 {

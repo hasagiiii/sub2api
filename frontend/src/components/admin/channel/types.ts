@@ -7,6 +7,7 @@ export interface IntervalFormEntry {
   max_tokens: number | null
   tier_label: string
   resolution: string
+  max_pixels?: number | string | null
   quality: string
   input_price: number | string | null
   output_price: number | string | null
@@ -33,6 +34,7 @@ export interface PricingFormEntry {
   flex_multiplier?: number | string | null
   max_reasoning_effort_multiplier?: number | string | null
   image_input_price: number | string | null
+  image_input_price_per_image?: number | string | null
   image_output_price: number | string | null
   per_request_price: number | string | null
   intervals: IntervalFormEntry[]
@@ -203,6 +205,7 @@ export function apiIntervalsToForm(intervals: PricingInterval[]): IntervalFormEn
     max_tokens: iv.max_tokens,
     tier_label: iv.tier_label || '',
     resolution: iv.resolution || '',
+    max_pixels: iv.max_pixels ?? null,
     quality: iv.quality || '',
     input_price: perTokenToMTok(iv.input_price),
     output_price: perTokenToMTok(iv.output_price),
@@ -224,6 +227,7 @@ export function formIntervalsToAPI(intervals: IntervalFormEntry[]): PricingInter
     max_tokens: iv.max_tokens,
     tier_label: iv.tier_label,
     resolution: iv.resolution || '',
+    max_pixels: toNullableNumber(iv.max_pixels),
     quality: iv.quality || '',
     input_price: mTokToPerToken(iv.input_price),
     output_price: mTokToPerToken(iv.output_price),
@@ -323,6 +327,28 @@ export function validateIntervals(
 }
 
 function validateImageTierIntervals(intervals: IntervalFormEntry[], t: TranslateFn): string | null {
+  const pixelMode = intervals.some(interval => interval.max_pixels != null)
+  if (pixelMode) {
+    if (intervals.some(interval => interval.max_pixels == null && (interval.resolution.trim() !== '' || ['1K', '2K', '4K'].includes(interval.tier_label.trim().toUpperCase())))) {
+      return t('admin.channels.form.imageTierValidation')
+    }
+    let previous = 0
+    let unlimitedSeen = false
+    for (const interval of intervals) {
+      if (interval.resolution.trim() !== '') return t('admin.channels.form.imageTierValidation')
+      if (interval.max_pixels == null) {
+        if (unlimitedSeen) return t('admin.channels.form.imageTierValidation')
+        unlimitedSeen = true
+        continue
+      }
+      const pixels = Number(interval.max_pixels)
+      if (unlimitedSeen || !Number.isFinite(pixels) || pixels <= 0 || pixels <= previous) {
+        return t('admin.channels.form.imageTierValidation')
+      }
+      previous = pixels
+    }
+    return null
+  }
   const resolutions = new Map<string, string>()
   const cells = new Set<string>()
   for (const interval of intervals) {

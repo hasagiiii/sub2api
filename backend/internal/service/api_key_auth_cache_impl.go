@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 25 // v25: merge local billing fields and codex_models_manifest_config
+const apiKeyAuthSnapshotVersion = 26 // v26: include fixed input-image pricing in group snapshots
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -406,6 +406,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ImagePrice1K:                    apiKey.Group.ImagePrice1K,
 			ImagePrice2K:                    apiKey.Group.ImagePrice2K,
 			ImagePrice4K:                    apiKey.Group.ImagePrice4K,
+			ImageInputPricePerImage:         apiKey.Group.ImageInputPricePerImage,
 			ImageResolution1K:               apiKey.Group.ImageResolution1K,
 			ImageResolution2K:               apiKey.Group.ImageResolution2K,
 			ImageResolution4K:               apiKey.Group.ImageResolution4K,
@@ -527,6 +528,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ImagePrice1K:                    snapshot.Group.ImagePrice1K,
 			ImagePrice2K:                    snapshot.Group.ImagePrice2K,
 			ImagePrice4K:                    snapshot.Group.ImagePrice4K,
+			ImageInputPricePerImage:         snapshot.Group.ImageInputPricePerImage,
 			ImageResolution1K:               snapshot.Group.ImageResolution1K,
 			ImageResolution2K:               snapshot.Group.ImageResolution2K,
 			ImageResolution4K:               snapshot.Group.ImageResolution4K,

@@ -50,7 +50,7 @@ func (h *ModelAPIGatewayHandler) estimatePricing(c *gin.Context, path string) {
 		return
 	}
 	count, err := extractEstimateImageCount(params)
-	if params["layer_decomposition"] == true && endpoint == domain.SeedreamModel {
+	if endpoint == domain.SeedreamLayerModel || (params["layer_decomposition"] == true && endpoint == domain.SeedreamModel) {
 		count = 16
 	}
 	if err != nil {
@@ -120,7 +120,7 @@ func (h *ModelAPIGatewayHandler) estimatePricingBatch(c *gin.Context) {
 			continue
 		}
 		modelCount := count
-		if params["layer_decomposition"] == true && endpoint == domain.SeedreamModel {
+		if endpoint == domain.SeedreamLayerModel || (params["layer_decomposition"] == true && endpoint == domain.SeedreamModel) {
 			modelCount = 16
 		}
 		estimate, estimateErr := h.gatewayService.EstimateImagePricing(c.Request.Context(), apiKey, endpoint, dimensions, quality, modelCount)

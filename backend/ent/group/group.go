@@ -68,6 +68,8 @@ const (
 	FieldImagePrice2k = "image_price_2k"
 	// FieldImagePrice4k holds the string denoting the image_price_4k field in the database.
 	FieldImagePrice4k = "image_price_4k"
+	// FieldImageInputPricePerImage holds the string denoting the image_input_price_per_image field in the database.
+	FieldImageInputPricePerImage = "image_input_price_per_image"
 	// FieldImageResolution1k holds the string denoting the image_resolution_1k field in the database.
 	FieldImageResolution1k = "image_resolution_1k"
 	// FieldImageResolution2k holds the string denoting the image_resolution_2k field in the database.
@@ -273,6 +275,7 @@ var Columns = []string{
 	FieldImagePrice1k,
 	FieldImagePrice2k,
 	FieldImagePrice4k,
+	FieldImageInputPricePerImage,
 	FieldImageResolution1k,
 	FieldImageResolution2k,
 	FieldImageResolution4k,
@@ -638,6 +641,11 @@ func ByImagePrice2k(opts ...sql.OrderTermOption) OrderOption {
 // ByImagePrice4k orders the results by the image_price_4k field.
 func ByImagePrice4k(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldImagePrice4k, opts...).ToFunc()
+}
+
+// ByImageInputPricePerImage orders the results by the image_input_price_per_image field.
+func ByImageInputPricePerImage(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldImageInputPricePerImage, opts...).ToFunc()
 }
 
 // ByImageResolution1k orders the results by the image_resolution_1k field.

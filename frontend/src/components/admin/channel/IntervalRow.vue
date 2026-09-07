@@ -79,6 +79,11 @@
         <input :value="interval.resolution" @input="emitField('resolution', ($event.target as HTMLInputElement).value)"
           type="text" class="input mt-0.5 font-mono text-xs" placeholder="1024x1024" />
       </div>
+      <div v-if="mode === 'image'" class="w-28">
+        <label class="text-xs text-gray-400">{{ t('admin.channels.form.maxPixels', 'Max pixels') }}</label>
+        <input :value="interval.max_pixels ?? ''" @input="emitField('max_pixels', toIntOrNull(($event.target as HTMLInputElement).value))"
+          type="number" min="1" class="input mt-0.5 font-mono text-xs" placeholder="-" />
+      </div>
       <div v-if="mode === 'image'" class="w-24">
         <label class="text-xs text-gray-400">{{ t('admin.channels.form.quality', '质量') }}</label>
         <input :value="interval.quality" @input="emitField('quality', ($event.target as HTMLInputElement).value)"

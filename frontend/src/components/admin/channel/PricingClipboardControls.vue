@@ -113,6 +113,7 @@ function parsePricing(text: string): PricingFormEntry[] | null {
     cache_write_price: entry.cache_write_price ?? null,
     cache_read_price: entry.cache_read_price ?? null,
     image_input_price: entry.image_input_price ?? null,
+    image_input_price_per_image: entry.image_input_price_per_image ?? null,
     image_output_price: entry.image_output_price ?? null,
     per_request_price: entry.per_request_price ?? null,
     intervals: entry.intervals || [],

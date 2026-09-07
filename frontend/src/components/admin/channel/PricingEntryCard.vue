@@ -139,6 +139,11 @@
                 type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
             <div>
+              <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageInputPricePerImage', 'Input image / image') }}</label>
+              <input :value="entry.image_input_price_per_image" @input="emitField('image_input_price_per_image', ($event.target as HTMLInputElement).value)"
+                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+            </div>
+            <div>
               <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageTokenPrice') }}</label>
               <input :value="entry.image_output_price" @input="emitField('image_output_price', ($event.target as HTMLInputElement).value)"
                 type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
@@ -205,6 +210,10 @@
             <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
               type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
           </div>
+          <div class="mt-3 w-48">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.imageInputPricePerImage', 'Input image price / image') }} <span class="ml-1 font-normal text-gray-400">$</span></label>
+            <input :value="entry.image_input_price_per_image" @input="emitField('image_input_price_per_image', ($event.target as HTMLInputElement).value)" type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+          </div>
 
           <!-- Tiers -->
           <div class="mt-3 flex items-center justify-between">
@@ -241,15 +250,24 @@
             <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
               type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
           </div>
+          <div class="mt-3 w-48">
+            <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.imageInputPricePerImage', 'Input image price / image') }} <span class="ml-1 font-normal text-gray-400">$</span></label>
+            <input :value="entry.image_input_price_per_image" @input="emitField('image_input_price_per_image', ($event.target as HTMLInputElement).value)" type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+          </div>
 
           <!-- Image tiers -->
           <div class="mt-3 flex items-center justify-between">
             <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
               {{ t('admin.channels.form.imageTiers') }}
             </label>
-            <button type="button" @click="addMediaTier" class="text-xs text-primary-600 hover:text-primary-700">
-              + {{ t('admin.channels.form.addTier') }}
-            </button>
+            <div class="flex gap-3">
+              <button type="button" @click="addMediaTier" class="text-xs text-primary-600 hover:text-primary-700">
+                + {{ t('admin.channels.form.addTier') }}
+              </button>
+              <button type="button" @click="addPixelTier" class="text-xs text-primary-600 hover:text-primary-700">
+                + {{ t('admin.channels.form.addPixelTier', 'Add pixel tier') }}
+              </button>
+            </div>
           </div>
           <div v-if="entry.intervals && entry.intervals.length > 0" class="mt-2 space-y-2">
             <IntervalRow
@@ -368,6 +386,7 @@ function addInterval() {
   const intervals = [...(props.entry.intervals || [])]
   intervals.push({
     min_tokens: 0, max_tokens: null, tier_label: '', resolution: '', quality: '',
+    max_pixels: null,
     input_price: null, output_price: null, cache_write_price: null,
     cache_write_1h_price: null,
     cache_read_price: null, per_request_price: null,
@@ -389,6 +408,7 @@ function addMediaTier() {
     for (const [tier_label, resolution] of templates) {
       intervals.push({
         min_tokens: 0, max_tokens: null, tier_label, resolution, quality: 'low',
+        max_pixels: null,
         input_price: null, output_price: null, cache_write_price: null,
         cache_read_price: null, per_request_price: null,
         input_multiplier: null, output_multiplier: null,
@@ -399,6 +419,7 @@ function addMediaTier() {
   } else {
     intervals.push({
       min_tokens: 0, max_tokens: null, tier_label: '', resolution: '',
+      max_pixels: null,
       quality: props.entry.billing_mode === 'image' ? 'low' : '',
       input_price: null, output_price: null, cache_write_price: null,
       cache_read_price: null, per_request_price: null,
@@ -418,12 +439,24 @@ function addVideoTier() {
   const templates = ['480p', '720p', '1080p', '4k']
   intervals.push({
     min_tokens: 0, max_tokens: null, tier_label: templates[intervals.length] || '', resolution: '', quality: '',
+    max_pixels: null,
     input_price: null, output_price: null, cache_write_price: null,
     cache_write_1h_price: null,
     cache_read_price: null, per_request_price: null,
     input_multiplier: null, output_multiplier: null,
     cache_write_multiplier: null, cache_read_multiplier: null,
     sort_order: intervals.length
+  })
+  emit('update', { ...props.entry, intervals })
+}
+
+function addPixelTier() {
+  const intervals = [...(props.entry.intervals || [])]
+  intervals.push({
+    min_tokens: 0, max_tokens: null, tier_label: `P${intervals.length + 1}`, resolution: '', max_pixels: null, quality: 'low',
+    input_price: null, output_price: null, cache_write_price: null, cache_write_1h_price: null,
+    cache_read_price: null, per_request_price: null, input_multiplier: null, output_multiplier: null,
+    cache_write_multiplier: null, cache_read_multiplier: null, sort_order: intervals.length,
   })
   emit('update', { ...props.entry, intervals })
 }
@@ -467,6 +500,7 @@ async function onModelsUpdate(newModels: string[]) {
         cache_write_1h_price: perTokenToMTok(result.cache_write_1h_price ?? null),
         cache_read_price: perTokenToMTok(result.cache_read_price ?? null),
         image_input_price: perTokenToMTok(result.image_input_price ?? null),
+        image_input_price_per_image: result.image_input_price_per_image ?? null,
         image_output_price: perTokenToMTok(result.image_output_price ?? null),
         max_reasoning_effort_multiplier: result.max_reasoning_effort_multiplier ?? null,
       })

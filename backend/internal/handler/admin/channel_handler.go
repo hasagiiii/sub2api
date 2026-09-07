@@ -69,6 +69,7 @@ type channelModelPricingRequest struct {
 	FlexMultiplier               *float64                   `json:"flex_multiplier" binding:"omitempty,gt=0"`
 	MaxReasoningEffortMultiplier *float64                   `json:"max_reasoning_effort_multiplier" binding:"omitempty,gt=0"`
 	ImageInputPrice              *float64                   `json:"image_input_price" binding:"omitempty,min=0"`
+	ImageInputPricePerImage      *float64                   `json:"image_input_price_per_image" binding:"omitempty,min=0"`
 	ImageOutputPrice             *float64                   `json:"image_output_price" binding:"omitempty,min=0"`
 	PerRequestPrice              *float64                   `json:"per_request_price" binding:"omitempty,min=0"`
 	Intervals                    []pricingIntervalRequest   `json:"intervals"`
@@ -92,6 +93,7 @@ type pricingIntervalRequest struct {
 	MaxTokens            *int     `json:"max_tokens"`
 	TierLabel            string   `json:"tier_label"`
 	Resolution           string   `json:"resolution"`
+	MaxPixels            *int64   `json:"max_pixels" binding:"omitempty,gt=0"`
 	Quality              string   `json:"quality"`
 	InputPrice           *float64 `json:"input_price"`
 	OutputPrice          *float64 `json:"output_price"`
@@ -145,6 +147,7 @@ type channelModelPricingResponse struct {
 	FlexMultiplier               *float64                    `json:"flex_multiplier"`
 	MaxReasoningEffortMultiplier *float64                    `json:"max_reasoning_effort_multiplier"`
 	ImageInputPrice              *float64                    `json:"image_input_price"`
+	ImageInputPricePerImage      *float64                    `json:"image_input_price_per_image"`
 	ImageOutputPrice             *float64                    `json:"image_output_price"`
 	PerRequestPrice              *float64                    `json:"per_request_price"`
 	Intervals                    []pricingIntervalResponse   `json:"intervals"`
@@ -169,6 +172,7 @@ type pricingIntervalResponse struct {
 	MaxTokens            *int     `json:"max_tokens"`
 	TierLabel            string   `json:"tier_label,omitempty"`
 	Resolution           string   `json:"resolution,omitempty"`
+	MaxPixels            *int64   `json:"max_pixels,omitempty"`
 	Quality              string   `json:"quality,omitempty"`
 	InputPrice           *float64 `json:"input_price"`
 	OutputPrice          *float64 `json:"output_price"`
@@ -277,6 +281,7 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 		FlexMultiplier:               p.FlexMultiplier,
 		MaxReasoningEffortMultiplier: p.MaxReasoningEffortMultiplier,
 		ImageInputPrice:              p.ImageInputPrice,
+		ImageInputPricePerImage:      p.ImageInputPricePerImage,
 		ImageOutputPrice:             p.ImageOutputPrice,
 		PerRequestPrice:              p.PerRequestPrice,
 		Intervals:                    intervals,
@@ -310,6 +315,7 @@ func intervalToResponse(iv service.PricingInterval) pricingIntervalResponse {
 		MaxTokens:            iv.MaxTokens,
 		TierLabel:            iv.TierLabel,
 		Resolution:           iv.Resolution,
+		MaxPixels:            iv.MaxPixels,
 		Quality:              iv.Quality,
 		InputPrice:           iv.InputPrice,
 		OutputPrice:          iv.OutputPrice,
@@ -347,6 +353,7 @@ func pricingRequestToService(reqs []channelModelPricingRequest, allowChannelMult
 				MaxTokens:            iv.MaxTokens,
 				TierLabel:            iv.TierLabel,
 				Resolution:           iv.Resolution,
+				MaxPixels:            iv.MaxPixels,
 				Quality:              iv.Quality,
 				InputPrice:           iv.InputPrice,
 				OutputPrice:          iv.OutputPrice,
@@ -380,6 +387,7 @@ func pricingRequestToService(reqs []channelModelPricingRequest, allowChannelMult
 			FlexMultiplier:               flexMultiplier,
 			MaxReasoningEffortMultiplier: maxReasoningEffortMultiplier,
 			ImageInputPrice:              r.ImageInputPrice,
+			ImageInputPricePerImage:      r.ImageInputPricePerImage,
 			ImageOutputPrice:             r.ImageOutputPrice,
 			PerRequestPrice:              r.PerRequestPrice,
 			Intervals:                    intervals,

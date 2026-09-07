@@ -1262,6 +1262,7 @@ var (
 		{Name: "image_price_1k", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "image_price_2k", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
 		{Name: "image_price_4k", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "image_input_price_per_image", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,12)"}},
 		{Name: "image_resolution_1k", Type: field.TypeString, Size: 32, Default: "1024x1024"},
 		{Name: "image_resolution_2k", Type: field.TypeString, Size: 32, Default: "2048x2048"},
 		{Name: "image_resolution_4k", Type: field.TypeString, Size: 32, Default: "4096x4096"},
@@ -1349,7 +1350,7 @@ var (
 			{
 				Name:    "group_sort_order",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[56]},
+				Columns: []*schema.Column{GroupsColumns[57]},
 			},
 			{
 				Name:    "idx_groups_duplicate_operation_id_active",

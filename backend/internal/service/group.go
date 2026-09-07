@@ -49,6 +49,7 @@ type Group struct {
 	ImagePrice1K                 *float64
 	ImagePrice2K                 *float64
 	ImagePrice4K                 *float64
+	ImageInputPricePerImage      *float64
 	ImageResolution1K            string
 	ImageResolution2K            string
 	ImageResolution4K            string
@@ -456,16 +457,17 @@ func (g *Group) BuildImagePriceConfig(rawWidth, rawHeight int, quality string) *
 		return nil
 	}
 	cfg := &ImagePriceConfig{
-		Price1K:       g.ImagePrice1K,
-		Price2K:       g.ImagePrice2K,
-		Price4K:       g.ImagePrice4K,
-		Resolution1K:  g.ImageResolution1K,
-		Resolution2K:  g.ImageResolution2K,
-		Resolution4K:  g.ImageResolution4K,
-		PricingMatrix: g.ImagePricingMatrix,
-		RawWidth:      rawWidth,
-		RawHeight:     rawHeight,
-		Quality:       quality,
+		Price1K:            g.ImagePrice1K,
+		Price2K:            g.ImagePrice2K,
+		Price4K:            g.ImagePrice4K,
+		InputPricePerImage: g.ImageInputPricePerImage,
+		Resolution1K:       g.ImageResolution1K,
+		Resolution2K:       g.ImageResolution2K,
+		Resolution4K:       g.ImageResolution4K,
+		PricingMatrix:      g.ImagePricingMatrix,
+		RawWidth:           rawWidth,
+		RawHeight:          rawHeight,
+		Quality:            quality,
 	}
 	return cfg
 }

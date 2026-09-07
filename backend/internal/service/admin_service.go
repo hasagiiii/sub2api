@@ -236,19 +236,20 @@ type CreateGroupInput struct {
 	VideoRateIndependent         bool
 	VideoRateMultiplier          *float64
 	// 高峰时段倍率配置（PeakRateMultiplier 为 nil 时按 1.0 处理）
-	PeakRateEnabled    bool
-	PeakStart          string
-	PeakEnd            string
-	PeakRateMultiplier *float64
-	ImagePrice1K       *float64
-	ImagePrice2K       *float64
-	ImagePrice4K       *float64
-	ImageResolution1K  string
-	ImageResolution2K  string
-	ImageResolution4K  string
-	VideoPrice480P     *float64
-	VideoPrice720P     *float64
-	VideoPrice1080P    *float64
+	PeakRateEnabled         bool
+	PeakStart               string
+	PeakEnd                 string
+	PeakRateMultiplier      *float64
+	ImagePrice1K            *float64
+	ImagePrice2K            *float64
+	ImagePrice4K            *float64
+	ImageInputPricePerImage *float64
+	ImageResolution1K       string
+	ImageResolution2K       string
+	ImageResolution4K       string
+	VideoPrice480P          *float64
+	VideoPrice720P          *float64
+	VideoPrice1080P         *float64
 	// VideoModelPrices 可选按模型族×分辨率覆盖视频每秒单价。
 	VideoModelPrices     map[string]map[string]float64
 	ImagePricingMatrix   domain.ImagePricingMatrix
@@ -330,19 +331,20 @@ type UpdateGroupInput struct {
 	VideoRateIndependent         *bool
 	VideoRateMultiplier          *float64
 	// 高峰时段倍率配置（nil 表示不修改）
-	PeakRateEnabled    *bool
-	PeakStart          *string
-	PeakEnd            *string
-	PeakRateMultiplier *float64
-	ImagePrice1K       *float64
-	ImagePrice2K       *float64
-	ImagePrice4K       *float64
-	ImageResolution1K  *string
-	ImageResolution2K  *string
-	ImageResolution4K  *string
-	VideoPrice480P     *float64
-	VideoPrice720P     *float64
-	VideoPrice1080P    *float64
+	PeakRateEnabled         *bool
+	PeakStart               *string
+	PeakEnd                 *string
+	PeakRateMultiplier      *float64
+	ImagePrice1K            *float64
+	ImagePrice2K            *float64
+	ImagePrice4K            *float64
+	ImageInputPricePerImage *float64
+	ImageResolution1K       *string
+	ImageResolution2K       *string
+	ImageResolution4K       *string
+	VideoPrice480P          *float64
+	VideoPrice720P          *float64
+	VideoPrice1080P         *float64
 	// VideoModelPrices 可选按模型族×分辨率覆盖；nil 表示不修改，空 map 表示清除。
 	VideoModelPrices     map[string]map[string]float64
 	ImagePricingMatrix   *domain.ImagePricingMatrix

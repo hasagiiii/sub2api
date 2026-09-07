@@ -123,6 +123,10 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.Float("image_input_price_per_image").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,12)"}),
 		field.String("image_resolution_1k").
 			MaxLen(32).
 			Default("1024x1024"),

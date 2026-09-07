@@ -645,6 +645,7 @@ export interface Group {
   image_price_1k: number | null
   image_price_2k: number | null
   image_price_4k: number | null
+  image_input_price_per_image?: number | null
   image_resolution_1k: string
   image_resolution_2k: string
   image_resolution_4k: string
@@ -891,6 +892,7 @@ export interface CreateGroupRequest {
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
+  image_input_price_per_image?: number | null
   image_resolution_1k?: string
   image_resolution_2k?: string
   image_resolution_4k?: string

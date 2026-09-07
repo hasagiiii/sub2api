@@ -1060,6 +1060,10 @@
                   />
                 </div>
               </div>
+              <div class="mt-3 max-w-xs">
+                <label class="input-label">{{ t('admin.groups.imagePricing.inputImagePrice', 'Input image price / image ($)') }}</label>
+                <input v-model.number="createForm.image_input_price_per_image" type="number" step="0.001" min="0" class="input" placeholder="0" />
+              </div>
             </div>
           </details>
 
@@ -3052,6 +3056,10 @@
                     :placeholder="getImagePricePlaceholder(editForm.platform, 'image_price_4k')"
                   />
                 </div>
+              </div>
+              <div class="mt-3 max-w-xs">
+                <label class="input-label">{{ t('admin.groups.imagePricing.inputImagePrice', 'Input image price / image ($)') }}</label>
+                <input v-model.number="editForm.image_input_price_per_image" type="number" step="0.001" min="0" class="input" placeholder="0" />
               </div>
             </div>
           </details>
@@ -5054,6 +5062,7 @@ const emptyGroupPricing = (): PricingFormEntry => ({
   cache_write_1h_price: null,
   cache_read_price: null,
   image_input_price: null,
+  image_input_price_per_image: null,
   image_output_price: null,
   per_request_price: null,
   intervals: [],
@@ -5075,6 +5084,7 @@ const groupPricingFromAPI = (
     cache_write_1h_price: perTokenToMTok(entry.cache_write_1h_price),
     cache_read_price: perTokenToMTok(entry.cache_read_price),
     image_input_price: perTokenToMTok(entry.image_input_price),
+    image_input_price_per_image: entry.image_input_price_per_image,
     image_output_price: perTokenToMTok(entry.image_output_price),
     per_request_price: entry.per_request_price,
     intervals: apiIntervalsToForm(entry.intervals || []),
@@ -5097,6 +5107,7 @@ const groupPricingToAPI = (
       cache_write_1h_price: mTokToPerToken(entry.cache_write_1h_price),
       cache_read_price: mTokToPerToken(entry.cache_read_price),
       image_input_price: mTokToPerToken(entry.image_input_price),
+      image_input_price_per_image: toNullableNumber(entry.image_input_price_per_image),
       image_output_price: mTokToPerToken(entry.image_output_price),
       per_request_price: toNullableNumber(entry.per_request_price),
       intervals:
@@ -5632,6 +5643,7 @@ const createForm = reactive({
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
+  image_input_price_per_image: null as number | null,
   image_resolution_1k: "1024x1024",
   image_resolution_2k: "2048x2048",
   image_resolution_4k: "4096x4096",
@@ -6018,6 +6030,7 @@ const editForm = reactive({
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
+  image_input_price_per_image: null as number | null,
   image_resolution_1k: "1024x1024",
   image_resolution_2k: "2048x2048",
   image_resolution_4k: "4096x4096",
@@ -6098,6 +6111,7 @@ type ImagePricingFormState = {
   image_price_1k: number | string | null;
   image_price_2k: number | string | null;
   image_price_4k: number | string | null;
+  image_input_price_per_image: number | string | null;
   peak_rate_enabled: boolean;
   peak_start: string;
   peak_end: string;
@@ -6491,6 +6505,7 @@ const closeCreateModal = () => {
   createForm.image_price_1k = null;
   createForm.image_price_2k = null;
   createForm.image_price_4k = null;
+  createForm.image_input_price_per_image = null;
   createForm.image_resolution_1k = "1024x1024";
   createForm.image_resolution_2k = "2048x2048";
   createForm.image_resolution_4k = "4096x4096";
@@ -6821,6 +6836,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.image_price_1k = group.image_price_1k;
   editForm.image_price_2k = group.image_price_2k;
   editForm.image_price_4k = group.image_price_4k;
+  editForm.image_input_price_per_image = group.image_input_price_per_image ?? null;
   editForm.image_resolution_1k = group.image_resolution_1k || "1024x1024";
   editForm.image_resolution_2k = group.image_resolution_2k || "2048x2048";
   editForm.image_resolution_4k = group.image_resolution_4k || "4096x4096";

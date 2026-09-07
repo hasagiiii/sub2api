@@ -386,6 +386,20 @@ func (_c *GroupCreate) SetNillableImagePrice4k(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetImageInputPricePerImage sets the "image_input_price_per_image" field.
+func (_c *GroupCreate) SetImageInputPricePerImage(v float64) *GroupCreate {
+	_c.mutation.SetImageInputPricePerImage(v)
+	return _c
+}
+
+// SetNillableImageInputPricePerImage sets the "image_input_price_per_image" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableImageInputPricePerImage(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetImageInputPricePerImage(*v)
+	}
+	return _c
+}
+
 // SetImageResolution1k sets the "image_resolution_1k" field.
 func (_c *GroupCreate) SetImageResolution1k(v string) *GroupCreate {
 	_c.mutation.SetImageResolution1k(v)
@@ -1806,6 +1820,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldImagePrice4k, field.TypeFloat64, value)
 		_node.ImagePrice4k = &value
 	}
+	if value, ok := _c.mutation.ImageInputPricePerImage(); ok {
+		_spec.SetField(group.FieldImageInputPricePerImage, field.TypeFloat64, value)
+		_node.ImageInputPricePerImage = &value
+	}
 	if value, ok := _c.mutation.ImageResolution1k(); ok {
 		_spec.SetField(group.FieldImageResolution1k, field.TypeString, value)
 		_node.ImageResolution1k = value
@@ -2563,6 +2581,30 @@ func (u *GroupUpsert) AddImagePrice4k(v float64) *GroupUpsert {
 // ClearImagePrice4k clears the value of the "image_price_4k" field.
 func (u *GroupUpsert) ClearImagePrice4k() *GroupUpsert {
 	u.SetNull(group.FieldImagePrice4k)
+	return u
+}
+
+// SetImageInputPricePerImage sets the "image_input_price_per_image" field.
+func (u *GroupUpsert) SetImageInputPricePerImage(v float64) *GroupUpsert {
+	u.Set(group.FieldImageInputPricePerImage, v)
+	return u
+}
+
+// UpdateImageInputPricePerImage sets the "image_input_price_per_image" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateImageInputPricePerImage() *GroupUpsert {
+	u.SetExcluded(group.FieldImageInputPricePerImage)
+	return u
+}
+
+// AddImageInputPricePerImage adds v to the "image_input_price_per_image" field.
+func (u *GroupUpsert) AddImageInputPricePerImage(v float64) *GroupUpsert {
+	u.Add(group.FieldImageInputPricePerImage, v)
+	return u
+}
+
+// ClearImageInputPricePerImage clears the value of the "image_input_price_per_image" field.
+func (u *GroupUpsert) ClearImageInputPricePerImage() *GroupUpsert {
+	u.SetNull(group.FieldImageInputPricePerImage)
 	return u
 }
 
@@ -3895,6 +3937,34 @@ func (u *GroupUpsertOne) UpdateImagePrice4k() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearImagePrice4k() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearImagePrice4k()
+	})
+}
+
+// SetImageInputPricePerImage sets the "image_input_price_per_image" field.
+func (u *GroupUpsertOne) SetImageInputPricePerImage(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageInputPricePerImage(v)
+	})
+}
+
+// AddImageInputPricePerImage adds v to the "image_input_price_per_image" field.
+func (u *GroupUpsertOne) AddImageInputPricePerImage(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddImageInputPricePerImage(v)
+	})
+}
+
+// UpdateImageInputPricePerImage sets the "image_input_price_per_image" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateImageInputPricePerImage() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageInputPricePerImage()
+	})
+}
+
+// ClearImageInputPricePerImage clears the value of the "image_input_price_per_image" field.
+func (u *GroupUpsertOne) ClearImageInputPricePerImage() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearImageInputPricePerImage()
 	})
 }
 
@@ -5530,6 +5600,34 @@ func (u *GroupUpsertBulk) UpdateImagePrice4k() *GroupUpsertBulk {
 func (u *GroupUpsertBulk) ClearImagePrice4k() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearImagePrice4k()
+	})
+}
+
+// SetImageInputPricePerImage sets the "image_input_price_per_image" field.
+func (u *GroupUpsertBulk) SetImageInputPricePerImage(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageInputPricePerImage(v)
+	})
+}
+
+// AddImageInputPricePerImage adds v to the "image_input_price_per_image" field.
+func (u *GroupUpsertBulk) AddImageInputPricePerImage(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddImageInputPricePerImage(v)
+	})
+}
+
+// UpdateImageInputPricePerImage sets the "image_input_price_per_image" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateImageInputPricePerImage() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageInputPricePerImage()
+	})
+}
+
+// ClearImageInputPricePerImage clears the value of the "image_input_price_per_image" field.
+func (u *GroupUpsertBulk) ClearImageInputPricePerImage() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearImageInputPricePerImage()
 	})
 }
 

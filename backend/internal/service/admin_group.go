@@ -257,7 +257,7 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		}
 		return ids
 	case PlatformBytedance:
-		return []string{domain.SeedreamModel}
+		return []string{domain.SeedreamEditModel, domain.SeedreamLayerModel, domain.SeedreamTextToImageModel}
 	case PlatformComposite:
 		return compositeDefaultModelsListCandidateIDs()
 	default:
@@ -364,6 +364,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	imagePrice1K := normalizePrice(input.ImagePrice1K)
 	imagePrice2K := normalizePrice(input.ImagePrice2K)
 	imagePrice4K := normalizePrice(input.ImagePrice4K)
+	imageInputPricePerImage := normalizePrice(input.ImageInputPricePerImage)
 	imageResolutions, err := normalizeGroupImageTierResolutions(
 		input.ImageResolution1K, input.ImageResolution2K, input.ImageResolution4K,
 	)
@@ -541,6 +542,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ImagePrice1K:                    imagePrice1K,
 		ImagePrice2K:                    imagePrice2K,
 		ImagePrice4K:                    imagePrice4K,
+		ImageInputPricePerImage:         imageInputPricePerImage,
 		ImageResolution1K:               imageResolutions[0],
 		ImageResolution2K:               imageResolutions[1],
 		ImageResolution4K:               imageResolutions[2],
@@ -864,6 +866,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.ImagePrice4K != nil {
 		group.ImagePrice4K = normalizePrice(input.ImagePrice4K)
+	}
+	if input.ImageInputPricePerImage != nil {
+		group.ImageInputPricePerImage = normalizePrice(input.ImageInputPricePerImage)
 	}
 	resolution1K := group.ImageResolution1K
 	resolution2K := group.ImageResolution2K

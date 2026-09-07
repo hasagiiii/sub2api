@@ -41,10 +41,14 @@ func (s *AsyncMediaService) submitBytedance(ctx context.Context, in *AsyncMediaS
 		return nil, errors.New("bytedance execution repository unavailable")
 	}
 	model := in.Account.GetMappedModel(in.RequestedModel)
-	payload, metadata, err := bytedance.NormalizeRequest(in.RawRequestBody, model)
+	if domain.IsSeedreamPublicModel(in.RequestedModel) {
+		model = domain.SeedreamModel
+	}
+	payload, metadata, err := bytedance.NormalizeRequest(in.RawRequestBody, in.RequestedModel)
 	if err != nil {
 		return nil, err
 	}
+	payload["model"] = model
 	if in.InternalRequestID == "" {
 		in.InternalRequestID = uuid.NewString()
 	}
@@ -77,11 +81,13 @@ func (s *AsyncMediaService) submitBytedance(ctx context.Context, in *AsyncMediaS
 	if payload["layer_decomposition"] == true {
 		count = 16
 	}
+	inputImageCount := bytedanceInputImageCount(payload)
 	unitPrice, _, err := s.estimateCost(ctx, in.RequestedModel, model, in.GroupID, size, tier, "", 1, in.RateMultiplier)
 	if err != nil {
 		return nil, err
 	}
-	held := unitPrice * float64(count) * in.RateMultiplier
+	inputImagePrice := s.resolveImageInputPrice(ctx, in.RequestedModel, model, in.GroupID)
+	held := (unitPrice*float64(count) + inputImagePrice*float64(inputImageCount)) * in.RateMultiplier
 	billing := &BillingContext{ConsumerUserID: in.UserID, PayerUserID: in.UserID, BalanceSource: BalanceSourceSelf}
 	if s.billingContextResolver != nil {
 		billing, err = s.billingContextResolver.ResolveForAmount(ctx, in.UserID, held)
@@ -94,6 +100,8 @@ func (s *AsyncMediaService) submitBytedance(ctx context.Context, in *AsyncMediaS
 		parameters[key] = value
 	}
 	parameters["_provider"] = PlatformBytedance
+	parameters["input_image_price_per_image"] = inputImagePrice
+	parameters["input_image_count"] = inputImageCount
 	parameters["_account_rate_multiplier"] = in.Account.BillingRateMultiplier()
 	deadline := time.Now().Add(s.failTimeout)
 	base := strings.TrimRight(in.Account.GetCredential("base_url"), "/")
@@ -106,7 +114,7 @@ func (s *AsyncMediaService) submitBytedance(ctx context.Context, in *AsyncMediaS
 		Facade: AsyncMediaFacadeFal, RequestedModel: in.RequestedModel, UpstreamModel: amStrPtr(model), ImageSize: amStrPtr(size), SizeTier: amStrPtr(tier), NumImages: count,
 		RequestParameters: parameters, Status: AsyncMediaStatusPending, HeldCost: held, RateMultiplier: in.RateMultiplier, FailDeadlineAt: &deadline,
 		ClientIP: amStrPtr(in.ClientIP), UserAgent: amStrPtr(in.UserAgent), InboundEndpoint: amStrPtr(in.InboundEndpoint), UpstreamEndpoint: amStrPtr(base + "/images/generations"), statusCacheUpstream: PlatformBytedance}
-	e := &BytedanceExecution{RequestPayload: payload, BillingType: in.BillingType, UnitPrice: unitPrice}
+	e := &BytedanceExecution{RequestPayload: payload, BillingType: in.BillingType, UnitPrice: unitPrice, InputImagePrice: inputImagePrice, InputImageCount: inputImageCount}
 	if err = repo.CreateBytedance(ctx, task, e); err != nil {
 		return nil, err
 	}
@@ -275,7 +283,7 @@ func (s *AsyncMediaService) settleBytedanceResult(ctx context.Context, task *Asy
 		}
 	}
 	count, countErr := bytedance.BillableImages(e.ResultPayload, e.RequestPayload["layer_decomposition"] == true)
-	final := e.UnitPrice * float64(count) * task.RateMultiplier
+	final := (e.UnitPrice*float64(count) + e.InputImagePrice*float64(e.InputImageCount)) * task.RateMultiplier
 	reason := ""
 	if countErr != nil {
 		count = -1
@@ -288,6 +296,40 @@ func (s *AsyncMediaService) settleBytedanceResult(ctx context.Context, task *Asy
 	}
 	s.refreshBytedanceStatus(ctx, task)
 	return err
+}
+
+func bytedanceInputImageCount(payload map[string]any) int {
+	switch v := payload["image"].(type) {
+	case string:
+		if strings.TrimSpace(v) != "" {
+			return 1
+		}
+	case []any:
+		return len(v)
+	case []string:
+		return len(v)
+	}
+	return 0
+}
+
+func (s *AsyncMediaService) resolveImageInputPrice(ctx context.Context, requestedModel, upstreamModel string, groupID *int64) float64 {
+	if s == nil || s.resolver == nil {
+		return 0
+	}
+	group, _ := s.loadPricingGroup(ctx, groupID)
+	for _, model := range imagePricingModelCandidates(requestedModel, upstreamModel) {
+		resolved := s.resolver.Resolve(ctx, PricingInput{Model: model, GroupID: groupID, Group: group})
+		if resolved == nil || (resolved.Mode != BillingModeImage && resolved.Mode != BillingModePerRequest) || resolved.channelPricing == nil || resolved.channelPricing.ImageInputPricePerImage == nil {
+			continue
+		}
+		if price := *resolved.channelPricing.ImageInputPricePerImage; price > 0 {
+			return price
+		}
+	}
+	if group != nil && group.ImageInputPricePerImage != nil && *group.ImageInputPricePerImage > 0 {
+		return *group.ImageInputPricePerImage
+	}
+	return 0
 }
 
 func (s *AsyncMediaService) cancelBytedance(ctx context.Context, task *AsyncMediaTask) error {
@@ -390,7 +432,11 @@ func BytedanceTerminalUsageInput(task *AsyncMediaTask, count int, finalCost, uni
 	}
 	delete(parameters, "_account_rate_multiplier")
 	delete(parameters, "_provider")
-	total := unitPrice * float64(count)
+	inputPrice := 0.0
+	if raw, ok := parameters["input_image_price_per_image"].(float64); ok && raw > 0 {
+		inputPrice = raw
+	}
+	total := unitPrice*float64(count) + inputPrice*float64(parametersInt(parameters, "input_image_count"))
 	if status == BillingStatusFailed {
 		total = asyncMediaBaseCost(task.HeldCost, task.RateMultiplier)
 	}
@@ -400,4 +446,20 @@ func BytedanceTerminalUsageInput(task *AsyncMediaTask, count int, finalCost, uni
 		TotalCost: total, ActualCost: finalCost, RateMultiplier: task.RateMultiplier, AccountRateMultiplier: &accountRate, BillingType: billingType, RequestType: int16(RequestTypeSync),
 		ImageCount: count, ImageSize: asyncMediaUsageLogImageSize(task), ImageInputSize: amDerefStr(task.ImageSize), BillingTier: amDerefStr(task.SizeTier), RequestParameters: parameters,
 		TaskID: task.ID, ImageURLs: task.ImageURLs, CosURLs: task.CosURLs, BillingStatus: status, ClientIP: amDerefStr(task.ClientIP), UserAgent: amDerefStr(task.UserAgent), InboundEndpoint: amDerefStr(task.InboundEndpoint), UpstreamEndpoint: amDerefStr(task.UpstreamEndpoint), DurationMs: asyncMediaDurationMs(task)}
+}
+
+func parametersInt(parameters map[string]any, key string) int {
+	if n, ok := parameters[key].(int); ok {
+		return n
+	}
+	if n, ok := parameters[key].(float64); ok && n >= 0 {
+		return int(n)
+	}
+	if n, ok := parameters[key].(json.Number); ok {
+		value, err := n.Int64()
+		if err == nil && value >= 0 {
+			return int(value)
+		}
+	}
+	return 0
 }

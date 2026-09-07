@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 )
 
@@ -454,6 +455,39 @@ func (r *ModelPricingResolver) GetImageTierPrice(resolved *ResolvedPricing, dime
 		return 0, "", err
 	}
 	return r.GetRequestTierPriceWithQuality(resolved, matched.Label, NormalizeImageQuality(quality)), matched.Label, nil
+}
+
+func (r *ModelPricingResolver) GetImagePixelTierPrice(resolved *ResolvedPricing, dimensions ImageDimensions, quality string) (float64, string, error) {
+	if resolved == nil {
+		return 0, "", fmt.Errorf("image pricing is unavailable")
+	}
+	type tier struct{ iv PricingInterval }
+	var tiers []tier
+	for _, iv := range resolved.RequestTiers {
+		if iv.MaxPixels != nil || strings.TrimSpace(iv.Resolution) == "" {
+			tiers = append(tiers, tier{iv})
+		}
+	}
+	if len(tiers) == 0 {
+		return 0, "", fmt.Errorf("no pixel pricing tiers configured")
+	}
+	sort.SliceStable(tiers, func(i, j int) bool {
+		if tiers[i].iv.MaxPixels == nil {
+			return false
+		}
+		if tiers[j].iv.MaxPixels == nil {
+			return true
+		}
+		return *tiers[i].iv.MaxPixels < *tiers[j].iv.MaxPixels
+	})
+	pixels := dimensions.Pixels()
+	for _, t := range tiers {
+		if t.iv.MaxPixels == nil || pixels <= *t.iv.MaxPixels {
+			return r.GetRequestTierPriceWithQuality(resolved, t.iv.TierLabel, quality), t.iv.TierLabel, nil
+		}
+	}
+	last := tiers[len(tiers)-1].iv
+	return r.GetRequestTierPriceWithQuality(resolved, last.TierLabel, quality), last.TierLabel, nil
 }
 
 // GetRequestTierPriceByContext 根据 context token 数获取按次价格
