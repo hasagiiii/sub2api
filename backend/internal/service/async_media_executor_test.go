@@ -538,6 +538,41 @@ func TestAsyncMedia_SubmitAndSucceed_RefundsDelta(t *testing.T) {
 	require.Equal(t, "1536x1024", usage.ImageOutputSize)
 }
 
+func TestAsyncMediaSubmitInlineCompletesAndSettles(t *testing.T) {
+	const model = "gemini-3.1-flash-image"
+	groupID := int64(41)
+	resolver := newImageBillingResolver(t, groupID, model, 0.08)
+	userRepo := &fakeUserRepo{balance: 1}
+	taskRepo := newFakeTaskRepo()
+	svc := NewAsyncMediaService(taskRepo, userRepo, nil, newTestBillingService(), resolver, nil)
+	account := &Account{ID: 9, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive}
+	in := newSubmitInput(account, groupID, 1)
+	in.RequestedModel = model
+	in.Input = fal.ImageGenInput{Prompt: "draw", Size: "1K", N: 1}
+	in.RequestParameters = map[string]any{"prompt": "draw"}
+
+	task, err := svc.SubmitInline(context.Background(), in, func(context.Context) (*AsyncMediaInlineResult, error) {
+		return &AsyncMediaInlineResult{
+			RequestID:        "gemini-request-1",
+			ImageURLs:        []string{"https://cdn.example.test/image.png"},
+			COSURLs:          []string{"https://cdn.example.test/image.png"},
+			ImageOutputSizes: []string{"1024x1024"},
+			ImageMetadata: []ImageOutputMetadata{{
+				URL: "https://cdn.example.test/image.png", ContentType: "image/png", Width: 1024, Height: 1024,
+			}},
+			ResultPayload: map[string]any{"images": []any{map[string]any{"url": "https://cdn.example.test/image.png"}}},
+		}, nil
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, AsyncMediaStatusSucceeded, task.Status)
+	require.Equal(t, "gemini-request-1", amDerefStr(task.UpstreamRequestID))
+	require.InDelta(t, 0.08, task.FinalCost, 1e-9)
+	require.InDelta(t, 0.92, userRepo.balance, 1e-9)
+	require.Equal(t, []string{"https://cdn.example.test/image.png"}, task.ResultURLs())
+	require.Equal(t, 1, taskRepo.usageLogCount())
+}
+
 func TestAsyncMediaEstimateCostUsesGroupModelPricingForRequestedAndUpstreamModels(t *testing.T) {
 	const (
 		requestedModel = "openai/gpt-image-2"

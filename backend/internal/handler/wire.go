@@ -322,7 +322,7 @@ var ProviderSet = wire.NewSet(
 	ProvideGatewayHandler,
 	ProvideOpenAIGatewayHandler,
 	NewImageGatewayHandler,
-	NewModelAPIGatewayHandler,
+	ProvideModelAPIGatewayHandler,
 	NewTotpHandler,
 	NewPasskeyHandler,
 	ProvideSettingHandler,

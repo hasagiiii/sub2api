@@ -19,6 +19,7 @@ func TestIsImageGenerationModel_GeminiProImage(t *testing.T) {
 func TestIsImageGenerationModel_GeminiFlashImage(t *testing.T) {
 	require.True(t, isImageGenerationModel("gemini-2.5-flash-image"))
 	require.True(t, isImageGenerationModel("gemini-2.5-flash-image-preview"))
+	require.True(t, isImageGenerationModel("gemini-3.1-flash-lite-image"))
 }
 
 // TestIsImageGenerationModel_RegularModel 测试普通模型不被识别为图片模型
@@ -55,6 +56,14 @@ func TestExtractImageSize_ValidSizes(t *testing.T) {
 	// 4K
 	body = []byte(`{"generationConfig":{"imageConfig":{"imageSize":"4K"}}}`)
 	require.Equal(t, "4K", NormalizeImageBillingTierOrDefault(svc.extractImageInputSize(body)))
+
+	// Current Gemini REST shape.
+	body = []byte(`{"generationConfig":{"responseFormat":{"image":{"imageSize":"512"}}}}`)
+	require.Equal(t, "512", svc.extractImageInputSize(body))
+	require.Equal(t, "1K", NormalizeImageBillingTierOrDefault(svc.extractImageInputSize(body)))
+
+	geminiSvc := &GeminiMessagesCompatService{}
+	require.Equal(t, "512", geminiSvc.extractImageInputSize(body))
 }
 
 // TestExtractImageSize_CaseInsensitive 测试大小写不敏感

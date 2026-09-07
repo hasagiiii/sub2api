@@ -35,6 +35,27 @@ type ModelAPIGatewayHandler struct {
 	mediaService   *service.AsyncMediaService
 	videoService   *service.AsyncVideoService
 	settingService *service.SettingService
+	geminiService  *service.GeminiMessagesCompatService
+	cosService     *service.COSImageTransferService
+}
+
+// ProvideModelAPIGatewayHandler adds the Gemini image-generation dependencies
+// used by production wiring while keeping the smaller constructor convenient
+// for focused handler tests.
+func ProvideModelAPIGatewayHandler(
+	gatewayService *service.GatewayService,
+	imagesService *service.OpenAIGatewayService,
+	accountService *service.AccountService,
+	mediaService *service.AsyncMediaService,
+	videoService *service.AsyncVideoService,
+	settingService *service.SettingService,
+	geminiService *service.GeminiMessagesCompatService,
+	cosService *service.COSImageTransferService,
+) *ModelAPIGatewayHandler {
+	h := NewModelAPIGatewayHandler(gatewayService, imagesService, accountService, mediaService, videoService, settingService)
+	h.geminiService = geminiService
+	h.cosService = cosService
+	return h
 }
 
 type modelAPIStatusResponse struct {
@@ -150,6 +171,20 @@ func (h *ModelAPIGatewayHandler) nativeSubmit(c *gin.Context, model string) {
 	knownImageModel := modelAPIIsKnownImageModel(model)
 	if knownImageModel && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.jsonError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
+		return
+	}
+	if service.IsGeminiImageGenerationModel(model) {
+		if h.geminiService == nil || h.mediaService == nil {
+			h.jsonError(c, http.StatusServiceUnavailable, "api_error", "Gemini image generation is unavailable")
+			return
+		}
+		account, selectErr := h.selectGeminiImageAccount(c.Request.Context(), apiKey.GroupID, apiKey.Group, model)
+		if selectErr != nil || account == nil {
+			reqLog.Warn("model_api.no_available_gemini_image_account", zap.Error(selectErr))
+			h.jsonError(c, http.StatusServiceUnavailable, "api_error", "no available Gemini image account")
+			return
+		}
+		h.nativeGeminiImageSubmit(c, apiKey, subject, reqLog, model, payload, account)
 		return
 	}
 	// Explicit video operation slugs must bypass the image-account probe. Besides
@@ -712,6 +747,9 @@ func modelAPIIsKnownImageModel(model string) bool {
 		if service.IsGPTImageGenerationModel(segment) {
 			return true
 		}
+	}
+	if service.IsGeminiImageGenerationModel(normalized) {
+		return true
 	}
 	if _, ok := domain.DefaultFalModelMapping[normalized]; ok {
 		return true

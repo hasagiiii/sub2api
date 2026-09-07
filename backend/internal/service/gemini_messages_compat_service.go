@@ -3822,6 +3822,11 @@ func (s *GeminiMessagesCompatService) extractImageInputSize(body []byte) string 
 			ImageConfig *struct {
 				ImageSize string `json:"imageSize"`
 			} `json:"imageConfig"`
+			ResponseFormat *struct {
+				Image *struct {
+					ImageSize string `json:"imageSize"`
+				} `json:"image"`
+			} `json:"responseFormat"`
 		} `json:"generationConfig"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -3830,6 +3835,9 @@ func (s *GeminiMessagesCompatService) extractImageInputSize(body []byte) string 
 
 	if req.GenerationConfig != nil && req.GenerationConfig.ImageConfig != nil {
 		return strings.TrimSpace(req.GenerationConfig.ImageConfig.ImageSize)
+	}
+	if req.GenerationConfig != nil && req.GenerationConfig.ResponseFormat != nil && req.GenerationConfig.ResponseFormat.Image != nil {
+		return strings.TrimSpace(req.GenerationConfig.ResponseFormat.Image.ImageSize)
 	}
 
 	return ""

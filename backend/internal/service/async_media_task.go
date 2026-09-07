@@ -21,6 +21,7 @@ const (
 const (
 	AsyncMediaFacadeOpenAI = "openai" // OpenAI 伪同步门面
 	AsyncMediaFacadeFal    = "fal"    // fal 原生异步门面
+	AsyncMediaFacadeGemini = "gemini" // Gemini 同步生成、异步任务门面
 )
 
 // 计费状态常量（写入 usage_logs.billing_status）。

@@ -14,7 +14,7 @@ import (
 func TestCreateGeminiTestPayload_ImageModel(t *testing.T) {
 	t.Parallel()
 
-	payload := createGeminiTestPayload("gemini-2.5-flash-image", "draw a tiny robot")
+	payload := createGeminiTestPayload("gemini-2.5-flash-image", "draw a tiny robot", false)
 
 	var parsed struct {
 		Contents []struct {
@@ -24,9 +24,11 @@ func TestCreateGeminiTestPayload_ImageModel(t *testing.T) {
 		} `json:"contents"`
 		GenerationConfig struct {
 			ResponseModalities []string `json:"responseModalities"`
-			ImageConfig        struct {
-				AspectRatio string `json:"aspectRatio"`
-			} `json:"imageConfig"`
+			ResponseFormat     struct {
+				Image struct {
+					AspectRatio string `json:"aspectRatio"`
+				} `json:"image"`
+			} `json:"responseFormat"`
 		} `json:"generationConfig"`
 	}
 
@@ -35,7 +37,10 @@ func TestCreateGeminiTestPayload_ImageModel(t *testing.T) {
 	require.Len(t, parsed.Contents[0].Parts, 1)
 	require.Equal(t, "draw a tiny robot", parsed.Contents[0].Parts[0].Text)
 	require.Equal(t, []string{"TEXT", "IMAGE"}, parsed.GenerationConfig.ResponseModalities)
-	require.Equal(t, "1:1", parsed.GenerationConfig.ImageConfig.AspectRatio)
+	require.Equal(t, "1:1", parsed.GenerationConfig.ResponseFormat.Image.AspectRatio)
+
+	legacyPayload := createGeminiTestPayload("gemini-2.5-flash-image", "draw a tiny robot", true)
+	require.Contains(t, string(legacyPayload), `"imageConfig":{"aspectRatio":"1:1"}`)
 }
 
 func TestProcessGeminiStream_EmitsImageEvent(t *testing.T) {

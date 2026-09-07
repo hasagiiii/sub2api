@@ -198,6 +198,18 @@ type AsyncMediaSubmitInput struct {
 	InboundEndpoint string // 对外门面端点（客户端可见路径）
 }
 
+// AsyncMediaInlineResult is produced by synchronous image providers that are
+// exposed through the asynchronous media facade. URLs must already be public
+// and stable; COSURLs identifies the subset persisted in object storage.
+type AsyncMediaInlineResult struct {
+	RequestID        string
+	ImageURLs        []string
+	COSURLs          []string
+	ImageOutputSizes []string
+	ImageMetadata    []ImageOutputMetadata
+	ResultPayload    map[string]any
+}
+
 // SubmitAsync 提交一个异步媒体任务：预扣费 → 落库 → 提交上游 → 置 running。
 //
 // 任一前置步骤失败将回滚已扣余额并返回错误；任务一旦成功提交即进入 running，
@@ -223,6 +235,91 @@ func (s *AsyncMediaService) SubmitAsync(ctx context.Context, in *AsyncMediaSubmi
 	}
 
 	upstreamModel := s.resolveUpstreamModel(in.Account, in.RequestedModel, in.Input.IsEdit)
+	task, err := s.prepareTask(ctx, in, upstreamModel)
+	if err != nil {
+		return nil, err
+	}
+
+	requestID, statusURL, responseURL, err := s.submitUpstream(ctx, in, upstreamModel)
+	if err != nil {
+		s.markFailedAndRefund(ctx, task, in.BillingType, "submit: "+err.Error())
+		return task, fmt.Errorf("async media: submit: %w", err)
+	}
+	s.markTaskRunning(ctx, task, in.Account, requestID, statusURL, responseURL)
+	if s.backgroundPolling {
+		s.startBackgroundPolling(task, in.Account, in.BillingType)
+	}
+	s.scheduleAccountLastUsed(in.Account)
+	return task, nil
+}
+
+// SubmitInline preserves the async media task contract for providers whose
+// generation API completes synchronously, such as Gemini generateContent.
+func (s *AsyncMediaService) SubmitInline(
+	ctx context.Context,
+	in *AsyncMediaSubmitInput,
+	generate func(context.Context) (*AsyncMediaInlineResult, error),
+) (*AsyncMediaTask, error) {
+	if in == nil {
+		return nil, errors.New("nil async media submit input")
+	}
+	if in.Account == nil {
+		return nil, errors.New("async media: account is required")
+	}
+	if generate == nil {
+		return nil, errors.New("async media: inline generator is required")
+	}
+	if strings.TrimSpace(in.InternalRequestID) == "" {
+		in.InternalRequestID = uuid.NewString()
+	}
+	if !in.RateMultiplierSet && in.RateMultiplier == 0 {
+		in.RateMultiplier = 1
+	}
+
+	upstreamModel := strings.TrimSpace(in.Account.GetMappedModel(in.RequestedModel))
+	if upstreamModel == "" {
+		upstreamModel = strings.TrimSpace(in.RequestedModel)
+	}
+	task, err := s.prepareTask(ctx, in, upstreamModel)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := generate(ctx)
+	if err != nil {
+		s.markFailedAndRefund(ctx, task, in.BillingType, "submit: "+err.Error())
+		return task, fmt.Errorf("async media: submit: %w", err)
+	}
+	if result == nil || len(result.ImageURLs) == 0 {
+		err = errors.New("upstream returned no images")
+		s.markFailedAndRefund(ctx, task, in.BillingType, err.Error())
+		return task, fmt.Errorf("async media: submit: %w", err)
+	}
+	requestID := strings.TrimSpace(result.RequestID)
+	if requestID == "" {
+		requestID = in.InternalRequestID
+	}
+	s.markTaskRunning(ctx, task, in.Account, requestID, "", "")
+	s.scheduleAccountLastUsed(in.Account)
+	task.ImageMetadata = append([]ImageOutputMetadata(nil), result.ImageMetadata...)
+	s.markSucceededWithStorage(
+		ctx,
+		task,
+		in.Account.BillingRateMultiplier(),
+		in.BillingType,
+		result.ImageURLs,
+		result.COSURLs,
+		result.ImageOutputSizes,
+		result.ResultPayload,
+		true,
+	)
+	if task.Status != AsyncMediaStatusSucceeded {
+		return task, errors.New("async media: failed to persist completed inline task")
+	}
+	return task, nil
+}
+
+func (s *AsyncMediaService) prepareTask(ctx context.Context, in *AsyncMediaSubmitInput, upstreamModel string) (*AsyncMediaTask, error) {
 	rawSize := in.Input.Size
 	sizeTier := NormalizeImageBillingTierOrDefault(rawSize)
 	quality := fal.MapQualityToFal(in.Input.Quality)
@@ -283,12 +380,10 @@ func (s *AsyncMediaService) SubmitAsync(ctx context.Context, in *AsyncMediaSubmi
 		s.refund(ctx, in.BillingType, billingContext, heldCost)
 		return nil, fmt.Errorf("async media: create task: %w", err)
 	}
+	return task, nil
+}
 
-	requestID, statusURL, responseURL, err := s.submitUpstream(ctx, in, upstreamModel)
-	if err != nil {
-		s.markFailedAndRefund(ctx, task, in.BillingType, "submit: "+err.Error())
-		return task, fmt.Errorf("async media: submit: %w", err)
-	}
+func (s *AsyncMediaService) markTaskRunning(ctx context.Context, task *AsyncMediaTask, account *Account, requestID, statusURL, responseURL string) {
 	if err := s.taskRepo.UpdateUpstreamRef(ctx, task.ID, requestID, statusURL, responseURL); err != nil {
 		logger.L().Warn("async_media.update_upstream_ref_failed",
 			zap.Int64("task_id", task.ID), zap.Error(err))
@@ -298,17 +393,16 @@ func (s *AsyncMediaService) SubmitAsync(ctx context.Context, in *AsyncMediaSubmi
 	task.ResponseURL = amStrPtr(responseURL)
 	task.Status = AsyncMediaStatusRunning
 	task.UpdatedAt = time.Now().UTC()
-	task.statusCacheUpstream = in.Account.Platform
+	if account != nil {
+		task.statusCacheUpstream = account.Platform
+	}
 	s.cacheTaskStatus(ctx, task)
-	if s.backgroundPolling {
-		s.startBackgroundPolling(task, in.Account, in.BillingType)
-	}
+}
 
-	// 账号已成功向上游提交任务，视为本次被使用：记录 last_used_at（延迟批量刷库）。
-	if s.deferred != nil {
-		s.deferred.ScheduleLastUsedUpdate(in.Account.ID)
+func (s *AsyncMediaService) scheduleAccountLastUsed(account *Account) {
+	if s.deferred != nil && account != nil {
+		s.deferred.ScheduleLastUsedUpdate(account.ID)
 	}
-	return task, nil
 }
 
 // WaitForTerminal 伪同步阻塞等待任务终态，直到出图成功、明确失败或 ctx 超时。
@@ -763,15 +857,27 @@ func (s *AsyncMediaService) lookupModelIntro(ctx context.Context, model string) 
 
 // markSucceeded 成功结算：转存 COS、结算 finalCost（退差）、置 succeeded、终态写 usage_log。
 func (s *AsyncMediaService) markSucceeded(ctx context.Context, task *AsyncMediaTask, accountRateMultiplier float64, billingType int8, imageURLs, imageOutputSizes []string, resultPayload map[string]any) {
+	s.markSucceededWithStorage(ctx, task, accountRateMultiplier, billingType, imageURLs, nil, imageOutputSizes, resultPayload, false)
+}
+
+func (s *AsyncMediaService) markSucceededWithStorage(
+	ctx context.Context,
+	task *AsyncMediaTask,
+	accountRateMultiplier float64,
+	billingType int8,
+	imageURLs, storedCOSURLs, imageOutputSizes []string,
+	resultPayload map[string]any,
+	storageResolved bool,
+) {
 	// COS 转存成功时复用已下载图片解析尺寸；未启用 COS 时，才从原图文件头补测。
-	var cosURLs []string
+	cosURLs := append([]string(nil), storedCOSURLs...)
 	// TransferImagesWithSizes already retries each source URL up to the configured
 	// limit. Once that transfer attempt has run, do not probe the same URLs again
 	// just to discover dimensions: a failed transfer must fall back to the
 	// original upstream URLs without another download.
 	transferAttempted := false
 	imageOutputSizes = mergeImageOutputSizes(imageOutputSizes, nil, len(imageURLs))
-	if s.cos != nil {
+	if s.cos != nil && !storageResolved {
 		if s.cos.IsEnabled(ctx) {
 			transferAttempted = true
 			transferred, transferredSizes, ok := s.cos.TransferImagesWithSizes(ctx, imageURLs)
@@ -1710,6 +1816,9 @@ func falUpstreamEndpoint(upstreamModel string) string {
 func asyncImageUpstreamEndpoint(account *Account, upstreamModel string) string {
 	if account != nil && account.Platform == PlatformLeonardo {
 		return strings.TrimRight(account.LeonardoBaseURL(), "/") + "/v1/tasks"
+	}
+	if account != nil && (account.Platform == PlatformGemini || account.Platform == PlatformAntigravity) {
+		return "/v1beta/models/" + strings.Trim(strings.TrimSpace(upstreamModel), "/") + ":generateContent"
 	}
 	return falUpstreamEndpoint(upstreamModel)
 }

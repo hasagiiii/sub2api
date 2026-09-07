@@ -2421,7 +2421,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	c.Writer.Flush()
 
 	// Create test payload (Gemini format)
-	payload := createGeminiTestPayload(testModelID, prompt)
+	payload := createGeminiTestPayload(testModelID, prompt, account.Type != AccountTypeAPIKey)
 
 	// Build request based on account type
 	var req *http.Request
@@ -2650,13 +2650,22 @@ func (s *AccountTestService) buildCodeAssistRequest(ctx context.Context, accessT
 
 // createGeminiTestPayload creates a minimal test payload for Gemini API.
 // Image models use the image-generation path so the frontend can preview the returned image.
-func createGeminiTestPayload(modelID string, prompt string) []byte {
+func createGeminiTestPayload(modelID string, prompt string, legacyImageConfig bool) []byte {
 	if isImageGenerationModel(modelID) {
 		imagePrompt := strings.TrimSpace(prompt)
 		if imagePrompt == "" {
 			imagePrompt = defaultGeminiImageTestPrompt
 		}
 
+		generationConfig := map[string]any{
+			"responseModalities": []string{"TEXT", "IMAGE"},
+		}
+		imageConfig := map[string]any{"aspectRatio": "1:1"}
+		if legacyImageConfig {
+			generationConfig["imageConfig"] = imageConfig
+		} else {
+			generationConfig["responseFormat"] = map[string]any{"image": imageConfig}
+		}
 		payload := map[string]any{
 			"contents": []map[string]any{
 				{
@@ -2666,12 +2675,7 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 					},
 				},
 			},
-			"generationConfig": map[string]any{
-				"responseModalities": []string{"TEXT", "IMAGE"},
-				"imageConfig": map[string]any{
-					"aspectRatio": "1:1",
-				},
-			},
+			"generationConfig": generationConfig,
 		}
 		bytes, _ := json.Marshal(payload)
 		return bytes

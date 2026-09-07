@@ -25,6 +25,8 @@ func TestClassifyImageBillingTier(t *testing.T) {
 		{name: "long edge 2k below 4k boundary", size: "3839x2160", wantTier: "2K", wantOK: true},
 		{name: "long edge 4k boundary", size: "3840x1024", wantTier: "4K", wantOK: true},
 		{name: "tier string 1k", size: "1k", wantTier: "1K", wantOK: true},
+		{name: "Gemini 512 tier", size: "512", wantTier: "1K", wantOK: true},
+		{name: "Gemini 0.5k alias", size: "0.5K", wantTier: "1K", wantOK: true},
 		{name: "empty", size: "", wantOK: false},
 		{name: "auto", size: "auto", wantOK: false},
 		{name: "invalid", size: "not-a-size", wantOK: false},

@@ -1197,7 +1197,18 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 }
 
 func (s *AntigravityGatewayService) extractImageInputSize(body []byte) string {
-	var req antigravity.GeminiRequest
+	var req struct {
+		GenerationConfig *struct {
+			ImageConfig *struct {
+				ImageSize string `json:"imageSize"`
+			} `json:"imageConfig"`
+			ResponseFormat *struct {
+				Image *struct {
+					ImageSize string `json:"imageSize"`
+				} `json:"image"`
+			} `json:"responseFormat"`
+		} `json:"generationConfig"`
+	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return ""
 	}
@@ -1205,13 +1216,17 @@ func (s *AntigravityGatewayService) extractImageInputSize(body []byte) string {
 	if req.GenerationConfig != nil && req.GenerationConfig.ImageConfig != nil {
 		return strings.TrimSpace(req.GenerationConfig.ImageConfig.ImageSize)
 	}
+	if req.GenerationConfig != nil && req.GenerationConfig.ResponseFormat != nil && req.GenerationConfig.ResponseFormat.Image != nil {
+		return strings.TrimSpace(req.GenerationConfig.ResponseFormat.Image.ImageSize)
+	}
 
 	return ""
 }
 
-// isImageGenerationModel 判断模型是否为图片生成模型
-// 支持的模型：gemini-3.1-flash-image, gemini-3-pro-image, gemini-2.5-flash-image 等
-func isImageGenerationModel(model string) bool {
+// IsGeminiImageGenerationModel reports whether model is a supported Gemini
+// image-generation model name. The exported helper keeps model playground and
+// gateway routing aligned with the native Gemini forwarding path.
+func IsGeminiImageGenerationModel(model string) bool {
 	modelLower := strings.ToLower(model)
 	// 移除 models/ 前缀
 	modelLower = strings.TrimPrefix(modelLower, "models/")
@@ -1220,10 +1235,17 @@ func isImageGenerationModel(model string) bool {
 	return modelLower == "gemini-3.1-flash-image" ||
 		modelLower == "gemini-3.1-flash-image-preview" ||
 		strings.HasPrefix(modelLower, "gemini-3.1-flash-image-") ||
+		modelLower == "gemini-3.1-flash-lite-image" ||
+		strings.HasPrefix(modelLower, "gemini-3.1-flash-lite-image-") ||
 		modelLower == "gemini-3-pro-image" ||
 		modelLower == "gemini-3-pro-image-preview" ||
 		strings.HasPrefix(modelLower, "gemini-3-pro-image-") ||
 		modelLower == "gemini-2.5-flash-image" ||
 		modelLower == "gemini-2.5-flash-image-preview" ||
 		strings.HasPrefix(modelLower, "gemini-2.5-flash-image-")
+}
+
+// isImageGenerationModel is retained for package-local callers.
+func isImageGenerationModel(model string) bool {
+	return IsGeminiImageGenerationModel(model)
 }

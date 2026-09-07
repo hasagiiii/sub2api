@@ -35,7 +35,7 @@ func ClassifyImageBillingTier(size string) (string, bool) {
 	switch normalized {
 	case "", "auto":
 		return "", false
-	case "1k":
+	case "512", "512px", "0.5k", "1k":
 		return ImageBillingSize1K, true
 	case "2k":
 		return ImageBillingSize2K, true
