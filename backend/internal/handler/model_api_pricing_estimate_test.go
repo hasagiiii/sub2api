@@ -45,6 +45,11 @@ func TestExtractEstimateDimensions(t *testing.T) {
 	require.Equal(t, 1024, dimensions.Width)
 	require.Equal(t, 768, dimensions.Height)
 
+	dimensions, err = extractEstimateDimensions(map[string]any{"image_size": "1.5K"})
+	require.NoError(t, err)
+	require.Equal(t, 1536, dimensions.Width)
+	require.Equal(t, 1536, dimensions.Height)
+
 	_, err = extractEstimateDimensions(map[string]any{})
 	require.ErrorContains(t, err, "width is required")
 }

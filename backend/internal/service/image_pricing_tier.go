@@ -194,6 +194,17 @@ func imageTierLabel(value string) string {
 	}
 }
 
+// isImagePixelPricingInterval recognizes pixel tiers, including the final
+// unlimited tier whose max_pixels is intentionally nil. Pixel tier labels are
+// internal markers from the admin form and are not user-facing resolution keys.
+func isImagePixelPricingInterval(interval PricingInterval) bool {
+	if interval.MaxPixels != nil {
+		return true
+	}
+	label := strings.ToUpper(strings.TrimSpace(interval.TierLabel))
+	return strings.HasPrefix(label, "P") && imageTierLabel(label) == "" && strings.TrimSpace(interval.Resolution) == ""
+}
+
 func normalizeGroupImageTierResolutions(oneK, twoK, fourK string) ([3]string, error) {
 	normalized, err := normalizeImagePricingTiers([]ImagePricingTier{
 		{Label: "1K", Resolution: oneK},

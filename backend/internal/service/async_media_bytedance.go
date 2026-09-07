@@ -6,19 +6,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
 	"math"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/bytedance"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
 var ErrBytedanceAlreadyRunning = errors.New("image request has already started and cannot be canceled")
+
+const bytedanceImageProbeMaxBytes int64 = 8 << 20
 
 type bytedanceImageClient interface {
 	Generate(context.Context, map[string]any) (map[string]any, error)
@@ -76,13 +86,25 @@ func (s *AsyncMediaService) submitBytedance(ctx context.Context, in *AsyncMediaS
 		in.RateMultiplier = 1
 	}
 	size, _ := payload["size"].(string)
-	tier := NormalizeImageBillingTierOrDefault(size)
+	billingSize := size
+	if payload["layer_decomposition"] == true && strings.EqualFold(strings.TrimSpace(size), "auto") {
+		imageURL, ok := bytedanceInputImageURL(payload)
+		if !ok {
+			return nil, errors.New("layer decomposition size=auto requires an input image URL")
+		}
+		inputDimensions, probeErr := ResolveBytedanceImageURLDimensions(ctx, imageURL)
+		if probeErr != nil {
+			return nil, fmt.Errorf("resolve layer input image dimensions: %w", probeErr)
+		}
+		billingSize = inputDimensions.String()
+	}
+	tier := NormalizeImageBillingTierOrDefault(billingSize)
 	count := 1
 	if payload["layer_decomposition"] == true {
 		count = 16
 	}
 	inputImageCount := bytedanceInputImageCount(payload)
-	unitPrice, _, err := s.estimateCost(ctx, in.RequestedModel, model, in.GroupID, size, tier, "", 1, in.RateMultiplier)
+	unitPrice, _, err := s.estimateCost(ctx, in.RequestedModel, model, in.GroupID, billingSize, tier, "", 1, in.RateMultiplier)
 	if err != nil {
 		return nil, err
 	}
@@ -310,6 +332,59 @@ func bytedanceInputImageCount(payload map[string]any) int {
 		return len(v)
 	}
 	return 0
+}
+
+func bytedanceInputImageURL(payload map[string]any) (string, bool) {
+	switch value := payload["image"].(type) {
+	case string:
+		value = strings.TrimSpace(value)
+		return value, value != ""
+	case []any:
+		if len(value) == 1 {
+			imageURL, ok := value[0].(string)
+			imageURL = strings.TrimSpace(imageURL)
+			return imageURL, ok && imageURL != ""
+		}
+	}
+	return "", false
+}
+
+// ResolveBytedanceImageURLDimensions reads only the image header and returns
+// the source image dimensions. It is used for Seedream Layer size=auto billing
+// so the configured tier is selected from the actual reference image size.
+func ResolveBytedanceImageURLDimensions(ctx context.Context, rawURL string) (ImageDimensions, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+		return ImageDimensions{}, errors.New("image must be an HTTP(S) URL")
+	}
+	client, err := httpclient.GetClient(httpclient.Options{
+		Timeout:            15 * time.Second,
+		ValidateResolvedIP: true,
+	})
+	if err != nil {
+		return ImageDimensions{}, fmt.Errorf("create image probe client: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return ImageDimensions{}, fmt.Errorf("build image probe request: %w", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return ImageDimensions{}, fmt.Errorf("download input image: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return ImageDimensions{}, fmt.Errorf("download input image: unexpected status %d", resp.StatusCode)
+	}
+	config, _, err := image.DecodeConfig(io.LimitReader(resp.Body, bytedanceImageProbeMaxBytes))
+	if err != nil {
+		return ImageDimensions{}, fmt.Errorf("decode input image dimensions: %w", err)
+	}
+	if config.Width <= 0 || config.Height <= 0 {
+		return ImageDimensions{}, fmt.Errorf("input image dimensions are invalid: %dx%d", config.Width, config.Height)
+	}
+	return ImageDimensions{Width: config.Width, Height: config.Height}, nil
 }
 
 func (s *AsyncMediaService) resolveImageInputPrice(ctx context.Context, requestedModel, upstreamModel string, groupID *int64) float64 {

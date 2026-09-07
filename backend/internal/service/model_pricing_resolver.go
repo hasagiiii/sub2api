@@ -464,7 +464,7 @@ func (r *ModelPricingResolver) GetImagePixelTierPrice(resolved *ResolvedPricing,
 	type tier struct{ iv PricingInterval }
 	var tiers []tier
 	for _, iv := range resolved.RequestTiers {
-		if iv.MaxPixels != nil || strings.TrimSpace(iv.Resolution) == "" {
+		if isImagePixelPricingInterval(iv) {
 			tiers = append(tiers, tier{iv})
 		}
 	}

@@ -1277,6 +1277,9 @@ func (s *AsyncMediaService) estimateCost(
 	}
 	breakdown, err := s.billing.CalculateImageCostWithQualityValidated(fallbackModel, imageBillingSizeOrTier(rawSize), quality, count, groupCfg, rateMultiplier)
 	if err != nil {
+		if isSeedreamImageModel(fallbackModel) {
+			return 0, 0, fmt.Errorf("%w: %v", ErrAsyncMediaPricingMissing, err)
+		}
 		return 0, 0, err
 	}
 	if breakdown == nil {

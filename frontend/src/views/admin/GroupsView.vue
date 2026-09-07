@@ -1025,7 +1025,7 @@
               <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">
                 {{ t("admin.groups.imagePricing.fallbackHint") }}
               </p>
-              <div class="grid grid-cols-3 gap-3">
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label class="input-label">1K ($)</label>
                   <input
@@ -1059,10 +1059,10 @@
                     :placeholder="getImagePricePlaceholder(createForm.platform, 'image_price_4k')"
                   />
                 </div>
-              </div>
-              <div class="mt-3 max-w-xs">
-                <label class="input-label">{{ t('admin.groups.imagePricing.inputImagePrice', 'Input image price / image ($)') }}</label>
-                <input v-model.number="createForm.image_input_price_per_image" type="number" step="0.001" min="0" class="input" placeholder="0" />
+                <div>
+                  <label class="input-label">{{ t('admin.groups.imagePricing.inputImagePrice', 'Input image price / image ($)') }}</label>
+                  <input v-model.number="createForm.image_input_price_per_image" type="number" step="0.001" min="0" class="input" placeholder="0" />
+                </div>
               </div>
             </div>
           </details>
@@ -3022,7 +3022,7 @@
               <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">
                 {{ t("admin.groups.imagePricing.fallbackHint") }}
               </p>
-              <div class="grid grid-cols-3 gap-3">
+              <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label class="input-label">1K ($)</label>
                   <input
@@ -3056,10 +3056,10 @@
                     :placeholder="getImagePricePlaceholder(editForm.platform, 'image_price_4k')"
                   />
                 </div>
-              </div>
-              <div class="mt-3 max-w-xs">
-                <label class="input-label">{{ t('admin.groups.imagePricing.inputImagePrice', 'Input image price / image ($)') }}</label>
-                <input v-model.number="editForm.image_input_price_per_image" type="number" step="0.001" min="0" class="input" placeholder="0" />
+                <div>
+                  <label class="input-label">{{ t('admin.groups.imagePricing.inputImagePrice', 'Input image price / image ($)') }}</label>
+                  <input v-model.number="editForm.image_input_price_per_image" type="number" step="0.001" min="0" class="input" placeholder="0" />
+                </div>
               </div>
             </div>
           </details>

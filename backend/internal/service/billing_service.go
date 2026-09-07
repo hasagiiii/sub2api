@@ -1646,7 +1646,7 @@ func imagePricingUsesPixels(intervals []PricingInterval) bool {
 		return false
 	}
 	for _, interval := range intervals {
-		if interval.MaxPixels != nil {
+		if isImagePixelPricingInterval(interval) {
 			return true
 		}
 		if strings.TrimSpace(interval.Resolution) != "" || imageTierLabel(interval.TierLabel) != "" {
@@ -2232,8 +2232,28 @@ func (s *BillingService) getImageUnitPriceValidated(model string, imageSize stri
 		}
 	}
 
+	// Seedream is a provider-specific image product. It must not inherit the
+	// historical generic image fallback, otherwise an unconfigured group can
+	// silently charge the unrelated Gemini default price.
+	if isSeedreamImageModel(model) {
+		return 0, fmt.Errorf("image pricing is not configured for model %s", model)
+	}
+
 	// 第 3 级：LiteLLM 默认价格
 	return s.getDefaultImagePrice(model, imageSize), nil
+}
+
+func isSeedreamImageModel(model string) bool {
+	model = strings.ToLower(strings.Trim(strings.TrimSpace(model), "/"))
+	switch model {
+	case strings.ToLower(domain.SeedreamModel),
+		strings.ToLower(domain.SeedreamEditModel),
+		strings.ToLower(domain.SeedreamLayerModel),
+		strings.ToLower(domain.SeedreamTextToImageModel):
+		return true
+	default:
+		return false
+	}
 }
 
 // lookupImagePricingMatrix 在 groupConfig.PricingMatrix 中查找命中的单价。

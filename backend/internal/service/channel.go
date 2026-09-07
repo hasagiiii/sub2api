@@ -368,7 +368,7 @@ func validateImagePricingIntervals(intervals []PricingInterval) error {
 	pixelMode := false
 	resolutionMode := false
 	for _, interval := range intervals {
-		if interval.MaxPixels != nil {
+		if isImagePixelPricingInterval(interval) {
 			pixelMode = true
 		} else if strings.TrimSpace(interval.Resolution) != "" || imageTierLabel(interval.TierLabel) != "" {
 			resolutionMode = true
@@ -383,6 +383,9 @@ func validateImagePricingIntervals(intervals []PricingInterval) error {
 		for _, interval := range intervals {
 			if interval.Resolution != "" {
 				return fmt.Errorf("pixel pricing tier cannot define resolution")
+			}
+			if !isImagePixelPricingInterval(interval) {
+				return fmt.Errorf("pixel and resolution pricing tiers cannot be mixed")
 			}
 			if interval.MaxPixels == nil {
 				if unlimitedSeen {

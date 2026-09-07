@@ -463,6 +463,28 @@ func TestValidateIntervals_ImageModeAllowsMultipleUnboundedTiers(t *testing.T) {
 	require.NoError(t, ValidateIntervals(intervals, BillingModePerRequest))
 }
 
+func TestValidateIntervals_ImageModeRejectsMixedPixelAndStandardTiers(t *testing.T) {
+	maxPixels := int64(1_000_000)
+	intervals := []PricingInterval{
+		{TierLabel: "P1", MaxPixels: &maxPixels, PerRequestPrice: testPtrFloat64(0.04)},
+		{TierLabel: "1K", PerRequestPrice: testPtrFloat64(0.05)},
+	}
+
+	err := ValidateIntervals(intervals, BillingModeImage)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot be mixed")
+}
+
+func TestValidateIntervals_ImageModeAllowsUnlimitedPixelTier(t *testing.T) {
+	maxPixels := int64(1_000_000)
+	intervals := []PricingInterval{
+		{TierLabel: "P1", MaxPixels: &maxPixels, PerRequestPrice: testPtrFloat64(0.04)},
+		{TierLabel: "P2", MaxPixels: nil, PerRequestPrice: testPtrFloat64(0.06)},
+	}
+
+	require.NoError(t, ValidateIntervals(intervals, BillingModeImage))
+}
+
 func TestValidateIntervals_ImageModeStillRejectsNegativePrice(t *testing.T) {
 	// image 模式只跳过区间重叠校验，单条字段自洽（价格非负）仍要校验。
 	intervals := []PricingInterval{
