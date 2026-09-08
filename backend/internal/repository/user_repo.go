@@ -16,6 +16,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/memberpolicyattachment"
+	"github.com/Wei-Shaw/sub2api/ent/organizationmembership"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
@@ -600,6 +602,31 @@ func (r *userRepository) Delete(ctx context.Context, id int64) error {
 
 // deleteUser 在给定 client（可能是外部事务 client）上删除用户及其身份关联记录，自身不开启/提交事务。
 func (r *userRepository) deleteUser(ctx context.Context, exec *dbent.Client, id int64) error {
+	user, err := exec.User.Query().Where(dbuser.IDEQ(id)).Only(mixins.SkipSoftDelete(ctx))
+	if err != nil {
+		return translatePersistenceError(err, service.ErrUserNotFound, nil)
+	}
+	// Keep the existing soft-delete behavior for live users. Archived users
+	// need physical deletion, including their membership's dependent bindings.
+	if user.DeletedAt != nil {
+		ctx = mixins.SkipSoftDelete(ctx)
+		membershipIDs, err := exec.OrganizationMembership.Query().
+			Where(organizationmembership.UserIDEQ(id), organizationmembership.RoleEQ(service.OrganizationRoleMember)).IDs(ctx)
+		if err != nil {
+			return fmt.Errorf("list deleted user memberships: %w", err)
+		}
+		if len(membershipIDs) > 0 {
+			if _, err := exec.MemberPolicyAttachment.Delete().
+				Where(memberpolicyattachment.MembershipIDIn(membershipIDs...)).Exec(ctx); err != nil {
+				return fmt.Errorf("delete user policy attachments: %w", err)
+			}
+			if _, err := exec.OrganizationMembership.Delete().
+				Where(organizationmembership.IDIn(membershipIDs...)).Exec(ctx); err != nil {
+				return fmt.Errorf("delete user memberships: %w", err)
+			}
+		}
+	}
+
 	identityIDs, err := exec.AuthIdentity.Query().
 		Where(authidentity.UserIDEQ(id)).
 		IDs(ctx)
