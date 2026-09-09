@@ -166,6 +166,7 @@ func (s *OpsService) UpdateRuntimeLogConfig(ctx context.Context, req *OpsRuntime
 	}
 
 	s.auditRuntimeLogConfigChange(operatorID, oldCfg, &next, "updated")
+	s.reloadOpsCleanup(ctx)
 	s.notifyRuntimeLogConfigChanged(ctx)
 
 	return &next, nil
@@ -211,6 +212,7 @@ func (s *OpsService) ResetRuntimeLogConfig(ctx context.Context, operatorID int64
 	resetCfg.UpdatedByUserID = operatorID
 
 	s.auditRuntimeLogConfigChange(operatorID, oldCfg, resetCfg, "reset")
+	s.reloadOpsCleanup(ctx)
 	s.notifyRuntimeLogConfigChanged(ctx)
 	return resetCfg, nil
 }

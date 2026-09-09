@@ -26,7 +26,7 @@ func TestUserRepository_DeleteArchivedIAMMember(t *testing.T) {
 			orgRepo := NewOrganizationRepository(integrationDB)
 			admin := service.NewAdminService(
 				&config.Config{}, userRepo, nil, nil, nil, keyRepo, nil, nil, nil, nil, nil,
-				nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil,
+				nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			)
 			orgService := service.NewOrganizationService(orgRepo, userRepo, nil)
 			owner := createOrganizationRoot(t, client, 100, service.RoleUser)

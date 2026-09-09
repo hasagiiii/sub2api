@@ -381,7 +381,13 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	upstreamReadCtx := ctx
 	upstreamReadDetached := false
 	clientRequestCanceled := func() bool {
-		return ctx != nil && errors.Is(ctx.Err(), context.Canceled)
+		if ctx != nil && errors.Is(ctx.Err(), context.Canceled) {
+			return true
+		}
+		// The caller detaches ctx so upstream draining can continue after a
+		// downstream disconnect. Keep observing the original request lifecycle
+		// context to preserve the client-disconnect result flag.
+		return c != nil && c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled)
 	}
 	markClientDisconnected := func(cause string) {
 		if clientDisconnected {
@@ -760,6 +766,10 @@ readLoop:
 				finalResponse = []byte(responseField.Raw)
 			}
 		}
+		// A downstream writer can cancel the request context during Write. Observe
+		// that cancellation before handling a terminal upstream event so the result
+		// preserves ClientDisconnect and usage-drain semantics.
+		markClientRequestCanceled()
 
 		if isTerminalEvent {
 			if !clientDisconnected {
@@ -862,6 +872,7 @@ readLoop:
 		ResponseHeaders:               lease.HandshakeHeaders(),
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
+		ClientDisconnect:              clientDisconnected,
 		ImageOutputBase64:             imageCounter.Base64Payloads(),
 		ImageOutputURLs:               imageCounter.URLs(),
 		ImageOutputTexts:              textCollector.Texts(),
