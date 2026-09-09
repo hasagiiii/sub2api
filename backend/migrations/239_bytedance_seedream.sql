@@ -1,6 +1,6 @@
 ALTER TABLE user_platform_quotas DROP CONSTRAINT IF EXISTS user_platform_quotas_platform_check;
 ALTER TABLE user_platform_quotas ADD CONSTRAINT user_platform_quotas_platform_check
-CHECK (platform IN ('anthropic','openai','gemini','antigravity','kiro','grok','fal','leonardo','atlascloud','apiz','higgsfield','kimi','zhipu','deepseek','bytedance'));
+CHECK (platform IN ('anthropic','openai','gemini','antigravity','kiro','grok','fal','leonardo','atlascloud','apiz','higgsfield','kimi','zhipu','deepseek', 'minimax', 'bytedance'));
 
 -- The provider execution record is separate from the legacy queue-provider state.
 CREATE TABLE IF NOT EXISTS bytedance_image_executions (
