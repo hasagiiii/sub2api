@@ -129,6 +129,7 @@ var ProviderSet = wire.NewSet(
 	NewGatewayCache,
 	NewResponsesImageStatusStore,
 	NewAsyncMediaTaskStatusStore,
+	NewAsyncMediaTaskLockStore,
 	NewBillingCache,
 	NewAPIKeyCache,
 	NewTempUnschedCache,
@@ -158,6 +159,7 @@ var ProviderSet = wire.NewSet(
 	NewRefreshTokenCache,
 	NewErrorPassthroughCache,
 	NewTLSFingerprintProfileCache,
+	NewChannelCache,
 	NewContentModerationHashCache,
 
 	// Encryptors

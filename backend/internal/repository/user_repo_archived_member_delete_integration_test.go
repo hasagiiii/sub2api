@@ -10,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/memberpolicyattachment"
 	"github.com/Wei-Shaw/sub2api/ent/organizationmembership"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -24,8 +25,8 @@ func TestUserRepository_DeleteArchivedIAMMember(t *testing.T) {
 			keyRepo := NewAPIKeyRepository(client, integrationDB)
 			orgRepo := NewOrganizationRepository(integrationDB)
 			admin := service.NewAdminService(
-				userRepo, nil, nil, nil, keyRepo, nil, nil, nil, nil, nil, nil,
-				nil, client, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+				&config.Config{}, userRepo, nil, nil, nil, keyRepo, nil, nil, nil, nil, nil,
+				nil, nil, nil, client, nil, nil, nil, nil, nil, nil, nil, nil,
 			)
 			orgService := service.NewOrganizationService(orgRepo, userRepo, nil)
 			owner := createOrganizationRoot(t, client, 100, service.RoleUser)

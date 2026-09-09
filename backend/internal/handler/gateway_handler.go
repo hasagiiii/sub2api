@@ -1191,18 +1191,24 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		zap.String("forced_platform", forcedPlatform),
 	)
 
+	if platform == service.PlatformOpenAI && apiKey != nil && apiKey.Group != nil &&
+		apiKey.Group.Platform == service.PlatformOpenAI && apiKey.Group.CodexModelsManifestConfig.Enabled {
+		h.pinnedOpenAIModels(c, apiKey.Group)
+		return
+	}
+
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
-		customModelsList := apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled()
+		modelAllowlistEnabled := apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()
 		reqLog.Info("gateway.models.composite_available",
-			zap.Bool("custom_models_list", customModelsList),
+			zap.Bool("model_allowlist", modelAllowlistEnabled),
 			zap.Int("available_count", len(availableModels)),
 			zap.Strings("available_models", availableModels),
 		)
-		if customModelsList {
-			availableModels = normalizeCustomModelsList(apiKey.Group.ModelsListConfig.Models)
+		if modelAllowlistEnabled {
+			availableModels = apiKey.Group.ModelAllowlist.FilterForListing(availableModels)
 			reqLog.Info("gateway.models.response", zap.Int("model_count", len(availableModels)), zap.Strings("models", availableModels))
-			writeCustomModelsList(c, service.PlatformComposite, availableModels)
+			writeAllowlistedModelsList(c, service.PlatformComposite, availableModels)
 			return
 		}
 		if len(availableModels) > 0 {
@@ -1240,10 +1246,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		zap.Int("leonardo_model_count", len(leonardoModels)),
 		zap.Strings("leonardo_models", leonardoModels),
 	)
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-		availableModels = normalizeCustomModelsList(apiKey.Group.ModelsListConfig.Models)
-		reqLog.Info("gateway.models.response", zap.Bool("custom_models_list", true), zap.Int("model_count", len(availableModels)), zap.Strings("models", availableModels))
-		writeCustomModelsList(c, platform, availableModels)
+	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+		availableModels = apiKey.Group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, defaultModelIDsForPlatform(platform)))
+		reqLog.Info("gateway.models.response", zap.Bool("model_allowlist", true), zap.Int("model_count", len(availableModels)), zap.Strings("models", availableModels))
+		writeAllowlistedModelsList(c, platform, availableModels)
 		return
 	}
 
@@ -1333,8 +1339,12 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(ctx, groupID)
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
-		if group.CustomModelsListEnabled() {
-			return filterModelsByCustomList(availableModels, fallbackModels, group.ModelsListConfig.Models)
+		if group.ModelAllowlistEnabled() {
+			source := availableModels
+			if len(source) == 0 {
+				source = fallbackModels
+			}
+			return group.ModelAllowlist.FilterForListing(source)
 		}
 		if len(availableModels) > 0 {
 			return availableModels
@@ -1344,12 +1354,8 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 
 	availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
 	fallbackModels := defaultCodexModelIDsForPlatform(platform)
-	if group.CustomModelsListEnabled() {
-		return filterModelsByCustomList(
-			customModelsListSource(platform, availableModels, fallbackModels),
-			fallbackModels,
-			group.ModelsListConfig.Models,
-		)
+	if group.ModelAllowlistEnabled() {
+		return group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, fallbackModels))
 	}
 	if len(availableModels) > 0 {
 		return availableModels
@@ -1364,7 +1370,7 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
 	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
-	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek} {
+	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax} {
 		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
 		if len(platformModels) == 0 {
 			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
@@ -1389,6 +1395,10 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 }
 
 func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
+	if platform == service.PlatformOpenAI {
+		writeOpenAIModelsList(c, modelIDs)
+		return
+	}
 	if platform == service.PlatformGrok {
 		writeGrokModelsList(c, modelIDs)
 		return
@@ -1408,7 +1418,17 @@ func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
 	})
 }
 
-func writeCustomModelsList(c *gin.Context, platform string, modelIDs []string) {
+func modelListingSource(platform string, availableModels, fallbackModels []string) []string {
+	if len(availableModels) == 0 {
+		return fallbackModels
+	}
+	if platform == service.PlatformAnthropic {
+		return mergeModelIDs(availableModels, fallbackModels)
+	}
+	return availableModels
+}
+
+func writeAllowlistedModelsList(c *gin.Context, platform string, modelIDs []string) {
 	if platform == service.PlatformOpenAI {
 		writeOpenAIModelsList(c, modelIDs)
 		return
@@ -1590,6 +1610,8 @@ func defaultCodexModelIDsForPlatform(platform string) []string {
 	switch platform {
 	case service.PlatformDeepseek:
 		return []string{"deepseek-v4-pro", "deepseek-v4-flash"}
+	case service.PlatformMiniMax:
+		return []string{"MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5"}
 	default:
 		return defaultModelIDsForPlatform(platform)
 	}
@@ -1673,10 +1695,21 @@ func mergeModelIDs(primary, secondary []string) []string {
 
 // AntigravityModels 返回 Antigravity 支持的全部模型
 // GET /antigravity/models
+// 分组级模型白名单开启时按白名单过滤。
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
+	models := antigravity.DefaultModels()
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+		filtered := make([]antigravity.ClaudeModel, 0, len(models))
+		for _, model := range models {
+			if apiKey.Group.ModelAllowlist.Allows(model.ID) {
+				filtered = append(filtered, model)
+			}
+		}
+		models = filtered
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"object": "list",
-		"data":   antigravity.DefaultModels(),
+		"data":   models,
 	})
 }
 

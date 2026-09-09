@@ -52,6 +52,10 @@ func NewAsyncMediaTaskStatusStore(rdb *redis.Client) service.AsyncMediaTaskStatu
 	return &asyncMediaTaskStatusCache{rdb: rdb}
 }
 
+func NewAsyncMediaTaskLockStore(rdb *redis.Client) service.AsyncMediaTaskLockStore {
+	return &asyncMediaTaskStatusCache{rdb: rdb}
+}
+
 func AsyncMediaTaskStatusKey(requestID string) string {
 	return asyncMediaTaskStatusKeyPrefix + strings.TrimSpace(requestID)
 }

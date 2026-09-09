@@ -197,7 +197,7 @@
                   ? row.organization?.name
                   : userColumnMode === 'email'
                   ? (row.user?.email || t('admin.redeem.userPrefix', { id: row.user_id }))
-                  : (row.user?.username || '-')
+                  : (row.user?.username || t('admin.redeem.userPrefix', { id: row.user_id }))
                 }}
               </span>
               <span v-if="row.subject_type === 'organization'" class="badge badge-info text-xs">{{ t('admin.subscriptions.enterprise') }}</span>
