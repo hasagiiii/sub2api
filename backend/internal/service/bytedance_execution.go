@@ -4,14 +4,16 @@ import "context"
 
 // BytedanceExecution is durable state for a synchronous provider behind the task API.
 type BytedanceExecution struct {
-	TaskID         int64
-	RequestPayload map[string]any
-	ResultPayload  map[string]any
-	State          string
-	BillingType    int8
-	UnitPrice      float64
-	BillableImages *int
-	BillingError   string
+	TaskID          int64
+	RequestPayload  map[string]any
+	ResultPayload   map[string]any
+	State           string
+	BillingType     int8
+	UnitPrice       float64
+	InputImagePrice float64
+	InputImageCount int
+	BillableImages  *int
+	BillingError    string
 }
 
 // This optional repository extension leaves existing queue-provider contracts intact.

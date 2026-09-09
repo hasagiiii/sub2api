@@ -145,11 +145,9 @@ func NormalizeRequest(raw []byte, model string) (map[string]any, map[string]any,
 	if !ok || strings.TrimSpace(prompt) == "" {
 		return nil, nil, errors.New("prompt is required")
 	}
-	if v, ok := p["layer_decomposition"]; ok {
-		if _, valid := v.(bool); !valid {
-			return nil, nil, errors.New("layer_decomposition must be boolean")
-		}
-	}
+	legacyLayer, legacyLayerSet := p["layer_decomposition"]
+	delete(p, "layer_decomposition")
+	delete(p, "layer_decompositionnew")
 	if v, ok := p["watermark"]; ok {
 		if _, valid := v.(bool); !valid {
 			return nil, nil, errors.New("watermark must be boolean")
@@ -182,8 +180,25 @@ func NormalizeRequest(raw []byte, model string) (map[string]any, map[string]any,
 			return nil, nil, errors.New("image must be an HTTP(S) URL")
 		}
 	}
-	if p["layer_decomposition"] == true && len(images) != 1 {
+	modelLower := strings.ToLower(strings.Trim(strings.TrimSpace(model), "/"))
+	layerMode := modelLower == domain.SeedreamLayerModel
+	editMode := modelLower == domain.SeedreamEditModel
+	textMode := modelLower == domain.SeedreamTextToImageModel
+	if modelLower == domain.SeedreamModel && legacyLayerSet {
+		value, ok := legacyLayer.(bool)
+		if !ok {
+			return nil, nil, errors.New("layer_decomposition must be boolean")
+		}
+		layerMode = value
+	}
+	if layerMode && len(images) != 1 {
 		return nil, nil, errors.New("layer decomposition requires exactly one reference image")
+	}
+	if editMode && len(images) == 0 {
+		return nil, nil, errors.New("edit model requires at least one reference image")
+	}
+	if textMode && len(images) > 0 {
+		return nil, nil, errors.New("text-to-image model does not accept reference images")
 	}
 	switch len(images) {
 	case 0:
@@ -193,7 +208,7 @@ func NormalizeRequest(raw []byte, model string) (map[string]any, map[string]any,
 	default:
 		p["image"] = images
 	}
-	for key, value := range map[string]any{"size": "2K", "output_format": "jpeg", "response_format": "url", "watermark": true, "layer_decomposition": false} {
+	for key, value := range map[string]any{"size": "2K", "output_format": "jpeg", "response_format": "url", "watermark": true, "layer_decomposition": layerMode} {
 		if _, ok := p[key]; !ok {
 			p[key] = value
 		}
@@ -206,7 +221,7 @@ func NormalizeRequest(raw []byte, model string) (map[string]any, map[string]any,
 			return nil, nil, fmt.Errorf("%s must be a nonempty string", key)
 		}
 	}
-	p["model"] = model
+	p["model"] = domain.SeedreamModel
 	return p, metadata, nil
 }
 

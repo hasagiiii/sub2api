@@ -85,6 +85,7 @@ type APIKeyAuthGroupSnapshot struct {
 	ImagePrice1K                    *float64                      `json:"image_price_1k,omitempty"`
 	ImagePrice2K                    *float64                      `json:"image_price_2k,omitempty"`
 	ImagePrice4K                    *float64                      `json:"image_price_4k,omitempty"`
+	ImageInputPricePerImage         *float64                      `json:"image_input_price_per_image,omitempty"`
 	ImageResolution1K               string                        `json:"image_resolution_1k,omitempty"`
 	ImageResolution2K               string                        `json:"image_resolution_2k,omitempty"`
 	ImageResolution4K               string                        `json:"image_resolution_4k,omitempty"`
@@ -125,8 +126,8 @@ type APIKeyAuthGroupSnapshot struct {
 	FreeOpenAIFast              bool                              `json:"free_openai_fast"`
 	DefaultMappedModel          string                            `json:"default_mapped_model,omitempty"`
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
-	ModelsListConfig            GroupModelsListConfig             `json:"models_list_config,omitempty"`
-	// CodexModelsManifestConfig 与 ModelsListConfig 一样在认证快照分组里透传，
+	ModelAllowlist              GroupModelAllowlist               `json:"model_allowlist,omitempty"`
+	// CodexModelsManifestConfig 与 ModelAllowlist 一样在认证快照分组里透传，
 	// Codex /models handler 直接读认证分组对象。
 	CodexModelsManifestConfig GroupCodexModelsManifestConfig `json:"codex_models_manifest_config,omitempty"`
 

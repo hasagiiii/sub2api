@@ -424,5 +424,3 @@ func TestSupportTicketNotificationHandler_UnreadCount_RepoError_500(t *testing.T
 	require.Equal(t, http.StatusInternalServerError, w.Code,
 		"repo 未知错误应 500 而非 200；ErrorFrom 兜底走 InternalError")
 }
-
-

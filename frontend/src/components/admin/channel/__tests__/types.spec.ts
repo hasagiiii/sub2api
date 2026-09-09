@@ -165,6 +165,32 @@ describe('validateIntervals', () => {
       ]
       expect(validateIntervals(intervals, 'image', t)).toContain('maxGreaterThanMin')
     })
+
+    it('allows standard image tiers without resolution or quality fields', () => {
+      const intervals: IntervalFormEntry[] = [
+        makeInterval({ image_tier_type: 'standard', tier_label: '1K', per_request_price: 1 }),
+      ]
+
+      expect(validateIntervals(intervals, 'image', t)).toBeNull()
+    })
+
+    it('rejects mixing pixel tiers and standard tiers', () => {
+      const intervals: IntervalFormEntry[] = [
+        makeInterval({ image_tier_type: 'pixel', tier_label: 'P1', max_pixels: 1_000_000, per_request_price: 1 }),
+        makeInterval({ image_tier_type: 'standard', tier_label: '1K', per_request_price: 2 }),
+      ]
+
+      expect(validateIntervals(intervals, 'image', t)).toContain('imageTierValidation')
+    })
+
+    it('allows an unlimited final pixel tier', () => {
+      const intervals: IntervalFormEntry[] = [
+        makeInterval({ image_tier_type: 'pixel', tier_label: 'P1', max_pixels: 1_000_000, per_request_price: 1 }),
+        makeInterval({ image_tier_type: 'pixel', tier_label: 'P2', max_pixels: null, per_request_price: 2 }),
+      ]
+
+      expect(validateIntervals(intervals, 'image', t)).toBeNull()
+    })
   })
 })
 

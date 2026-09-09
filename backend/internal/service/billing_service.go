@@ -594,7 +594,20 @@ func (s *BillingService) initFallbackPricing() {
 	// Source: https://docs.z.ai/guides/overview/pricing (USD per 1M tokens)
 	// 注意：CacheReadPricePerToken 即"缓存命中"价格，CacheCreationPricePerToken 留空（智谱未公开写入价，按 0 处理）。
 	// GLM-4.6 与 GLM-4.5 在 z.ai 国际版上定价一致；GLM-4.5 国内按 ¥0.8/¥2，汇率换算后约 $0.112/$0.28，与国际版 $0.6/$2.2 不同，本分支采用国际版 USD 口径与现有 Claude/GPT 一致。
-	// GLM-5.2 与 GLM-5.1 在 z.ai 上同价。
+	// GLM-5.3 / GLM-5.2 与 GLM-5.1 在 z.ai 上同价。
+	// GLM-5.3-Flash 列表价 $0.15/$0.50（2026-09-09 前五折促销，此处按列表价，与其它模型口径一致）。
+	s.fallbackPrices["glm-5.3-flash"] = &ModelPricing{
+		InputPricePerToken:     0.15e-6, // $0.15 per MTok
+		OutputPricePerToken:    0.5e-6,  // $0.50 per MTok
+		CacheReadPricePerToken: 0.03e-6,
+		SupportsCacheBreakdown: false,
+	}
+	s.fallbackPrices["glm-5.3"] = &ModelPricing{
+		InputPricePerToken:     1.4e-6, // $1.40 per MTok
+		OutputPricePerToken:    4.4e-6, // $4.40 per MTok
+		CacheReadPricePerToken: 0.26e-6,
+		SupportsCacheBreakdown: false,
+	}
 	s.fallbackPrices["glm-5.2"] = &ModelPricing{
 		InputPricePerToken:     1.4e-6, // $1.40 per MTok
 		OutputPricePerToken:    4.4e-6, // $4.40 per MTok
@@ -940,9 +953,16 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	// 匹配策略：长 key 优先（具体模型 → 系列 / 厂商），未知型号不回退以避免误计价。
 	// 与 DeepSeek 一样采用"白名单"语义：未在本表命中的国产模型 alias 一律不返回兜底价。
 
-	// 智谱 GLM（z.ai 公开 SKU：glm-5.2 / glm-5.1 / glm-5 / glm-5-turbo / glm-4.7 / glm-4.6 / glm-4.5 等）
+	// 智谱 GLM（z.ai 公开 SKU：glm-5.3 / glm-5.3-flash / glm-5.2 / glm-5.1 / glm-5 / glm-5-turbo / glm-4.7 / glm-4.6 / glm-4.5 等）
 	// 匹配顺序：先判别最高 tier，再依次降级。
-	// 注意：带小数点的型号必须排在裸 "glm-5" 之前，否则会被 strings.Contains 抢走。
+	// 注意：带小数点的型号必须排在裸 "glm-5" 之前，否则会被 strings.Contains 抢走；
+	// glm-5.3-flash 必须排在 glm-5.3 之前（前者包含后者子串）。
+	if strings.Contains(modelLower, "glm-5.3-flash") || strings.Contains(modelLower, "glm-5.3flash") {
+		return s.fallbackPrices["glm-5.3-flash"]
+	}
+	if strings.Contains(modelLower, "glm-5.3") {
+		return s.fallbackPrices["glm-5.3"]
+	}
 	if strings.Contains(modelLower, "glm-5.2") {
 		return s.fallbackPrices["glm-5.2"]
 	}
@@ -1307,6 +1327,7 @@ type CostInput struct {
 	Group                     *Group
 	Tokens                    UsageTokens
 	RequestCount              int     // 按次计费时使用
+	ImageInputCount           int     // 图片模式引用图片数量
 	UsageUnits                float64 // 音频等连续计量单位（分钟/小时/百万字符）
 	SizeTier                  string  // 按次层级标签；图片模式也可传 WIDTHxHEIGHT 原始尺寸
 	Quality                   string  // 图片质量维度（auto/low/medium/high）；空 = 不区分质量（存量单维定价）
@@ -1601,7 +1622,12 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 			if err != nil {
 				return nil, err
 			}
-			unitPrice, _, err = input.Resolver.GetImageTierPrice(resolved, dimensions, input.Quality)
+			pixelMode := imagePricingUsesPixels(resolved.RequestTiers)
+			if pixelMode {
+				unitPrice, _, err = input.Resolver.GetImagePixelTierPrice(resolved, dimensions, input.Quality)
+			} else {
+				unitPrice, _, err = input.Resolver.GetImageTierPrice(resolved, dimensions, input.Quality)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -1621,12 +1647,33 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 	}
 
 	totalCost := unitPrice * units
+	if input.ImageInputCount > 0 && resolved.channelPricing != nil && resolved.channelPricing.ImageInputPricePerImage != nil {
+		inputPrice := *resolved.channelPricing.ImageInputPricePerImage
+		if inputPrice > 0 {
+			totalCost += inputPrice * float64(input.ImageInputCount)
+		}
+	}
 	actualCost := totalCost * input.RateMultiplier
 
 	return &CostBreakdown{
 		TotalCost:  totalCost,
 		ActualCost: actualCost,
 	}, nil
+}
+
+func imagePricingUsesPixels(intervals []PricingInterval) bool {
+	if len(intervals) == 0 {
+		return false
+	}
+	for _, interval := range intervals {
+		if isImagePixelPricingInterval(interval) {
+			return true
+		}
+		if strings.TrimSpace(interval.Resolution) != "" || imageTierLabel(interval.TierLabel) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 // CalculateCost 计算使用费用
@@ -1877,12 +1924,13 @@ func (s *BillingService) ForceUpdatePricing() error {
 //
 // 任意一级缺失即跳到下一级；矩阵中只缺某 (tier,quality) 单元格也会回退。
 type ImagePriceConfig struct {
-	Price1K      *float64 // 1K 尺寸价格（nil 表示未配置）
-	Price2K      *float64 // 2K 尺寸价格（nil 表示未配置）
-	Price4K      *float64 // 4K 尺寸价格（nil 表示未配置）
-	Resolution1K string
-	Resolution2K string
-	Resolution4K string
+	InputPricePerImage *float64
+	Price1K            *float64 // 1K 尺寸价格（nil 表示未配置）
+	Price2K            *float64 // 2K 尺寸价格（nil 表示未配置）
+	Price4K            *float64 // 4K 尺寸价格（nil 表示未配置）
+	Resolution1K       string
+	Resolution2K       string
+	Resolution4K       string
 
 	// 二维定价矩阵：tier_key -> quality_key -> 单价（USD per image）。
 	// 为 nil/空 map 时视为分组未启用矩阵定价，跳到第 2 级。
@@ -1890,8 +1938,9 @@ type ImagePriceConfig struct {
 
 	// 原始请求尺寸（像素）。仅当 PricingMatrix 非空时才被使用。
 	// 任一字段 <=0 视为未提供，矩阵命中失败回退到第 2 级。
-	RawWidth  int
-	RawHeight int
+	RawWidth           int
+	RawHeight          int
+	RawInputImageCount int
 
 	// 原始 quality（"low"/"medium"/"high"/"auto"/空/任意大小写）。
 	// 仅当 PricingMatrix 非空时被使用，内部经 NormalizeImageQuality 归一。
@@ -2090,6 +2139,9 @@ func (s *BillingService) CalculateImageCostValidated(model string, imageSize str
 
 	// 计算总费用
 	totalCost := unitPrice * float64(imageCount)
+	if groupConfig != nil && groupConfig.InputPricePerImage != nil && *groupConfig.InputPricePerImage > 0 {
+		totalCost += *groupConfig.InputPricePerImage * float64(groupConfig.RawInputImageCount)
+	}
 
 	// 应用倍率（保存时强制 > 0；负数按 0 处理避免按 1x 误扣）
 	if rateMultiplier < 0 {
@@ -2200,8 +2252,28 @@ func (s *BillingService) getImageUnitPriceValidated(model string, imageSize stri
 		}
 	}
 
+	// Seedream is a provider-specific image product. It must not inherit the
+	// historical generic image fallback, otherwise an unconfigured group can
+	// silently charge the unrelated Gemini default price.
+	if isSeedreamImageModel(model) {
+		return 0, fmt.Errorf("image pricing is not configured for model %s", model)
+	}
+
 	// 第 3 级：LiteLLM 默认价格
 	return s.getDefaultImagePrice(model, imageSize), nil
+}
+
+func isSeedreamImageModel(model string) bool {
+	model = strings.ToLower(strings.Trim(strings.TrimSpace(model), "/"))
+	switch model {
+	case strings.ToLower(domain.SeedreamModel),
+		strings.ToLower(domain.SeedreamEditModel),
+		strings.ToLower(domain.SeedreamLayerModel),
+		strings.ToLower(domain.SeedreamTextToImageModel):
+		return true
+	default:
+		return false
+	}
 }
 
 // lookupImagePricingMatrix 在 groupConfig.PricingMatrix 中查找命中的单价。

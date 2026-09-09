@@ -386,6 +386,20 @@ func (_c *GroupCreate) SetNillableImagePrice4k(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetImageInputPricePerImage sets the "image_input_price_per_image" field.
+func (_c *GroupCreate) SetImageInputPricePerImage(v float64) *GroupCreate {
+	_c.mutation.SetImageInputPricePerImage(v)
+	return _c
+}
+
+// SetNillableImageInputPricePerImage sets the "image_input_price_per_image" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableImageInputPricePerImage(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetImageInputPricePerImage(*v)
+	}
+	return _c
+}
+
 // SetImageResolution1k sets the "image_resolution_1k" field.
 func (_c *GroupCreate) SetImageResolution1k(v string) *GroupCreate {
 	_c.mutation.SetImageResolution1k(v)
@@ -878,16 +892,16 @@ func (_c *GroupCreate) SetNillableMessagesDispatchModelConfig(v *domain.OpenAIMe
 	return _c
 }
 
-// SetModelsListConfig sets the "models_list_config" field.
-func (_c *GroupCreate) SetModelsListConfig(v domain.GroupModelsListConfig) *GroupCreate {
-	_c.mutation.SetModelsListConfig(v)
+// SetModelAllowlist sets the "model_allowlist" field.
+func (_c *GroupCreate) SetModelAllowlist(v domain.GroupModelAllowlist) *GroupCreate {
+	_c.mutation.SetModelAllowlist(v)
 	return _c
 }
 
-// SetNillableModelsListConfig sets the "models_list_config" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableModelsListConfig(v *domain.GroupModelsListConfig) *GroupCreate {
+// SetNillableModelAllowlist sets the "model_allowlist" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableModelAllowlist(v *domain.GroupModelAllowlist) *GroupCreate {
 	if v != nil {
-		_c.SetModelsListConfig(*v)
+		_c.SetModelAllowlist(*v)
 	}
 	return _c
 }
@@ -1359,9 +1373,9 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultMessagesDispatchModelConfig
 		_c.mutation.SetMessagesDispatchModelConfig(v)
 	}
-	if _, ok := _c.mutation.ModelsListConfig(); !ok {
-		v := group.DefaultModelsListConfig
-		_c.mutation.SetModelsListConfig(v)
+	if _, ok := _c.mutation.ModelAllowlist(); !ok {
+		v := group.DefaultModelAllowlist
+		_c.mutation.SetModelAllowlist(v)
 	}
 	if _, ok := _c.mutation.CodexModelsManifestConfig(); !ok {
 		v := group.DefaultCodexModelsManifestConfig
@@ -1618,8 +1632,8 @@ func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.MessagesDispatchModelConfig(); !ok {
 		return &ValidationError{Name: "messages_dispatch_model_config", err: errors.New(`ent: missing required field "Group.messages_dispatch_model_config"`)}
 	}
-	if _, ok := _c.mutation.ModelsListConfig(); !ok {
-		return &ValidationError{Name: "models_list_config", err: errors.New(`ent: missing required field "Group.models_list_config"`)}
+	if _, ok := _c.mutation.ModelAllowlist(); !ok {
+		return &ValidationError{Name: "model_allowlist", err: errors.New(`ent: missing required field "Group.model_allowlist"`)}
 	}
 	if _, ok := _c.mutation.CodexModelsManifestConfig(); !ok {
 		return &ValidationError{Name: "codex_models_manifest_config", err: errors.New(`ent: missing required field "Group.codex_models_manifest_config"`)}
@@ -1806,6 +1820,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldImagePrice4k, field.TypeFloat64, value)
 		_node.ImagePrice4k = &value
 	}
+	if value, ok := _c.mutation.ImageInputPricePerImage(); ok {
+		_spec.SetField(group.FieldImageInputPricePerImage, field.TypeFloat64, value)
+		_node.ImageInputPricePerImage = &value
+	}
 	if value, ok := _c.mutation.ImageResolution1k(); ok {
 		_spec.SetField(group.FieldImageResolution1k, field.TypeString, value)
 		_node.ImageResolution1k = value
@@ -1958,9 +1976,9 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldMessagesDispatchModelConfig, field.TypeJSON, value)
 		_node.MessagesDispatchModelConfig = value
 	}
-	if value, ok := _c.mutation.ModelsListConfig(); ok {
-		_spec.SetField(group.FieldModelsListConfig, field.TypeJSON, value)
-		_node.ModelsListConfig = value
+	if value, ok := _c.mutation.ModelAllowlist(); ok {
+		_spec.SetField(group.FieldModelAllowlist, field.TypeJSON, value)
+		_node.ModelAllowlist = value
 	}
 	if value, ok := _c.mutation.CodexModelsManifestConfig(); ok {
 		_spec.SetField(group.FieldCodexModelsManifestConfig, field.TypeJSON, value)
@@ -2563,6 +2581,30 @@ func (u *GroupUpsert) AddImagePrice4k(v float64) *GroupUpsert {
 // ClearImagePrice4k clears the value of the "image_price_4k" field.
 func (u *GroupUpsert) ClearImagePrice4k() *GroupUpsert {
 	u.SetNull(group.FieldImagePrice4k)
+	return u
+}
+
+// SetImageInputPricePerImage sets the "image_input_price_per_image" field.
+func (u *GroupUpsert) SetImageInputPricePerImage(v float64) *GroupUpsert {
+	u.Set(group.FieldImageInputPricePerImage, v)
+	return u
+}
+
+// UpdateImageInputPricePerImage sets the "image_input_price_per_image" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateImageInputPricePerImage() *GroupUpsert {
+	u.SetExcluded(group.FieldImageInputPricePerImage)
+	return u
+}
+
+// AddImageInputPricePerImage adds v to the "image_input_price_per_image" field.
+func (u *GroupUpsert) AddImageInputPricePerImage(v float64) *GroupUpsert {
+	u.Add(group.FieldImageInputPricePerImage, v)
+	return u
+}
+
+// ClearImageInputPricePerImage clears the value of the "image_input_price_per_image" field.
+func (u *GroupUpsert) ClearImageInputPricePerImage() *GroupUpsert {
+	u.SetNull(group.FieldImageInputPricePerImage)
 	return u
 }
 
@@ -3190,15 +3232,15 @@ func (u *GroupUpsert) UpdateMessagesDispatchModelConfig() *GroupUpsert {
 	return u
 }
 
-// SetModelsListConfig sets the "models_list_config" field.
-func (u *GroupUpsert) SetModelsListConfig(v domain.GroupModelsListConfig) *GroupUpsert {
-	u.Set(group.FieldModelsListConfig, v)
+// SetModelAllowlist sets the "model_allowlist" field.
+func (u *GroupUpsert) SetModelAllowlist(v domain.GroupModelAllowlist) *GroupUpsert {
+	u.Set(group.FieldModelAllowlist, v)
 	return u
 }
 
-// UpdateModelsListConfig sets the "models_list_config" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateModelsListConfig() *GroupUpsert {
-	u.SetExcluded(group.FieldModelsListConfig)
+// UpdateModelAllowlist sets the "model_allowlist" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateModelAllowlist() *GroupUpsert {
+	u.SetExcluded(group.FieldModelAllowlist)
 	return u
 }
 
@@ -3895,6 +3937,34 @@ func (u *GroupUpsertOne) UpdateImagePrice4k() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearImagePrice4k() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearImagePrice4k()
+	})
+}
+
+// SetImageInputPricePerImage sets the "image_input_price_per_image" field.
+func (u *GroupUpsertOne) SetImageInputPricePerImage(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageInputPricePerImage(v)
+	})
+}
+
+// AddImageInputPricePerImage adds v to the "image_input_price_per_image" field.
+func (u *GroupUpsertOne) AddImageInputPricePerImage(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddImageInputPricePerImage(v)
+	})
+}
+
+// UpdateImageInputPricePerImage sets the "image_input_price_per_image" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateImageInputPricePerImage() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageInputPricePerImage()
+	})
+}
+
+// ClearImageInputPricePerImage clears the value of the "image_input_price_per_image" field.
+func (u *GroupUpsertOne) ClearImageInputPricePerImage() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearImageInputPricePerImage()
 	})
 }
 
@@ -4626,17 +4696,17 @@ func (u *GroupUpsertOne) UpdateMessagesDispatchModelConfig() *GroupUpsertOne {
 	})
 }
 
-// SetModelsListConfig sets the "models_list_config" field.
-func (u *GroupUpsertOne) SetModelsListConfig(v domain.GroupModelsListConfig) *GroupUpsertOne {
+// SetModelAllowlist sets the "model_allowlist" field.
+func (u *GroupUpsertOne) SetModelAllowlist(v domain.GroupModelAllowlist) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
-		s.SetModelsListConfig(v)
+		s.SetModelAllowlist(v)
 	})
 }
 
-// UpdateModelsListConfig sets the "models_list_config" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateModelsListConfig() *GroupUpsertOne {
+// UpdateModelAllowlist sets the "model_allowlist" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateModelAllowlist() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
-		s.UpdateModelsListConfig()
+		s.UpdateModelAllowlist()
 	})
 }
 
@@ -5533,6 +5603,34 @@ func (u *GroupUpsertBulk) ClearImagePrice4k() *GroupUpsertBulk {
 	})
 }
 
+// SetImageInputPricePerImage sets the "image_input_price_per_image" field.
+func (u *GroupUpsertBulk) SetImageInputPricePerImage(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetImageInputPricePerImage(v)
+	})
+}
+
+// AddImageInputPricePerImage adds v to the "image_input_price_per_image" field.
+func (u *GroupUpsertBulk) AddImageInputPricePerImage(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddImageInputPricePerImage(v)
+	})
+}
+
+// UpdateImageInputPricePerImage sets the "image_input_price_per_image" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateImageInputPricePerImage() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateImageInputPricePerImage()
+	})
+}
+
+// ClearImageInputPricePerImage clears the value of the "image_input_price_per_image" field.
+func (u *GroupUpsertBulk) ClearImageInputPricePerImage() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearImageInputPricePerImage()
+	})
+}
+
 // SetImageResolution1k sets the "image_resolution_1k" field.
 func (u *GroupUpsertBulk) SetImageResolution1k(v string) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
@@ -6261,17 +6359,17 @@ func (u *GroupUpsertBulk) UpdateMessagesDispatchModelConfig() *GroupUpsertBulk {
 	})
 }
 
-// SetModelsListConfig sets the "models_list_config" field.
-func (u *GroupUpsertBulk) SetModelsListConfig(v domain.GroupModelsListConfig) *GroupUpsertBulk {
+// SetModelAllowlist sets the "model_allowlist" field.
+func (u *GroupUpsertBulk) SetModelAllowlist(v domain.GroupModelAllowlist) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
-		s.SetModelsListConfig(v)
+		s.SetModelAllowlist(v)
 	})
 }
 
-// UpdateModelsListConfig sets the "models_list_config" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateModelsListConfig() *GroupUpsertBulk {
+// UpdateModelAllowlist sets the "model_allowlist" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateModelAllowlist() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
-		s.UpdateModelsListConfig()
+		s.UpdateModelAllowlist()
 	})
 }
 

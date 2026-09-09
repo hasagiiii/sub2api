@@ -233,3 +233,28 @@ func TestBytedanceRequiresConfiguredPricing(t *testing.T) {
 	_, err := svc.SubmitAsync(context.Background(), in)
 	require.ErrorIs(t, err, ErrAsyncMediaPricingMissing)
 }
+
+func TestBytedanceDoesNotUseGenericImageFallbackWhenPricingIsMissing(t *testing.T) {
+	repo := &seedreamTestRepo{fakeTaskRepo: newFakeTaskRepo()}
+	group := &Group{ID: 1, Platform: PlatformBytedance, Status: StatusActive, Hydrated: true}
+	svc := NewAsyncMediaService(
+		repo,
+		nil,
+		nil,
+		newTestBillingService(),
+		newEmptyPricingResolver(t, group.ID),
+		nil,
+	)
+	svc.groupRepo = &asyncMediaPricingGroupRepo{group: group}
+
+	account := &Account{ID: 10, Platform: PlatformBytedance, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "test"}}
+	in := newSubmitInput(account, group.ID, 1)
+	in.RequestedModel = domain.SeedreamLayerModel
+	in.RawRequestBody = []byte(`{"prompt":"separate layers","image":"https://example.com/reference.png"}`)
+
+	task, err := svc.SubmitAsync(context.Background(), in)
+	require.ErrorIs(t, err, ErrAsyncMediaPricingMissing)
+	require.Nil(t, task)
+	// In particular, the old generic 2K fallback ($0.201/image) must not be used.
+	require.Empty(t, repo.byID)
+}

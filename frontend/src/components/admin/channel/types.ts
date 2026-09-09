@@ -7,7 +7,9 @@ export interface IntervalFormEntry {
   max_tokens: number | null
   tier_label: string
   resolution: string
+  max_pixels?: number | string | null
   quality: string
+  image_tier_type?: 'standard' | 'pixel'
   input_price: number | string | null
   output_price: number | string | null
   cache_write_price: number | string | null
@@ -33,6 +35,7 @@ export interface PricingFormEntry {
   flex_multiplier?: number | string | null
   max_reasoning_effort_multiplier?: number | string | null
   image_input_price: number | string | null
+  image_input_price_per_image?: number | string | null
   image_output_price: number | string | null
   per_request_price: number | string | null
   intervals: IntervalFormEntry[]
@@ -203,7 +206,9 @@ export function apiIntervalsToForm(intervals: PricingInterval[]): IntervalFormEn
     max_tokens: iv.max_tokens,
     tier_label: iv.tier_label || '',
     resolution: iv.resolution || '',
+    max_pixels: iv.max_pixels ?? null,
     quality: iv.quality || '',
+    image_tier_type: iv.max_pixels != null || /^P\d*$/i.test(iv.tier_label || '') ? 'pixel' : 'standard',
     input_price: perTokenToMTok(iv.input_price),
     output_price: perTokenToMTok(iv.output_price),
     cache_write_price: perTokenToMTok(iv.cache_write_price),
@@ -224,6 +229,7 @@ export function formIntervalsToAPI(intervals: IntervalFormEntry[]): PricingInter
     max_tokens: iv.max_tokens,
     tier_label: iv.tier_label,
     resolution: iv.resolution || '',
+    max_pixels: toNullableNumber(iv.max_pixels),
     quality: iv.quality || '',
     input_price: mTokToPerToken(iv.input_price),
     output_price: mTokToPerToken(iv.output_price),
@@ -245,6 +251,10 @@ export function intervalHasPrice(interval: IntervalFormEntry): boolean {
     interval.output_price,
     interval.cache_write_price,
     interval.cache_read_price,
+    interval.input_multiplier,
+    interval.output_multiplier,
+    interval.cache_write_multiplier,
+    interval.cache_read_multiplier,
     interval.per_request_price,
   ].some(value => value !== null && value !== undefined && value !== '')
 }
@@ -323,29 +333,38 @@ export function validateIntervals(
 }
 
 function validateImageTierIntervals(intervals: IntervalFormEntry[], t: TranslateFn): string | null {
-  const resolutions = new Map<string, string>()
-  const cells = new Set<string>()
+  const pixelMode = intervals.some(interval =>
+    interval.image_tier_type === 'pixel' ||
+    interval.max_pixels != null ||
+    /^P\d*$/i.test(interval.tier_label.trim()),
+  )
+  if (pixelMode) {
+    if (intervals.some(interval => !(
+      interval.image_tier_type === 'pixel' ||
+      interval.max_pixels != null ||
+      /^P\d*$/i.test(interval.tier_label.trim())
+    ))) {
+      return t('admin.channels.form.imageTierValidation')
+    }
+    let previous = 0
+    let unlimitedSeen = false
+    for (const interval of intervals) {
+      if (interval.max_pixels == null) {
+        if (unlimitedSeen) return t('admin.channels.form.imageTierValidation')
+        unlimitedSeen = true
+        continue
+      }
+      const pixels = Number(interval.max_pixels)
+      if (unlimitedSeen || !Number.isFinite(pixels) || pixels <= 0 || pixels <= previous) {
+        return t('admin.channels.form.imageTierValidation')
+      }
+      previous = pixels
+    }
+    return null
+  }
   for (const interval of intervals) {
     const label = interval.tier_label.trim().toUpperCase()
     if (!['1K', '2K', '4K'].includes(label)) return t('admin.channels.form.imageTierValidation')
-    const resolution = interval.resolution.trim().toLowerCase()
-    if (!/^\d+x\d+$/.test(resolution)) return t('admin.channels.form.imageTierValidation')
-    const current = resolutions.get(label)
-    if (current && current !== resolution) return t('admin.channels.form.imageTierValidation')
-    resolutions.set(label, resolution)
-    const cell = `${label}:${interval.quality.trim().toLowerCase()}`
-    if (cells.has(cell)) return t('admin.channels.form.imageTierValidation')
-    cells.add(cell)
-  }
-  const dimensions = ['1K', '2K', '4K'].map(label => {
-    const fallback = label === '1K' ? '1024x1024' : label === '2K' ? '2048x2048' : '4096x4096'
-    const [width, height] = (resolutions.get(label) || fallback).split('x').map(Number)
-    return { short: Math.min(width, height), long: Math.max(width, height), pixels: width * height }
-  })
-  for (let i = 1; i < dimensions.length; i++) {
-    if (dimensions[i].short < dimensions[i - 1].short || dimensions[i].long < dimensions[i - 1].long || dimensions[i].pixels <= dimensions[i - 1].pixels) {
-      return t('admin.channels.form.imageTierValidation')
-    }
   }
   return null
 }

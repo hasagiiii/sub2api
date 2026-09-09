@@ -5,6 +5,7 @@ package service
 import (
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -162,4 +163,18 @@ func TestGetDefaultImagePrice_FallbackHardcoded(t *testing.T) {
 
 	cost = svc.CalculateImageCost("gemini-3-pro-image", "2K", 1, nil, 1.0)
 	require.InDelta(t, 0.201, cost.TotalCost, 0.0001)
+}
+
+func TestCalculateImageCost_SeedreamRequiresExplicitPricing(t *testing.T) {
+	svc := &BillingService{}
+
+	_, err := svc.CalculateImageCostValidated(
+		domain.SeedreamLayerModel,
+		"2K",
+		2,
+		nil,
+		1.0,
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "image pricing is not configured")
 }

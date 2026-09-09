@@ -76,8 +76,12 @@ export default {
       crsUpdateBehaviorNote:
         'Existing accounts only sync fields returned by CRS; missing fields keep their current values. Credentials are merged by key — keys not returned by CRS are preserved. Proxies are kept when "Sync proxies" is unchecked.',
       crsBack: 'Back',
+      add: 'Add',
       editAccount: 'Edit Account',
       deleteAccount: 'Delete Account',
+      deleteConfirmMessage: "Are you sure you want to delete account '{name}'?",
+      refreshCookie: 'Refresh Cookie',
+      testAccount: 'Test Account',
       searchAccounts: 'Search accounts...',
       notes: 'Notes',
       notesPlaceholder: 'Enter notes',
@@ -97,6 +101,39 @@ export default {
       schedulableDisabled: 'Scheduling disabled',
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
+      form: {
+        nameLabel: 'Account Name',
+        namePlaceholder: 'Enter account name',
+        platformLabel: 'Platform',
+        selectPlatform: 'Select platform',
+        typeLabel: 'Type',
+        selectType: 'Select type',
+        credentialsLabel: 'Credentials',
+        credentialsPlaceholder: 'Enter cookie or API key',
+        priorityLabel: 'Priority',
+        priorityHint: 'Lower values have higher priority',
+        weightLabel: 'Weight',
+        weightHint: 'Weight used for load balancing',
+        statusLabel: 'Status'
+      },
+      filters: {
+        platform: 'Platform',
+        allPlatforms: 'All Platforms',
+        type: 'Type',
+        allTypes: 'All Types',
+        status: 'Status',
+        allStatuses: 'All Statuses'
+      },
+      saving: 'Saving...',
+      refreshing: 'Refreshing...',
+      noAccounts: 'No accounts',
+      noAccountsDescription: 'Add an AI platform account to start using the API gateway.',
+      accountCreatedSuccess: 'Account created',
+      accountUpdatedSuccess: 'Account updated',
+      accountDeletedSuccess: 'Account deleted',
+      cookieRefreshedSuccess: 'Cookie refreshed',
+      testSuccess: 'Account test passed',
+      failedToSave: 'Failed to save account',
       platforms: {
         anthropic: 'Anthropic',
         claude: 'Claude',
@@ -107,6 +144,7 @@ export default {
         kimi: 'Kimi',
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
+        minimax: 'MiniMax',
       },
       cnProviders: {
         accountMode: {
@@ -155,6 +193,8 @@ export default {
         noBalanceEndpoint: 'This platform has no balance query endpoint',
       },
       types: {
+        api_key: 'API Key',
+        cookie: 'Cookie',
         oauth: 'OAuth',
         chatgptOauth: 'ChatGPT OAuth',
         responsesApi: 'Responses API',
@@ -768,6 +808,8 @@ export default {
       modelRestriction: 'Model Restriction (Optional)',
       modelWhitelist: 'Model Whitelist',
       modelMapping: 'Model Mapping',
+      fromModel: 'Request model',
+      toModel: 'Target model',
       selectAllowedModels: 'Select allowed models. Leave empty to support all models.',
       mapRequestModels:
         'Map request models to actual models. Left is the requested model, right is the actual model sent to API.',
@@ -862,6 +904,30 @@ export default {
       grokClientToolCache: {
         title: 'Client Tool Cache (May Change Automatic Tool Selection)',
         hint: 'For detected Grok Free OAuth accounts, this is enabled by default for client function tools such as Codex and Trae. Turn it off to opt out if the automatic tool-selection behavior is not acceptable.'
+      },
+      grokMediaEligibility: {
+        title: 'Media Generation Eligibility',
+        hint: 'Controls whether this Grok OAuth account may be selected for image and video generation.',
+        auto: 'Automatic detection',
+        enabled: 'Force enable',
+        disabled: 'Force disable',
+        current: 'Current decision:',
+        eligible: 'Eligible',
+        ineligible: 'Not eligible',
+        loading: 'Loading eligibility…',
+        loadFailed: 'Unable to load media eligibility',
+        autoHint: 'Automatic detection only clears the manual override; it does not trigger a media request.',
+        forceEnableWarning: 'Force enable bypasses automatic eligibility checks. Use only for accounts confirmed to support image/video generation.',
+        partialSave: 'Other account settings may have been saved, but media eligibility was not updated. Please retry.',
+        reasons: {
+          eligible: 'Paid entitlement confirmed',
+          billing_inconclusive: 'Billing information inconclusive',
+          billing_forbidden: 'Billing endpoint forbidden',
+          billing_free_tier: 'Free tier account',
+          billing_unobserved: 'Billing not observed yet',
+          override_enabled: 'Manually forced enabled',
+          override_disabled: 'Manually forced disabled'
+        }
       },
       autoPauseOnExpired: 'Auto Pause On Expired',
       autoPauseOnExpiredDesc: 'When enabled, the account will auto pause scheduling after it expires',
@@ -1552,7 +1618,9 @@ export default {
         grokLastProbe: 'Probe {time}',
         grokLastHeadersSeen: 'Headers {time}',
         passiveSampled: 'Passive',
-        activeQuery: 'Query'
+        activeQuery: 'Query',
+        estimatedTotalCost: 'Est. total ${cost}',
+        estimatedTotalCostTooltip: 'Estimated total cost at 100% utilization, based on current window cost and utilization'
       },
       openaiQuotaReset: {
         count: 'Credits',

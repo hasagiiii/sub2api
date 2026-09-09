@@ -329,7 +329,7 @@ func (s *AsyncMediaService) prepareTask(ctx context.Context, in *AsyncMediaSubmi
 	}
 
 	// 预估并预扣费用（按 num_images 的满额预扣）。
-	_, heldCost, err := s.estimateCost(ctx, in.RequestedModel, upstreamModel, in.GroupID, rawSize, sizeTier, quality, numImages, in.RateMultiplier)
+	_, heldCost, err := s.estimateCost(ctx, in.RequestedModel, upstreamModel, in.GroupID, rawSize, sizeTier, quality, numImages, in.RateMultiplier, len(in.Input.ImageURLs))
 	if err != nil {
 		return nil, fmt.Errorf("async media: estimate cost: %w", err)
 	}
@@ -915,7 +915,7 @@ func (s *AsyncMediaService) markSucceededWithStorage(
 	rawSize := amDerefStr(task.ImageSize)
 	sizeTier := amDerefStr(task.SizeTier)
 	quality := amDerefStr(task.Quality)
-	finalTotalCost, finalCost, err := s.estimateCost(ctx, task.RequestedModel, upstreamModel, task.GroupID, rawSize, sizeTier, quality, len(imageURLs), task.RateMultiplier)
+	finalTotalCost, finalCost, err := s.estimateCost(ctx, task.RequestedModel, upstreamModel, task.GroupID, rawSize, sizeTier, quality, len(imageURLs), task.RateMultiplier, asyncInputImageCount(task))
 	if err != nil {
 		// 结算失败时按预扣额结算，避免误退。
 		finalCost = task.HeldCost
@@ -1214,7 +1214,7 @@ func asyncMediaBaseCost(actualCost, rateMultiplier float64) float64 {
 func (s *AsyncMediaService) estimateCost(
 	ctx context.Context,
 	requestedModel, upstreamModel string, groupID *int64,
-	rawSize, sizeTier, quality string, count int, rateMultiplier float64,
+	rawSize, sizeTier, quality string, count int, rateMultiplier float64, imageInputCounts ...int,
 ) (float64, float64, error) {
 	if s.billing == nil {
 		return 0, 0, fmt.Errorf("%w: billing service not initialized", ErrAsyncMediaPricingMissing)
@@ -1225,6 +1225,10 @@ func (s *AsyncMediaService) estimateCost(
 	if count <= 0 {
 		count = 1
 	}
+	imageInputCount := 0
+	if len(imageInputCounts) > 0 && imageInputCounts[0] > 0 {
+		imageInputCount = imageInputCounts[0]
+	}
 
 	group, groupErr := s.loadPricingGroup(ctx, groupID)
 	pricingModel, resolved := s.resolveConfiguredImagePricing(
@@ -1234,16 +1238,17 @@ func (s *AsyncMediaService) estimateCost(
 	// 路径 1：分组/渠道逐模型定价，公开请求模型优先，上游映射模型兼容兜底。
 	if resolved != nil {
 		breakdown, err := s.billing.CalculateCostUnified(CostInput{
-			Ctx:            ctx,
-			Model:          pricingModel,
-			GroupID:        groupID,
-			Group:          group,
-			RequestCount:   count,
-			SizeTier:       imageBillingSizeOrTier(rawSize),
-			Quality:        quality,
-			RateMultiplier: rateMultiplier,
-			Resolver:       s.resolver,
-			Resolved:       resolved,
+			Ctx:             ctx,
+			Model:           pricingModel,
+			GroupID:         groupID,
+			Group:           group,
+			RequestCount:    count,
+			ImageInputCount: imageInputCount,
+			SizeTier:        imageBillingSizeOrTier(rawSize),
+			Quality:         quality,
+			RateMultiplier:  rateMultiplier,
+			Resolver:        s.resolver,
+			Resolved:        resolved,
 		})
 		if err != nil && !errors.Is(err, ErrModelPricingUnavailable) {
 			return 0, 0, err
@@ -1259,6 +1264,9 @@ func (s *AsyncMediaService) estimateCost(
 		return 0, 0, groupErr
 	}
 	groupCfg := buildAsyncMediaGroupImagePriceConfig(group, rawSize, quality)
+	if groupCfg != nil {
+		groupCfg.RawInputImageCount = imageInputCount
+	}
 	fallbackModel := strings.TrimSpace(upstreamModel)
 	if fallbackModel == "" {
 		fallbackModel = strings.TrimSpace(requestedModel)
@@ -1269,6 +1277,9 @@ func (s *AsyncMediaService) estimateCost(
 	}
 	breakdown, err := s.billing.CalculateImageCostWithQualityValidated(fallbackModel, imageBillingSizeOrTier(rawSize), quality, count, groupCfg, rateMultiplier)
 	if err != nil {
+		if isSeedreamImageModel(fallbackModel) {
+			return 0, 0, fmt.Errorf("%w: %v", ErrAsyncMediaPricingMissing, err)
+		}
 		return 0, 0, err
 	}
 	if breakdown == nil {
@@ -1327,6 +1338,19 @@ func buildAsyncMediaGroupImagePriceConfig(group *Group, rawSize, quality string)
 	}
 	rawW, rawH, _ := parseImageBillingDimensions(rawSize)
 	return group.BuildImagePriceConfig(rawW, rawH, quality)
+}
+
+func asyncInputImageCount(task *AsyncMediaTask) int {
+	if task == nil || task.RequestParameters == nil {
+		return 0
+	}
+	if raw, ok := task.RequestParameters["image_urls"].([]any); ok {
+		return len(raw)
+	}
+	if raw, ok := task.RequestParameters["image_urls"].([]string); ok {
+		return len(raw)
+	}
+	return 0
 }
 
 // charge 预扣费用（仅 BillingTypeBalance 走余额账本）。

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,13 +45,13 @@ func (h *ModelAPIGatewayHandler) estimatePricing(c *gin.Context, path string) {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	dimensions, err := extractEstimateDimensions(params)
+	dimensions, err := extractModelEstimateDimensions(c.Request.Context(), endpoint, params)
 	if err != nil {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
 	count, err := extractEstimateImageCount(params)
-	if params["layer_decomposition"] == true && endpoint == domain.SeedreamModel {
+	if endpoint == domain.SeedreamLayerModel || (params["layer_decomposition"] == true && endpoint == domain.SeedreamModel) {
 		count = 16
 	}
 	if err != nil {
@@ -94,11 +95,6 @@ func (h *ModelAPIGatewayHandler) estimatePricingBatch(c *gin.Context) {
 		return
 	}
 
-	dimensions, err := extractEstimateDimensions(params)
-	if err != nil {
-		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return
-	}
 	count, err := extractEstimateImageCount(params)
 	if err != nil {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -120,8 +116,17 @@ func (h *ModelAPIGatewayHandler) estimatePricingBatch(c *gin.Context) {
 			continue
 		}
 		modelCount := count
-		if params["layer_decomposition"] == true && endpoint == domain.SeedreamModel {
+		if endpoint == domain.SeedreamLayerModel || (params["layer_decomposition"] == true && endpoint == domain.SeedreamModel) {
 			modelCount = 16
+		}
+		dimensions, dimensionsErr := extractModelEstimateDimensions(c.Request.Context(), endpoint, params)
+		if dimensionsErr != nil {
+			response.Errors = append(response.Errors, batchPricingEstimateError{
+				Endpoint: endpoint,
+				Type:     "invalid_request_error",
+				Message:  dimensionsErr.Error(),
+			})
+			continue
 		}
 		estimate, estimateErr := h.gatewayService.EstimateImagePricing(c.Request.Context(), apiKey, endpoint, dimensions, quality, modelCount)
 		if estimateErr != nil {
@@ -173,10 +178,52 @@ func extractEstimateDimensions(params map[string]any) (service.ImageDimensions, 
 	return dimensionsFromMap(params)
 }
 
+func extractModelEstimateDimensions(ctx context.Context, endpoint string, params map[string]any) (service.ImageDimensions, error) {
+	if isSeedreamLayerEstimate(endpoint, params) && estimateSizeIsAuto(params) {
+		imageURL, ok := estimateInputImageURL(params)
+		if !ok {
+			return service.ImageDimensions{}, fmt.Errorf("size=auto requires an input image URL for Seedream Layer")
+		}
+		return service.ResolveBytedanceImageURLDimensions(ctx, imageURL)
+	}
+	return extractEstimateDimensions(params)
+}
+
+func isSeedreamLayerEstimate(endpoint string, params map[string]any) bool {
+	return endpoint == domain.SeedreamLayerModel ||
+		(endpoint == domain.SeedreamModel && params["layer_decomposition"] == true)
+}
+
+func estimateSizeIsAuto(params map[string]any) bool {
+	for _, key := range []string{"size", "image_size"} {
+		if value, ok := params[key].(string); ok && strings.EqualFold(strings.TrimSpace(value), "auto") {
+			return true
+		}
+	}
+	return false
+}
+
+func estimateInputImageURL(params map[string]any) (string, bool) {
+	switch value := params["image"].(type) {
+	case string:
+		value = strings.TrimSpace(value)
+		return value, value != ""
+	case []any:
+		if len(value) == 1 {
+			imageURL, ok := value[0].(string)
+			imageURL = strings.TrimSpace(imageURL)
+			return imageURL, ok && imageURL != ""
+		}
+	}
+	return "", false
+}
+
 func knownFALImageSize(value string) (service.ImageDimensions, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "1k":
 		return service.ImageDimensions{Width: 1024, Height: 1024}, true
+	case "1.5k":
+		return service.ImageDimensions{Width: 1536, Height: 1536}, true
 	case "2k":
 		return service.ImageDimensions{Width: 2048, Height: 2048}, true
 	case "4k":

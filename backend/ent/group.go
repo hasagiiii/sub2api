@@ -72,6 +72,8 @@ type Group struct {
 	ImagePrice2k *float64 `json:"image_price_2k,omitempty"`
 	// ImagePrice4k holds the value of the "image_price_4k" field.
 	ImagePrice4k *float64 `json:"image_price_4k,omitempty"`
+	// ImageInputPricePerImage holds the value of the "image_input_price_per_image" field.
+	ImageInputPricePerImage *float64 `json:"image_input_price_per_image,omitempty"`
 	// ImageResolution1k holds the value of the "image_resolution_1k" field.
 	ImageResolution1k string `json:"image_resolution_1k,omitempty"`
 	// ImageResolution2k holds the value of the "image_resolution_2k" field.
@@ -148,8 +150,8 @@ type Group struct {
 	DefaultMappedModel string `json:"default_mapped_model,omitempty"`
 	// OpenAI Messages 调度模型配置：按 Claude 系列/精确模型映射到目标 GPT 模型
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config,omitempty"`
-	// 自定义 /v1/models 展示列表配置；仅影响模型列表响应，不影响调度
-	ModelsListConfig domain.GroupModelsListConfig `json:"models_list_config,omitempty"`
+	// 分组模型白名单：同时约束模型列表接口与请求准入
+	ModelAllowlist domain.GroupModelAllowlist `json:"model_allowlist,omitempty"`
 	// 固定账号获取 Codex Model Manifest 配置；开启后 /models 请求只用选定账号拉取（仅 openai 平台）
 	CodexModelsManifestConfig domain.GroupCodexModelsManifestConfig `json:"codex_models_manifest_config,omitempty"`
 	// 分组 RPM 上限，0 表示不限制；设置后接管该分组用户的限流
@@ -282,11 +284,11 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case group.FieldImagePricingMatrix, group.FieldVideoModelPrices, group.FieldModelPricing, group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelsListConfig, group.FieldCodexModelsManifestConfig, group.FieldReasoningEffortMappings:
+		case group.FieldImagePricingMatrix, group.FieldVideoModelPrices, group.FieldModelPricing, group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelAllowlist, group.FieldCodexModelsManifestConfig, group.FieldReasoningEffortMappings:
 			values[i] = new([]byte)
 		case group.FieldPeakRateEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldAllowBatchImageGeneration, group.FieldImageRateIndependent, group.FieldImagePreferFal, group.FieldImageDecodeSizeOnRsp, group.FieldImageUpscaleOnRsp, group.FieldVideoRateIndependent, group.FieldLongContextPricingEnabled, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldAllowLive, group.FieldForceOpenaiFast, group.FieldFreeOpenaiFast, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet, group.FieldKiroCacheEmulationEnabled, group.FieldKiroAutoStickyEnabled, group.FieldProfitControlEnabled:
 			values[i] = new(sql.NullBool)
-		case group.FieldRateMultiplier, group.FieldPeakRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k, group.FieldBatchImageDiscountMultiplier, group.FieldBatchImageHoldMultiplier, group.FieldVideoRateMultiplier, group.FieldVideoPrice480p, group.FieldVideoPrice720p, group.FieldVideoPrice1080p, group.FieldWebSearchPricePerCall, group.FieldSearchPricePer1k, group.FieldAudioRealtimePricePerMin, group.FieldAudioTtsPricePerMillionChars, group.FieldAudioSttPricePerHour, group.FieldKiroCacheEmulationRatio, group.FieldProfitMinMargin, group.FieldProfitSafetyBuffer:
+		case group.FieldRateMultiplier, group.FieldPeakRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k, group.FieldImageInputPricePerImage, group.FieldBatchImageDiscountMultiplier, group.FieldBatchImageHoldMultiplier, group.FieldVideoRateMultiplier, group.FieldVideoPrice480p, group.FieldVideoPrice720p, group.FieldVideoPrice1080p, group.FieldWebSearchPricePerCall, group.FieldSearchPricePer1k, group.FieldAudioRealtimePricePerMin, group.FieldAudioTtsPricePerMillionChars, group.FieldAudioSttPricePerHour, group.FieldKiroCacheEmulationRatio, group.FieldProfitMinMargin, group.FieldProfitSafetyBuffer:
 			values[i] = new(sql.NullFloat64)
 		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit, group.FieldKiroStickySessionTTLSeconds:
 			values[i] = new(sql.NullInt64)
@@ -479,6 +481,13 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ImagePrice4k = new(float64)
 				*_m.ImagePrice4k = value.Float64
+			}
+		case group.FieldImageInputPricePerImage:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field image_input_price_per_image", values[i])
+			} else if value.Valid {
+				_m.ImageInputPricePerImage = new(float64)
+				*_m.ImageInputPricePerImage = value.Float64
 			}
 		case group.FieldImageResolution1k:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -730,12 +739,12 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 					return fmt.Errorf("unmarshal field messages_dispatch_model_config: %w", err)
 				}
 			}
-		case group.FieldModelsListConfig:
+		case group.FieldModelAllowlist:
 			if value, ok := values[i].(*[]byte); !ok {
-				return fmt.Errorf("unexpected type %T for field models_list_config", values[i])
+				return fmt.Errorf("unexpected type %T for field model_allowlist", values[i])
 			} else if value != nil && len(*value) > 0 {
-				if err := json.Unmarshal(*value, &_m.ModelsListConfig); err != nil {
-					return fmt.Errorf("unmarshal field models_list_config: %w", err)
+				if err := json.Unmarshal(*value, &_m.ModelAllowlist); err != nil {
+					return fmt.Errorf("unmarshal field model_allowlist: %w", err)
 				}
 			}
 		case group.FieldCodexModelsManifestConfig:
@@ -992,6 +1001,11 @@ func (_m *Group) String() string {
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")
+	if v := _m.ImageInputPricePerImage; v != nil {
+		builder.WriteString("image_input_price_per_image=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
 	builder.WriteString("image_resolution_1k=")
 	builder.WriteString(_m.ImageResolution1k)
 	builder.WriteString(", ")
@@ -1126,8 +1140,8 @@ func (_m *Group) String() string {
 	builder.WriteString("messages_dispatch_model_config=")
 	builder.WriteString(fmt.Sprintf("%v", _m.MessagesDispatchModelConfig))
 	builder.WriteString(", ")
-	builder.WriteString("models_list_config=")
-	builder.WriteString(fmt.Sprintf("%v", _m.ModelsListConfig))
+	builder.WriteString("model_allowlist=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ModelAllowlist))
 	builder.WriteString(", ")
 	builder.WriteString("codex_models_manifest_config=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CodexModelsManifestConfig))

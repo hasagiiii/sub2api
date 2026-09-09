@@ -263,7 +263,7 @@ func (h *ModelAPIGatewayHandler) nativeImageSubmit(
 		var size string
 		var count int
 		var err error
-		rawRequestBody, size, count, err = service.BytedanceRequestInput(body, account.GetMappedModel(model))
+		rawRequestBody, size, count, err = service.BytedanceRequestInput(body, model)
 		if err != nil {
 			h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return
@@ -735,7 +735,7 @@ func modelAPIImageAPI(model string) string {
 func modelAPIIsKnownImageModel(model string) bool {
 	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(model), "/"))
 	normalized = strings.TrimPrefix(normalized, "fal-ai/")
-	if normalized == domain.SeedreamModel {
+	if normalized == domain.SeedreamModel || normalized == domain.SeedreamEditModel || normalized == domain.SeedreamLayerModel || normalized == domain.SeedreamTextToImageModel {
 		return true
 	}
 	// SeedVR upscale is an image-facade endpoint even though its multi-segment

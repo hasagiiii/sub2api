@@ -36,13 +36,29 @@ const (
 	PlatformKimi      = "kimi"     // Kimi (月之暗面 / Moonshot)
 	PlatformZhipu     = "zhipu"    // 智谱 GLM (bigmodel)
 	PlatformDeepseek  = "deepseek" // DeepSeek
+	PlatformMiniMax   = "minimax"  // MiniMax (M 系列)
 	PlatformComposite = "composite"
 )
 
 const BytedanceBaseURL = "https://ark.cn-beijing.volces.com/api/v3"
 const SeedreamModel = "doubao-seedream-5-0-pro-260628"
 
-var DefaultBytedanceModelMapping = map[string]string{SeedreamModel: SeedreamModel}
+const (
+	SeedreamEditModel        = "bytedance/seedream-v5.0-pro/edit"
+	SeedreamLayerModel       = "bytedance/seedream-v5.0-pro/layer"
+	SeedreamTextToImageModel = "bytedance/seedream-v5.0-pro/text-to-image"
+)
+
+var DefaultBytedanceModelMapping = map[string]string{
+	SeedreamModel:            SeedreamModel,
+	SeedreamEditModel:        SeedreamModel,
+	SeedreamLayerModel:       SeedreamModel,
+	SeedreamTextToImageModel: SeedreamModel,
+}
+
+func IsSeedreamPublicModel(model string) bool {
+	return model == SeedreamEditModel || model == SeedreamLayerModel || model == SeedreamTextToImageModel
+}
 
 // Account mode constants 区分国产供应商的「按量付费（余额）」与「Coding Plan」两种接入方式。
 // 存储于 credentials["account_mode"]，决定 base_url 预设与额度监控方式。
@@ -57,7 +73,7 @@ const (
 const (
 	APIProtocolChatCompletions = "chat_completions" // OpenAI Chat Completions（默认）
 	APIProtocolAnthropic       = "anthropic"        // 原生 Anthropic /v1/messages（适配 Claude Code）
-	APIProtocolResponses       = "responses"        // OpenAI Responses（deepseek / kimi 原生端点，适配 Codex）
+	APIProtocolResponses       = "responses"        // OpenAI Responses（deepseek / kimi / minimax 原生端点，适配 Codex）
 	APIProtocolAdaptive        = "adaptive"         // 按入站协议优先选择供应商原生端点
 )
 

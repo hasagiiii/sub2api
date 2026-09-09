@@ -12,7 +12,6 @@ import (
 )
 
 type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfig
-type GroupModelsListConfig = domain.GroupModelsListConfig
 type GroupCodexModelsManifestConfig = domain.GroupCodexModelsManifestConfig
 type ReasoningEffortMapping = domain.ReasoningEffortMapping
 
@@ -49,6 +48,7 @@ type Group struct {
 	ImagePrice1K                 *float64
 	ImagePrice2K                 *float64
 	ImagePrice4K                 *float64
+	ImageInputPricePerImage      *float64
 	ImageResolution1K            string
 	ImageResolution2K            string
 	ImageResolution4K            string
@@ -131,8 +131,8 @@ type Group struct {
 	RequirePrivacySet           bool // 调度时仅允许 privacy 已成功设置的账号（OpenAI/Antigravity/Anthropic/Gemini）
 	DefaultMappedModel          string
 	MessagesDispatchModelConfig OpenAIMessagesDispatchModelConfig
-	ModelsListConfig            GroupModelsListConfig
-	// CodexModelsManifestConfig 开启后，该分组的 Codex /models manifest 请求只用
+	ModelAllowlist              GroupModelAllowlist
+	// CodexModelsManifestConfig 开启后，普通模型列表与 Codex manifest 优先使用
 	// 固定账号列表拉取并合并，不经过调度器（仅 openai 平台）。
 	CodexModelsManifestConfig GroupCodexModelsManifestConfig
 
@@ -174,6 +174,12 @@ type Group struct {
 	AccountCount            int64
 	ActiveAccountCount      int64
 	RateLimitedAccountCount int64
+}
+
+// IsGroupBindableInSimpleMode reports whether a group may be exposed and
+// bound to accounts while the application runs in simple mode.
+func IsGroupBindableInSimpleMode(group *Group) bool {
+	return group != nil && group.Platform != PlatformComposite
 }
 
 func (g *Group) EffectiveKiroCacheEmulationEnabled() bool {
@@ -456,16 +462,17 @@ func (g *Group) BuildImagePriceConfig(rawWidth, rawHeight int, quality string) *
 		return nil
 	}
 	cfg := &ImagePriceConfig{
-		Price1K:       g.ImagePrice1K,
-		Price2K:       g.ImagePrice2K,
-		Price4K:       g.ImagePrice4K,
-		Resolution1K:  g.ImageResolution1K,
-		Resolution2K:  g.ImageResolution2K,
-		Resolution4K:  g.ImageResolution4K,
-		PricingMatrix: g.ImagePricingMatrix,
-		RawWidth:      rawWidth,
-		RawHeight:     rawHeight,
-		Quality:       quality,
+		Price1K:            g.ImagePrice1K,
+		Price2K:            g.ImagePrice2K,
+		Price4K:            g.ImagePrice4K,
+		InputPricePerImage: g.ImageInputPricePerImage,
+		Resolution1K:       g.ImageResolution1K,
+		Resolution2K:       g.ImageResolution2K,
+		Resolution4K:       g.ImageResolution4K,
+		PricingMatrix:      g.ImagePricingMatrix,
+		RawWidth:           rawWidth,
+		RawHeight:          rawHeight,
+		Quality:            quality,
 	}
 	return cfg
 }

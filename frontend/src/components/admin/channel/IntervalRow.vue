@@ -1,6 +1,9 @@
 <template>
   <div class="flex items-start gap-2 rounded border p-2"
-       :class="isEmpty ? 'border-red-400 bg-red-50 dark:border-red-500 dark:bg-red-950/20' : 'border-gray-200 bg-white dark:border-dark-500 dark:bg-dark-700'">
+       :class="[
+         isEmpty ? 'border-red-400 bg-red-50 dark:border-red-500 dark:bg-red-950/20' : 'border-gray-200 bg-white dark:border-dark-500 dark:bg-dark-700',
+         mode === 'image' && imageTierType === 'pixel' ? 'image-pixel-row' : '',
+       ]">
     <!-- Token mode: context range + prices ($/MTok) -->
     <template v-if="mode === 'token'">
       <div class="pricing-interval-grid grid min-w-0 flex-1 gap-2">
@@ -66,23 +69,21 @@
 
     <!-- Per-request / Image / Video mode: tier label + context range + price -->
     <template v-else>
-      <div class="w-20">
+      <div v-if="mode !== 'image' || imageTierType !== 'pixel'" class="w-20">
         <label class="text-xs text-gray-400">
           {{ mode === 'video' ? t('admin.channels.form.resolution') : t('admin.channels.form.tierLabel') }}
         </label>
-        <input :value="interval.tier_label" @input="emitTierLabel(($event.target as HTMLInputElement).value)"
+        <div v-if="mode === 'image'" class="mt-1 flex h-8 items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs font-medium text-gray-600 dark:border-dark-500 dark:bg-dark-600 dark:text-gray-300">
+          {{ interval.tier_label }}
+        </div>
+        <input v-else :value="interval.tier_label" @input="emitTierLabel(($event.target as HTMLInputElement).value)"
           type="text" class="input mt-0.5 text-xs"
-          :placeholder="mode === 'image' ? '1K / 2K / 4K' : (mode === 'video' ? '480p / 720p / 1080p' : '')" />
+          :placeholder="mode === 'video' ? '480p / 720p / 1080p' : ''" />
       </div>
-      <div v-if="mode === 'image'" class="w-32">
-        <label class="text-xs text-gray-400">{{ t('admin.channels.form.resolutionThreshold') }}</label>
-        <input :value="interval.resolution" @input="emitField('resolution', ($event.target as HTMLInputElement).value)"
-          type="text" class="input mt-0.5 font-mono text-xs" placeholder="1024x1024" />
-      </div>
-      <div v-if="mode === 'image'" class="w-24">
-        <label class="text-xs text-gray-400">{{ t('admin.channels.form.quality', '质量') }}</label>
-        <input :value="interval.quality" @input="emitField('quality', ($event.target as HTMLInputElement).value)"
-          type="text" class="input mt-0.5 text-xs" placeholder="low / medium / high" />
+      <div v-if="mode === 'image' && imageTierType === 'pixel'" class="image-pixel-max-field">
+        <label class="text-xs text-gray-400">{{ t('admin.channels.form.maxPixels', 'Max pixels') }}</label>
+        <input :value="interval.max_pixels ?? ''" @input="emitField('max_pixels', toIntOrNull(($event.target as HTMLInputElement).value))"
+          type="number" min="1" class="input mt-0.5 font-mono text-xs" placeholder="-" />
       </div>
       <div v-if="mode !== 'image'" class="w-20">
         <label class="text-xs text-gray-400">{{ t('admin.channels.form.minTokens') }}</label>
@@ -94,7 +95,7 @@
         <input :value="interval.max_tokens ?? ''" @input="emitField('max_tokens', toIntOrNull(($event.target as HTMLInputElement).value))"
           type="number" min="0" class="input mt-0.5 text-xs" :placeholder="'∞'" />
       </div>
-      <div class="flex-1">
+      <div :class="mode === 'image' && imageTierType === 'pixel' ? 'image-pixel-price-field' : 'flex-1'">
         <label class="text-xs text-gray-400">
           {{ mode === 'video' ? t('admin.channels.form.perSecondPrice', '每秒单价') : t('admin.channels.form.perRequestPrice') }}
           <span v-if="isEmpty" class="text-red-500">*</span>
@@ -124,7 +125,10 @@ const props = defineProps<{
   interval: IntervalFormEntry
   mode: BillingMode
   enableMultipliers?: boolean
+  imageTierType?: 'standard' | 'pixel'
 }>()
+
+const imageTierType = computed(() => props.imageTierType || 'standard')
 
 const emit = defineEmits<{
   update: [interval: IntervalFormEntry]
@@ -172,5 +176,17 @@ function toIntOrNull(val: string): number | null {
 <style scoped>
 .pricing-interval-grid {
   grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+}
+
+.image-pixel-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.image-pixel-max-field,
+.image-pixel-price-field {
+  min-width: 0;
+  width: auto;
 }
 </style>

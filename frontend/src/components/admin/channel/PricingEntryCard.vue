@@ -139,6 +139,11 @@
                 type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
             <div>
+              <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageInputPricePerImage', 'Input image / image') }}</label>
+              <input :value="entry.image_input_price_per_image" @input="emitField('image_input_price_per_image', ($event.target as HTMLInputElement).value)"
+                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+            </div>
+            <div>
               <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageTokenPrice') }}</label>
               <input :value="entry.image_output_price" @input="emitField('image_output_price', ($event.target as HTMLInputElement).value)"
                 type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
@@ -196,14 +201,16 @@
 
         <!-- Per-request mode -->
         <div v-else-if="entry.billing_mode === 'per_request'">
-          <!-- Default per-request price -->
-          <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
-            {{ t('admin.channels.form.defaultPerRequestPrice') }}
-            <span class="ml-1 font-normal text-gray-400">$</span>
-          </label>
-          <div class="mt-1 w-48">
-            <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
-              type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+          <div class="pricing-image-default-grid mt-1 grid max-w-2xl gap-2">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.defaultPerRequestPrice') }} <span class="ml-1 font-normal text-gray-400">$</span></label>
+              <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
+                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.imageInputPricePerImage', 'Input image price / image') }} <span class="ml-1 font-normal text-gray-400">$</span></label>
+              <input :value="entry.image_input_price_per_image" @input="emitField('image_input_price_per_image', ($event.target as HTMLInputElement).value)" type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+            </div>
           </div>
 
           <!-- Tiers -->
@@ -232,14 +239,16 @@
 
         <!-- Image mode -->
         <div v-else-if="entry.billing_mode === 'image'">
-          <!-- Default image price (per-request, same as per_request mode) -->
-          <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
-            {{ t('admin.channels.form.defaultImagePrice') }}
-            <span class="ml-1 font-normal text-gray-400">$</span>
-          </label>
-          <div class="mt-1 w-48">
-            <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
-              type="number" step="any" min="0" class="input text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+          <div class="pricing-image-default-grid mt-1 grid max-w-2xl gap-2">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.defaultImagePrice') }} <span class="ml-1 font-normal text-gray-400">$</span></label>
+              <input :value="entry.per_request_price" @input="emitField('per_request_price', ($event.target as HTMLInputElement).value)"
+                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.channels.form.imageInputPricePerImage', 'Input image price / image') }} <span class="ml-1 font-normal text-gray-400">$</span></label>
+              <input :value="entry.image_input_price_per_image" @input="emitField('image_input_price_per_image', ($event.target as HTMLInputElement).value)" type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+            </div>
           </div>
 
           <!-- Image tiers -->
@@ -247,9 +256,14 @@
             <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
               {{ t('admin.channels.form.imageTiers') }}
             </label>
-            <button type="button" @click="addMediaTier" class="text-xs text-primary-600 hover:text-primary-700">
-              + {{ t('admin.channels.form.addTier') }}
-            </button>
+            <div class="flex gap-3">
+              <button type="button" @click="addMediaTier" :disabled="!canAddStandardImageTier" class="text-xs text-primary-600 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40">
+                + {{ t('admin.channels.form.addTier') }}
+              </button>
+              <button type="button" @click="addPixelTier" :disabled="hasStandardImageTiers" class="text-xs text-primary-600 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40">
+                + {{ t('admin.channels.form.addPixelTier', 'Add pixel tier') }}
+              </button>
+            </div>
           </div>
           <div v-if="entry.intervals && entry.intervals.length > 0" class="mt-2 space-y-2">
             <IntervalRow
@@ -257,6 +271,7 @@
               :key="idx"
               :interval="iv"
               :mode="entry.billing_mode"
+              :image-tier-type="getImageTierType(iv)"
               @update="updateInterval(idx, $event)"
               @remove="removeInterval(idx)"
             />
@@ -360,6 +375,29 @@ const maxReasoningEffortMultiplierPlaceholder = computed(() =>
     : t('admin.channels.form.multiplierPlaceholder')
 )
 
+function getImageTierType(interval: IntervalFormEntry): 'standard' | 'pixel' {
+  return interval.image_tier_type ||
+    (interval.max_pixels != null || /^P\d*$/i.test(interval.tier_label.trim()) ? 'pixel' : 'standard')
+}
+
+const hasPixelImageTiers = computed(() =>
+  props.entry.intervals.some(interval => getImageTierType(interval) === 'pixel'),
+)
+
+const hasStandardImageTiers = computed(() =>
+  props.entry.intervals.some(interval => getImageTierType(interval) === 'standard'),
+)
+
+const standardImageTierLabels = ['1K', '2K', '4K']
+
+const canAddStandardImageTier = computed(() =>
+  !hasPixelImageTiers.value && standardImageTierLabels.some(label =>
+    !props.entry.intervals.some(interval =>
+      getImageTierType(interval) === 'standard' && interval.tier_label.trim().toUpperCase() === label,
+    ),
+  ),
+)
+
 function emitField(field: keyof PricingFormEntry, value: string) {
   emit('update', { ...props.entry, [field]: value === '' ? null : value })
 }
@@ -368,6 +406,8 @@ function addInterval() {
   const intervals = [...(props.entry.intervals || [])]
   intervals.push({
     min_tokens: 0, max_tokens: null, tier_label: '', resolution: '', quality: '',
+    max_pixels: null,
+    image_tier_type: 'standard',
     input_price: null, output_price: null, cache_write_price: null,
     cache_write_1h_price: null,
     cache_read_price: null, per_request_price: null,
@@ -380,31 +420,32 @@ function addInterval() {
 
 function addMediaTier() {
   const intervals = [...(props.entry.intervals || [])]
-  if (props.entry.billing_mode === 'image' && intervals.length === 0) {
-    const templates: Array<[string, string]> = [
-      ['1K', '1024x1024'],
-      ['2K', '2048x2048'],
-      ['4K', '4096x4096']
-    ]
-    for (const [tier_label, resolution] of templates) {
-      intervals.push({
-        min_tokens: 0, max_tokens: null, tier_label, resolution, quality: 'low',
-        input_price: null, output_price: null, cache_write_price: null,
-        cache_read_price: null, per_request_price: null,
-        input_multiplier: null, output_multiplier: null,
-        cache_write_multiplier: null, cache_read_multiplier: null,
-        sort_order: intervals.length
-      })
-    }
-  } else {
+  if (props.entry.billing_mode === 'image') {
+    if (hasPixelImageTiers.value) return
+    const nextLabel = standardImageTierLabels.find(label =>
+      !intervals.some(interval =>
+        getImageTierType(interval) === 'standard' && interval.tier_label.trim().toUpperCase() === label,
+      ),
+    )
+    if (!nextLabel) return
     intervals.push({
-      min_tokens: 0, max_tokens: null, tier_label: '', resolution: '',
-      quality: props.entry.billing_mode === 'image' ? 'low' : '',
+      min_tokens: 0, max_tokens: null, tier_label: nextLabel, resolution: '',
+      max_pixels: null, quality: '', image_tier_type: 'standard',
       input_price: null, output_price: null, cache_write_price: null,
       cache_read_price: null, per_request_price: null,
       input_multiplier: null, output_multiplier: null,
       cache_write_multiplier: null, cache_read_multiplier: null,
-      sort_order: intervals.length
+      sort_order: intervals.length,
+    })
+  } else {
+    intervals.push({
+      min_tokens: 0, max_tokens: null, tier_label: '', resolution: '',
+      max_pixels: null, quality: '',
+      input_price: null, output_price: null, cache_write_price: null,
+      cache_read_price: null, per_request_price: null,
+      input_multiplier: null, output_multiplier: null,
+      cache_write_multiplier: null, cache_read_multiplier: null,
+      sort_order: intervals.length,
     })
   }
   emit('update', { ...props.entry, intervals })
@@ -418,12 +459,26 @@ function addVideoTier() {
   const templates = ['480p', '720p', '1080p', '4k']
   intervals.push({
     min_tokens: 0, max_tokens: null, tier_label: templates[intervals.length] || '', resolution: '', quality: '',
+    max_pixels: null,
+    image_tier_type: undefined,
     input_price: null, output_price: null, cache_write_price: null,
     cache_write_1h_price: null,
     cache_read_price: null, per_request_price: null,
     input_multiplier: null, output_multiplier: null,
     cache_write_multiplier: null, cache_read_multiplier: null,
     sort_order: intervals.length
+  })
+  emit('update', { ...props.entry, intervals })
+}
+
+function addPixelTier() {
+  if (hasStandardImageTiers.value) return
+  const intervals = [...(props.entry.intervals || [])]
+  intervals.push({
+    min_tokens: 0, max_tokens: null, tier_label: `P${intervals.length + 1}`, resolution: '', max_pixels: null, quality: '', image_tier_type: 'pixel',
+    input_price: null, output_price: null, cache_write_price: null, cache_write_1h_price: null,
+    cache_read_price: null, per_request_price: null, input_multiplier: null, output_multiplier: null,
+    cache_write_multiplier: null, cache_read_multiplier: null, sort_order: intervals.length,
   })
   emit('update', { ...props.entry, intervals })
 }
@@ -467,6 +522,7 @@ async function onModelsUpdate(newModels: string[]) {
         cache_write_1h_price: perTokenToMTok(result.cache_write_1h_price ?? null),
         cache_read_price: perTokenToMTok(result.cache_read_price ?? null),
         image_input_price: perTokenToMTok(result.image_input_price ?? null),
+        image_input_price_per_image: result.image_input_price_per_image ?? null,
         image_output_price: perTokenToMTok(result.image_output_price ?? null),
         max_reasoning_effort_multiplier: result.max_reasoning_effort_multiplier ?? null,
       })
@@ -480,6 +536,16 @@ async function onModelsUpdate(newModels: string[]) {
 <style scoped>
 .pricing-default-grid {
   grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+}
+
+.pricing-image-default-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 640px) {
+  .pricing-image-default-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .collapsible-content {

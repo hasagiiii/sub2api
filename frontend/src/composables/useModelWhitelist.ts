@@ -19,7 +19,7 @@ const openaiModels = [
   'gpt-5.3-codex-spark', 'codex-auto-review',
   'gpt-4o-audio-preview', 'gpt-4o-realtime-preview',
   // GPT Image 系列
-  'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'
+  'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'
 ]
 
 // Leonardo task proxy currently exposes GPT Image 2 for text-to-image.
@@ -125,7 +125,10 @@ const kiroModels = [
 const zhipuModels = [
   'glm-4', 'glm-4v', 'glm-4-plus', 'glm-4-0520',
   'glm-4-air', 'glm-4-airx', 'glm-4-long', 'glm-4-flash',
-  'glm-4v-plus', 'glm-4.5', 'glm-4.6',
+  'glm-4v-plus', 'glm-4.5', 'glm-4.5-x', 'glm-4.5-air', 'glm-4.5-flash',
+  'glm-4.6', 'glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx',
+  'glm-5', 'glm-5-turbo', 'glm-5.1', 'glm-5.2',
+  'glm-5.3', 'glm-5.3-flash',
   'glm-3-turbo', 'glm-4-alltools',
   'chatglm_turbo', 'chatglm_pro', 'chatglm_std', 'chatglm_lite',
   'cogview-3', 'cogvideo'
@@ -249,6 +252,14 @@ const doubaoModels = [
 
 // MiniMax
 const minimaxModels = [
+  'MiniMax-M3',
+  'MiniMax-M2.7',
+  'MiniMax-M2.7-highspeed',
+  'MiniMax-M2.5',
+  'MiniMax-M2.5-highspeed',
+  'MiniMax-M2.1',
+  'MiniMax-M2.1-highspeed',
+  'MiniMax-M2',
   'abab6.5-chat', 'abab6.5s-chat', 'abab6.5s-chat-pro',
   'abab6-chat',
   'abab5.5-chat', 'abab5.5s-chat'
@@ -518,7 +529,11 @@ export function getModelsByPlatform(platform: string): string[] {
     // 这里返回空，避免回退到 claudeModels 造成"模型限制显示 Claude 模型"的错觉。
     case 'fal': return []
     case 'leonardo': return leonardoModels
-    case 'bytedance': return ['doubao-seedream-5-0-pro-260628']
+    case 'bytedance': return [
+      'bytedance/seedream-v5.0-pro/edit',
+      'bytedance/seedream-v5.0-pro/layer',
+      'bytedance/seedream-v5.0-pro/text-to-image',
+    ]
     case 'atlascloud': return atlascloudModels
     case 'apiz': return apizModels
     case 'higgsfield': return higgsfieldModels
@@ -552,7 +567,11 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'kiro') return kiroPresetMappings
   if (platform === 'leonardo') return leonardoPresetMappings
-  if (platform === 'bytedance') return [{ label: 'Seedream 5.0 Pro', from: 'doubao-seedream-5-0-pro-260628', to: 'doubao-seedream-5-0-pro-260628', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' }]
+  if (platform === 'bytedance') return [
+    { label: 'Seedream Edit', from: 'bytedance/seedream-v5.0-pro/edit', to: 'doubao-seedream-5-0-pro-260628', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+    { label: 'Seedream Layer', from: 'bytedance/seedream-v5.0-pro/layer', to: 'doubao-seedream-5-0-pro-260628', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+    { label: 'Seedream Text to Image', from: 'bytedance/seedream-v5.0-pro/text-to-image', to: 'doubao-seedream-5-0-pro-260628', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+  ]
   if (platform === 'bedrock') return bedrockPresetMappings
   // apiz 是视频类平台，模型映射需要用户根据自身账号里配置的真实上游 model
   // 手动填写（例如 fal-ai/bytedance/... -> bytedance-seedance-1-0-pro-t2v），

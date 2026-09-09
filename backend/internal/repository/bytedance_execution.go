@@ -31,7 +31,7 @@ func (r *asyncMediaTaskRepository) CreateBytedance(ctx context.Context, task *se
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO bytedance_image_executions (task_id,request_payload,billing_type,unit_price) VALUES ($1,$2,$3,$4)`, task.ID, payload, execution.BillingType, execution.UnitPrice)
+	_, err = tx.ExecContext(ctx, `INSERT INTO bytedance_image_executions (task_id,request_payload,billing_type,unit_price,input_image_price,input_image_count) VALUES ($1,$2,$3,$4,$5,$6)`, task.ID, payload, execution.BillingType, execution.UnitPrice, execution.InputImagePrice, execution.InputImageCount)
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func (r *asyncMediaTaskRepository) GetBytedance(ctx context.Context, id int64) (
 	var request, result []byte
 	var count sql.NullInt64
 	var reason sql.NullString
-	err := r.db.QueryRowContext(ctx, `SELECT request_payload,result_payload,state,billing_type,unit_price,billable_images,billing_error FROM bytedance_image_executions WHERE task_id=$1`, id).Scan(&request, &result, &e.State, &e.BillingType, &e.UnitPrice, &count, &reason)
+	err := r.db.QueryRowContext(ctx, `SELECT request_payload,result_payload,state,billing_type,unit_price,input_image_price,input_image_count,billable_images,billing_error FROM bytedance_image_executions WHERE task_id=$1`, id).Scan(&request, &result, &e.State, &e.BillingType, &e.UnitPrice, &e.InputImagePrice, &e.InputImageCount, &count, &reason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

@@ -1589,6 +1589,9 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		models = append(models, model)
 	}
 	sort.Strings(models)
+	if platform == PlatformOpenAI {
+		models = supplementUnmappedOpenAIModels(accounts, models)
+	}
 
 	if shouldLogModelsListPlatform(platform) {
 		slog.Info("gateway.models.available.query",
