@@ -30,6 +30,7 @@ func TestAsyncMediaTaskStatusCacheSetGetAndTTL(t *testing.T) {
 		Status:    service.AsyncMediaStatusRunning,
 		APIKeyID:  17,
 		Upstream:  service.PlatformLeonardo,
+		ErrorCode: "INVALID_IMAGE_LAYER_DECOMPOSITION",
 		FinalCost: 1.25,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -44,6 +45,7 @@ func TestAsyncMediaTaskStatusCacheSetGetAndTTL(t *testing.T) {
 	require.Equal(t, status.RequestID, got.RequestID)
 	require.Equal(t, status.Status, got.Status)
 	require.Equal(t, status.Upstream, got.Upstream)
+	require.Equal(t, status.ErrorCode, got.ErrorCode)
 	require.Equal(t, status.FinalCost, got.FinalCost)
 	require.Equal(t, status.Version, got.Version)
 }

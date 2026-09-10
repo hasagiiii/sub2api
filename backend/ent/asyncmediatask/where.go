@@ -189,6 +189,11 @@ func ErrorReason(v string) predicate.AsyncMediaTask {
 	return predicate.AsyncMediaTask(sql.FieldEQ(FieldErrorReason, v))
 }
 
+// ErrorCode applies equality check predicate on the "error_code" field. It's identical to ErrorCodeEQ.
+func ErrorCode(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldEQ(FieldErrorCode, v))
+}
+
 // FailDeadlineAt applies equality check predicate on the "fail_deadline_at" field. It's identical to FailDeadlineAtEQ.
 func FailDeadlineAt(v time.Time) predicate.AsyncMediaTask {
 	return predicate.AsyncMediaTask(sql.FieldEQ(FieldFailDeadlineAt, v))
@@ -1802,6 +1807,81 @@ func ErrorReasonEqualFold(v string) predicate.AsyncMediaTask {
 // ErrorReasonContainsFold applies the ContainsFold predicate on the "error_reason" field.
 func ErrorReasonContainsFold(v string) predicate.AsyncMediaTask {
 	return predicate.AsyncMediaTask(sql.FieldContainsFold(FieldErrorReason, v))
+}
+
+// ErrorCodeEQ applies the EQ predicate on the "error_code" field.
+func ErrorCodeEQ(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldEQ(FieldErrorCode, v))
+}
+
+// ErrorCodeNEQ applies the NEQ predicate on the "error_code" field.
+func ErrorCodeNEQ(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldNEQ(FieldErrorCode, v))
+}
+
+// ErrorCodeIn applies the In predicate on the "error_code" field.
+func ErrorCodeIn(vs ...string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldIn(FieldErrorCode, vs...))
+}
+
+// ErrorCodeNotIn applies the NotIn predicate on the "error_code" field.
+func ErrorCodeNotIn(vs ...string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldNotIn(FieldErrorCode, vs...))
+}
+
+// ErrorCodeGT applies the GT predicate on the "error_code" field.
+func ErrorCodeGT(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldGT(FieldErrorCode, v))
+}
+
+// ErrorCodeGTE applies the GTE predicate on the "error_code" field.
+func ErrorCodeGTE(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldGTE(FieldErrorCode, v))
+}
+
+// ErrorCodeLT applies the LT predicate on the "error_code" field.
+func ErrorCodeLT(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldLT(FieldErrorCode, v))
+}
+
+// ErrorCodeLTE applies the LTE predicate on the "error_code" field.
+func ErrorCodeLTE(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldLTE(FieldErrorCode, v))
+}
+
+// ErrorCodeContains applies the Contains predicate on the "error_code" field.
+func ErrorCodeContains(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldContains(FieldErrorCode, v))
+}
+
+// ErrorCodeHasPrefix applies the HasPrefix predicate on the "error_code" field.
+func ErrorCodeHasPrefix(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldHasPrefix(FieldErrorCode, v))
+}
+
+// ErrorCodeHasSuffix applies the HasSuffix predicate on the "error_code" field.
+func ErrorCodeHasSuffix(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldHasSuffix(FieldErrorCode, v))
+}
+
+// ErrorCodeIsNil applies the IsNil predicate on the "error_code" field.
+func ErrorCodeIsNil() predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldIsNull(FieldErrorCode))
+}
+
+// ErrorCodeNotNil applies the NotNil predicate on the "error_code" field.
+func ErrorCodeNotNil() predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldNotNull(FieldErrorCode))
+}
+
+// ErrorCodeEqualFold applies the EqualFold predicate on the "error_code" field.
+func ErrorCodeEqualFold(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldEqualFold(FieldErrorCode, v))
+}
+
+// ErrorCodeContainsFold applies the ContainsFold predicate on the "error_code" field.
+func ErrorCodeContainsFold(v string) predicate.AsyncMediaTask {
+	return predicate.AsyncMediaTask(sql.FieldContainsFold(FieldErrorCode, v))
 }
 
 // FailDeadlineAtEQ applies the EQ predicate on the "fail_deadline_at" field.

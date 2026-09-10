@@ -3,9 +3,12 @@ package bytedance
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -116,4 +119,43 @@ func TestClientRejectsUnsafeConfiguration(t *testing.T) {
 	}
 	_, err := NewClient("", "", "")
 	require.Error(t, err)
+}
+
+func TestClientMapsImageLayerDecompositionError(t *testing.T) {
+	body := `{"error":{"code":"InvalidParameter","message":"The parameter ` + "`image`" + ` specified in the request are not valid: the image content could not be processed for layer decomposition. Request id: req-1","param":"image","type":"BadRequest"}}`
+	for _, status := range []int{http.StatusBadRequest, http.StatusOK} {
+		t.Run(fmt.Sprintf("status_%d", status), func(t *testing.T) {
+			client := &Client{HTTP: responseHTTPClient(status, body), BaseURL: "https://example.com", APIKey: "test-key"}
+			_, err := client.Generate(context.Background(), map[string]any{"prompt": "test"})
+			require.ErrorIs(t, err, ErrImageLayerDecomposition)
+		})
+	}
+}
+
+func TestClientDoesNotMapOtherInvalidParameterErrors(t *testing.T) {
+	client := &Client{
+		HTTP:    responseHTTPClient(http.StatusBadRequest, `{"error":{"code":"InvalidParameter","message":"invalid prompt","param":"prompt","type":"BadRequest"}}`),
+		BaseURL: "https://example.com",
+		APIKey:  "test-key",
+	}
+	_, err := client.Generate(context.Background(), map[string]any{"prompt": "test"})
+	require.Error(t, err)
+	require.False(t, errors.Is(err, ErrImageLayerDecomposition))
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func responseHTTPClient(status int, body string) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: status,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
 }

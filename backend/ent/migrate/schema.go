@@ -393,6 +393,7 @@ var (
 		{Name: "image_urls", Type: field.TypeJSON, Nullable: true, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "cos_urls", Type: field.TypeJSON, Nullable: true, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "error_reason", Type: field.TypeString, Nullable: true, Size: 512},
+		{Name: "error_code", Type: field.TypeString, Nullable: true, Size: 128},
 		{Name: "fail_deadline_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "finished_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "client_ip", Type: field.TypeString, Nullable: true, Size: 45},
@@ -444,7 +445,7 @@ var (
 			{
 				Name:    "asyncmediatask_status_fail_deadline_at",
 				Unique:  false,
-				Columns: []*schema.Column{AsyncMediaTasksColumns[23], AsyncMediaTasksColumns[31]},
+				Columns: []*schema.Column{AsyncMediaTasksColumns[23], AsyncMediaTasksColumns[32]},
 			},
 			{
 				Name:    "asyncmediatask_created_at",

@@ -240,6 +240,30 @@ func TestModelAPIStatusFailureResponseUsesPublicStatusAndTimeoutError(t *testing
 	}`, string(raw))
 }
 
+func TestModelAPIStatusFailureResponseIncludesProjectErrorCode(t *testing.T) {
+	response := modelAPIStatusFailureResponseWithCode(
+		"request-1",
+		false,
+		false,
+		false,
+		"INVALID_IMAGE_LAYER_DECOMPOSITION",
+		"The image content could not be processed for layer decomposition.",
+	)
+	raw, err := json.Marshal(response)
+
+	require.NoError(t, err)
+	require.JSONEq(t, `{
+		"status":"FAILED",
+		"request_id":"request-1",
+		"actual_cost":0,
+		"error":{
+			"type":"api_error",
+			"code":"INVALID_IMAGE_LAYER_DECOMPOSITION",
+			"message":"The image content could not be processed for layer decomposition."
+		}
+	}`, string(raw))
+}
+
 func TestLogModelAPIClientResponseIncludesUpstreamAndBody(t *testing.T) {
 	core, logs := observer.New(zap.DebugLevel)
 	requestLog := zap.New(core)

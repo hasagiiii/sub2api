@@ -24,6 +24,21 @@ const responseLimit = 32 << 20
 
 var ErrOutcomeUnknown = errors.New("bytedance: image request outcome is unknown")
 
+const (
+	ImageLayerDecompositionErrorCode    = "INVALID_IMAGE_LAYER_DECOMPOSITION"
+	ImageLayerDecompositionErrorMessage = "The image content could not be processed for layer decomposition."
+)
+
+var ErrImageLayerDecomposition = errors.New("image content could not be processed for layer decomposition")
+
+type upstreamErrorResponse struct {
+	Error struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Param   string `json:"param"`
+	} `json:"error"`
+}
+
 type Client struct {
 	HTTP    *http.Client
 	BaseURL string
@@ -93,6 +108,9 @@ func (c *Client) Generate(ctx context.Context, payload map[string]any) (map[stri
 		zap.String("body", string(raw)),
 	)
 	if rsp.StatusCode < 200 || rsp.StatusCode >= 300 {
+		if isImageLayerDecompositionError(raw) {
+			return nil, ErrImageLayerDecomposition
+		}
 		return nil, fmt.Errorf("bytedance: upstream HTTP %d", rsp.StatusCode)
 	}
 	var result map[string]any
@@ -100,9 +118,24 @@ func (c *Client) Generate(ctx context.Context, payload map[string]any) (map[stri
 		return nil, fmt.Errorf("%w: invalid JSON response", ErrOutcomeUnknown)
 	}
 	if result["error"] != nil {
+		if isImageLayerDecompositionError(raw) {
+			return nil, ErrImageLayerDecomposition
+		}
 		return nil, errors.New("bytedance: upstream generation error")
 	}
 	return result, nil
+}
+
+func isImageLayerDecompositionError(raw []byte) bool {
+	var response upstreamErrorResponse
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return false
+	}
+	message := strings.ToLower(response.Error.Message)
+	return strings.EqualFold(strings.TrimSpace(response.Error.Code), "InvalidParameter") &&
+		strings.EqualFold(strings.TrimSpace(response.Error.Param), "image") &&
+		strings.Contains(message, "image content could not be processed") &&
+		strings.Contains(message, "layer decomposition")
 }
 
 func headersForLog(headers http.Header) map[string][]string {

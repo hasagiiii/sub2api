@@ -28,7 +28,7 @@ const asyncMediaTaskColumns = `
 	image_size, quality, num_images, request_parameters,
 	status, held_cost, final_cost, rate_multiplier, size_tier,
 	image_urls, cos_urls, image_metadata, result_payload,
-	error_reason, fail_deadline_at, finished_at,
+	error_reason, error_code, fail_deadline_at, finished_at,
 	client_ip, user_agent, inbound_endpoint, upstream_endpoint,
 	created_at, updated_at`
 
@@ -75,7 +75,7 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 			image_size, quality, num_images, request_parameters,
 			status, held_cost, final_cost, rate_multiplier, size_tier,
 			image_urls, cos_urls, image_metadata, result_payload,
-			error_reason, fail_deadline_at, finished_at,
+			error_reason, error_code, fail_deadline_at, finished_at,
 			client_ip, user_agent, inbound_endpoint, upstream_endpoint
 		) VALUES (
 			$1, $2, $3, $4,
@@ -84,8 +84,8 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 			$17, $18, $19, $20,
 			$21, $22, $23, $24, $25,
 			$26, $27, $28, $29,
-			$30, $31, $32,
-			$33, $34, $35, $36
+			$30, $31, $32, $33,
+			$34, $35, $36, $37
 		) RETURNING id, created_at, updated_at`
 
 	return scanSingleRow(ctx, r.sql, query, []any{
@@ -95,7 +95,7 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 		task.ImageSize, task.Quality, task.NumImages, requestParametersJSON,
 		task.Status, task.HeldCost, task.FinalCost, task.RateMultiplier, task.SizeTier,
 		imageURLsJSON, cosURLsJSON, imageMetadataJSON, resultPayloadJSON,
-		task.ErrorReason, task.FailDeadlineAt, task.FinishedAt,
+		task.ErrorReason, task.ErrorCode, task.FailDeadlineAt, task.FinishedAt,
 		task.ClientIP, task.UserAgent, task.InboundEndpoint, task.UpstreamEndpoint,
 	}, &task.ID, &task.CreatedAt, &task.UpdatedAt)
 }
@@ -200,6 +200,7 @@ func (r *asyncMediaTaskRepository) MarkSucceeded(ctx context.Context, id int64, 
 			result_payload = $6,
 			final_cost = $7,
 			error_reason = NULL,
+			error_code = NULL,
 			finished_at = NOW(),
 			updated_at = NOW()
 		WHERE id = $1
@@ -452,7 +453,7 @@ func scanAsyncMediaTask(rows *sql.Rows) (*service.AsyncMediaTask, error) {
 		&task.ImageSize, &task.Quality, &task.NumImages, &requestParametersJSON,
 		&task.Status, &task.HeldCost, &task.FinalCost, &task.RateMultiplier, &task.SizeTier,
 		&imageURLsJSON, &cosURLsJSON, &imageMetadataJSON, &resultPayloadJSON,
-		&task.ErrorReason, &task.FailDeadlineAt, &task.FinishedAt,
+		&task.ErrorReason, &task.ErrorCode, &task.FailDeadlineAt, &task.FinishedAt,
 		&task.ClientIP, &task.UserAgent, &task.InboundEndpoint, &task.UpstreamEndpoint,
 		&task.CreatedAt, &task.UpdatedAt,
 	); err != nil {

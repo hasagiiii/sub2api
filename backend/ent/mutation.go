@@ -7634,6 +7634,7 @@ type AsyncMediaTaskMutation struct {
 	cos_urls            *[]string
 	appendcos_urls      []string
 	error_reason        *string
+	error_code          *string
 	fail_deadline_at    *time.Time
 	finished_at         *time.Time
 	client_ip           *string
@@ -9336,6 +9337,55 @@ func (m *AsyncMediaTaskMutation) ResetErrorReason() {
 	delete(m.clearedFields, asyncmediatask.FieldErrorReason)
 }
 
+// SetErrorCode sets the "error_code" field.
+func (m *AsyncMediaTaskMutation) SetErrorCode(s string) {
+	m.error_code = &s
+}
+
+// ErrorCode returns the value of the "error_code" field in the mutation.
+func (m *AsyncMediaTaskMutation) ErrorCode() (r string, exists bool) {
+	v := m.error_code
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldErrorCode returns the old "error_code" field's value of the AsyncMediaTask entity.
+// If the AsyncMediaTask object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AsyncMediaTaskMutation) OldErrorCode(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldErrorCode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldErrorCode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldErrorCode: %w", err)
+	}
+	return oldValue.ErrorCode, nil
+}
+
+// ClearErrorCode clears the value of the "error_code" field.
+func (m *AsyncMediaTaskMutation) ClearErrorCode() {
+	m.error_code = nil
+	m.clearedFields[asyncmediatask.FieldErrorCode] = struct{}{}
+}
+
+// ErrorCodeCleared returns if the "error_code" field was cleared in this mutation.
+func (m *AsyncMediaTaskMutation) ErrorCodeCleared() bool {
+	_, ok := m.clearedFields[asyncmediatask.FieldErrorCode]
+	return ok
+}
+
+// ResetErrorCode resets all changes to the "error_code" field.
+func (m *AsyncMediaTaskMutation) ResetErrorCode() {
+	m.error_code = nil
+	delete(m.clearedFields, asyncmediatask.FieldErrorCode)
+}
+
 // SetFailDeadlineAt sets the "fail_deadline_at" field.
 func (m *AsyncMediaTaskMutation) SetFailDeadlineAt(t time.Time) {
 	m.fail_deadline_at = &t
@@ -9664,7 +9714,7 @@ func (m *AsyncMediaTaskMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AsyncMediaTaskMutation) Fields() []string {
-	fields := make([]string, 0, 36)
+	fields := make([]string, 0, 37)
 	if m.created_at != nil {
 		fields = append(fields, asyncmediatask.FieldCreatedAt)
 	}
@@ -9755,6 +9805,9 @@ func (m *AsyncMediaTaskMutation) Fields() []string {
 	if m.error_reason != nil {
 		fields = append(fields, asyncmediatask.FieldErrorReason)
 	}
+	if m.error_code != nil {
+		fields = append(fields, asyncmediatask.FieldErrorCode)
+	}
 	if m.fail_deadline_at != nil {
 		fields = append(fields, asyncmediatask.FieldFailDeadlineAt)
 	}
@@ -9841,6 +9894,8 @@ func (m *AsyncMediaTaskMutation) Field(name string) (ent.Value, bool) {
 		return m.CosUrls()
 	case asyncmediatask.FieldErrorReason:
 		return m.ErrorReason()
+	case asyncmediatask.FieldErrorCode:
+		return m.ErrorCode()
 	case asyncmediatask.FieldFailDeadlineAt:
 		return m.FailDeadlineAt()
 	case asyncmediatask.FieldFinishedAt:
@@ -9922,6 +9977,8 @@ func (m *AsyncMediaTaskMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldCosUrls(ctx)
 	case asyncmediatask.FieldErrorReason:
 		return m.OldErrorReason(ctx)
+	case asyncmediatask.FieldErrorCode:
+		return m.OldErrorCode(ctx)
 	case asyncmediatask.FieldFailDeadlineAt:
 		return m.OldFailDeadlineAt(ctx)
 	case asyncmediatask.FieldFinishedAt:
@@ -10152,6 +10209,13 @@ func (m *AsyncMediaTaskMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetErrorReason(v)
+		return nil
+	case asyncmediatask.FieldErrorCode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetErrorCode(v)
 		return nil
 	case asyncmediatask.FieldFailDeadlineAt:
 		v, ok := value.(time.Time)
@@ -10426,6 +10490,9 @@ func (m *AsyncMediaTaskMutation) ClearedFields() []string {
 	if m.FieldCleared(asyncmediatask.FieldErrorReason) {
 		fields = append(fields, asyncmediatask.FieldErrorReason)
 	}
+	if m.FieldCleared(asyncmediatask.FieldErrorCode) {
+		fields = append(fields, asyncmediatask.FieldErrorCode)
+	}
 	if m.FieldCleared(asyncmediatask.FieldFailDeadlineAt) {
 		fields = append(fields, asyncmediatask.FieldFailDeadlineAt)
 	}
@@ -10511,6 +10578,9 @@ func (m *AsyncMediaTaskMutation) ClearField(name string) error {
 		return nil
 	case asyncmediatask.FieldErrorReason:
 		m.ClearErrorReason()
+		return nil
+	case asyncmediatask.FieldErrorCode:
+		m.ClearErrorCode()
 		return nil
 	case asyncmediatask.FieldFailDeadlineAt:
 		m.ClearFailDeadlineAt()
@@ -10627,6 +10697,9 @@ func (m *AsyncMediaTaskMutation) ResetField(name string) error {
 		return nil
 	case asyncmediatask.FieldErrorReason:
 		m.ResetErrorReason()
+		return nil
+	case asyncmediatask.FieldErrorCode:
+		m.ResetErrorCode()
 		return nil
 	case asyncmediatask.FieldFailDeadlineAt:
 		m.ResetFailDeadlineAt()

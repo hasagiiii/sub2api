@@ -23,5 +23,5 @@ type BytedanceExecutionRepository interface {
 	ClaimBytedance(context.Context, int64) (bool, error)
 	SaveBytedanceResult(context.Context, int64, map[string]any) error
 	SettleBytedance(context.Context, *AsyncMediaTask, int, float64, string) (bool, error)
-	RefundBytedance(context.Context, int64, string, bool) (bool, error)
+	RefundBytedance(context.Context, int64, string, string, bool) (bool, error)
 }

@@ -74,6 +74,7 @@ type AsyncMediaTask struct {
 	// so later result requests preserve dimensions, type, and file metadata.
 	ImageMetadata []ImageOutputMetadata
 
+	ErrorCode      *string
 	ErrorReason    *string
 	FailDeadlineAt *time.Time
 	FinishedAt     *time.Time
@@ -105,6 +106,7 @@ type AsyncMediaTaskStatus struct {
 	COSURLs       []string              `json:"cos_urls,omitempty"`
 	ImageMetadata []ImageOutputMetadata `json:"image_metadata,omitempty"`
 	ResultPayload map[string]any        `json:"result_payload,omitempty"`
+	ErrorCode     string                `json:"error_code,omitempty"`
 	ErrorReason   string                `json:"error_reason,omitempty"`
 	FinalCost     float64               `json:"final_cost"`
 	CreatedAt     time.Time             `json:"created_at"`
@@ -157,6 +159,7 @@ func asyncMediaTaskStatusFromTask(task *AsyncMediaTask) *AsyncMediaTaskStatus {
 		COSURLs:       append([]string(nil), task.CosURLs...),
 		ImageMetadata: append([]ImageOutputMetadata(nil), task.ImageMetadata...),
 		ResultPayload: cloneAsyncMediaPayload(task.ResultPayload),
+		ErrorCode:     amDerefStr(task.ErrorCode),
 		ErrorReason:   amDerefStr(task.ErrorReason),
 		FinalCost:     task.FinalCost,
 		CreatedAt:     task.CreatedAt,
@@ -194,6 +197,7 @@ func (status *AsyncMediaTaskStatus) toTask() *AsyncMediaTask {
 		CosURLs:             append([]string(nil), status.COSURLs...),
 		ImageMetadata:       append([]ImageOutputMetadata(nil), status.ImageMetadata...),
 		ResultPayload:       cloneAsyncMediaPayload(status.ResultPayload),
+		ErrorCode:           amStrPtr(status.ErrorCode),
 		ErrorReason:         amStrPtr(status.ErrorReason),
 		FinalCost:           status.FinalCost,
 		CreatedAt:           status.CreatedAt,

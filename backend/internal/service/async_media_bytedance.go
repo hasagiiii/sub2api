@@ -201,14 +201,14 @@ func (s *AsyncMediaService) runBytedance(ctx context.Context, id int64, account 
 		return nil
 	}
 	if (e.State == "pending" || e.State == "running") && task.FailDeadlineAt != nil && time.Now().After(*task.FailDeadlineAt) {
-		_, err = repo.RefundBytedance(ctx, id, "image execution deadline exceeded", false)
+		_, err = repo.RefundBytedance(ctx, id, "image execution deadline exceeded", "", false)
 		s.refreshBytedanceStatus(ctx, task)
 		s.recordTerminalMediaError(ctx, task, "image execution deadline exceeded")
 		return err
 	}
 	if e.State == "pending" {
 		if account == nil || account.Platform != PlatformBytedance || !account.IsSchedulable() {
-			_, err = repo.RefundBytedance(ctx, id, "image account is unavailable", false)
+			_, err = repo.RefundBytedance(ctx, id, "image account is unavailable", "", false)
 			s.refreshBytedanceStatus(ctx, task)
 			return err
 		}
@@ -235,9 +235,15 @@ func (s *AsyncMediaService) runBytedance(ctx context.Context, id int64, account 
 				s.recordTerminalMediaError(ctx, task, clientErr.Error())
 				return clientErr
 			}
-			_, refundErr := repo.RefundBytedance(ctx, id, clientErr.Error(), false)
+			errorCode := ""
+			errorMessage := clientErr.Error()
+			if errors.Is(clientErr, bytedance.ErrImageLayerDecomposition) {
+				errorCode = bytedance.ImageLayerDecompositionErrorCode
+				errorMessage = bytedance.ImageLayerDecompositionErrorMessage
+			}
+			_, refundErr := repo.RefundBytedance(ctx, id, errorMessage, errorCode, false)
 			s.refreshBytedanceStatus(ctx, task)
-			s.recordTerminalMediaError(ctx, task, clientErr.Error())
+			s.recordTerminalMediaError(ctx, task, errorMessage)
 			return refundErr
 		}
 		if err = repo.SaveBytedanceResult(ctx, id, result); err != nil {
@@ -267,7 +273,7 @@ func (s *AsyncMediaService) settleBytedanceResult(ctx context.Context, task *Asy
 	if len(urls) == 0 {
 		// A persisted provider response is retained for investigation, even when no image can be billed.
 		task.ResultPayload = cloneAsyncMediaPayload(e.ResultPayload)
-		_, err := repo.RefundBytedance(ctx, task.ID, "upstream returned no images", false)
+		_, err := repo.RefundBytedance(ctx, task.ID, "upstream returned no images", "", false)
 		s.refreshBytedanceStatus(ctx, task)
 		return err
 	}
@@ -412,7 +418,7 @@ func (s *AsyncMediaService) cancelBytedance(ctx context.Context, task *AsyncMedi
 	if !ok {
 		return errors.New("bytedance repository unavailable")
 	}
-	_, err := repo.RefundBytedance(ctx, task.ID, "cancelled by client", true)
+	_, err := repo.RefundBytedance(ctx, task.ID, "cancelled by client", "", true)
 	if err == nil {
 		s.refreshBytedanceStatus(ctx, task)
 	}

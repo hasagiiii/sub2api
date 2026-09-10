@@ -152,6 +152,11 @@ func (AsyncMediaTask) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("失败/退费原因"),
+		field.String("error_code").
+			MaxLen(128).
+			Optional().
+			Nillable().
+			Comment("对外项目错误码"),
 		field.Time("fail_deadline_at").
 			Optional().
 			Nillable().

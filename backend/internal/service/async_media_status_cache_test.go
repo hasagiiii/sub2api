@@ -37,6 +37,7 @@ func TestAsyncMediaGetTaskByUpstreamIDUsesStatusCacheBeforeDB(t *testing.T) {
 		APIKeyID:  17,
 		Upstream:  PlatformLeonardo,
 		COSURLs:   []string{"https://cdn.example/image.png"},
+		ErrorCode: "INVALID_IMAGE_LAYER_DECOMPOSITION",
 	}}
 	svc := &AsyncMediaService{statusCache: cache}
 
@@ -46,6 +47,7 @@ func TestAsyncMediaGetTaskByUpstreamIDUsesStatusCacheBeforeDB(t *testing.T) {
 	require.Equal(t, AsyncMediaStatusSucceeded, task.Status)
 	require.Equal(t, PlatformLeonardo, task.StatusCacheUpstream())
 	require.Equal(t, []string{"https://cdn.example/image.png"}, task.ResultURLs())
+	require.Equal(t, "INVALID_IMAGE_LAYER_DECOMPOSITION", amDerefStr(task.ErrorCode))
 }
 
 func TestAsyncMediaGetTaskByUpstreamIDFallsBackToDBOnCacheMiss(t *testing.T) {

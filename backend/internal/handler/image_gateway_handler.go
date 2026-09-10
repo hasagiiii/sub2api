@@ -76,6 +76,16 @@ func (h *ImageGatewayHandler) jsonError(c *gin.Context, status int, errType, mes
 	})
 }
 
+func (h *ImageGatewayHandler) jsonErrorWithCode(c *gin.Context, status int, errType, code, message string) {
+	c.JSON(status, gin.H{
+		"error": gin.H{
+			"type":    errType,
+			"code":    code,
+			"message": message,
+		},
+	})
+}
+
 // Images 实现 OpenAI 伪同步门面：提交异步图片任务 → 阻塞轮询 → 返回 OpenAI 格式响应。
 // POST /v1/images/generations、POST /v1/images/edits（FAL/Leonardo 分组）
 func (h *ImageGatewayHandler) Images(c *gin.Context) {
@@ -385,12 +395,32 @@ func (h *ImageGatewayHandler) runPseudoSync(
 			})
 			return true
 		}
+		if finalTask != nil {
+			if code := derefStringPtr(finalTask.ErrorCode); strings.TrimSpace(code) != "" {
+				message := derefStringPtr(finalTask.ErrorReason)
+				if strings.TrimSpace(message) == "" {
+					message = publicImageFailure
+				}
+				h.jsonErrorWithCode(c, http.StatusBadRequest, "api_error", code, message)
+				return false
+			}
+		}
 		reqLog.Warn("image_gateway.wait_failed", zap.Int64("task_id", task.ID), zap.Error(err))
 		h.jsonError(c, http.StatusBadGateway, "api_error", publicImageFailure)
 		return false
 	}
 
 	if finalTask == nil || finalTask.Status != service.AsyncMediaStatusSucceeded {
+		if finalTask != nil {
+			if code := derefStringPtr(finalTask.ErrorCode); strings.TrimSpace(code) != "" {
+				message := derefStringPtr(finalTask.ErrorReason)
+				if strings.TrimSpace(message) == "" {
+					message = publicImageFailure
+				}
+				h.jsonErrorWithCode(c, http.StatusBadRequest, "api_error", code, message)
+				return false
+			}
+		}
 		h.jsonError(c, http.StatusBadGateway, "api_error", publicImageFailure)
 		return false
 	}

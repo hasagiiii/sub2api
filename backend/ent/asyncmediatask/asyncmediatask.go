@@ -73,6 +73,8 @@ const (
 	FieldCosUrls = "cos_urls"
 	// FieldErrorReason holds the string denoting the error_reason field in the database.
 	FieldErrorReason = "error_reason"
+	// FieldErrorCode holds the string denoting the error_code field in the database.
+	FieldErrorCode = "error_code"
 	// FieldFailDeadlineAt holds the string denoting the fail_deadline_at field in the database.
 	FieldFailDeadlineAt = "fail_deadline_at"
 	// FieldFinishedAt holds the string denoting the finished_at field in the database.
@@ -122,6 +124,7 @@ var Columns = []string{
 	FieldImageUrls,
 	FieldCosUrls,
 	FieldErrorReason,
+	FieldErrorCode,
 	FieldFailDeadlineAt,
 	FieldFinishedAt,
 	FieldClientIP,
@@ -185,6 +188,8 @@ var (
 	SizeTierValidator func(string) error
 	// ErrorReasonValidator is a validator for the "error_reason" field. It is called by the builders before save.
 	ErrorReasonValidator func(string) error
+	// ErrorCodeValidator is a validator for the "error_code" field. It is called by the builders before save.
+	ErrorCodeValidator func(string) error
 	// ClientIPValidator is a validator for the "client_ip" field. It is called by the builders before save.
 	ClientIPValidator func(string) error
 	// UserAgentValidator is a validator for the "user_agent" field. It is called by the builders before save.
@@ -336,6 +341,11 @@ func BySizeTier(opts ...sql.OrderTermOption) OrderOption {
 // ByErrorReason orders the results by the error_reason field.
 func ByErrorReason(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldErrorReason, opts...).ToFunc()
+}
+
+// ByErrorCode orders the results by the error_code field.
+func ByErrorCode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldErrorCode, opts...).ToFunc()
 }
 
 // ByFailDeadlineAt orders the results by the fail_deadline_at field.

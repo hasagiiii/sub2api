@@ -178,7 +178,7 @@ func (r *asyncMediaTaskRepository) SettleBytedance(ctx context.Context, task *se
 	return true, tx.Commit()
 }
 
-func (r *asyncMediaTaskRepository) RefundBytedance(ctx context.Context, id int64, reason string, cancel bool) (bool, error) {
+func (r *asyncMediaTaskRepository) RefundBytedance(ctx context.Context, id int64, reason, errorCode string, cancel bool) (bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
@@ -211,6 +211,11 @@ func (r *asyncMediaTaskRepository) RefundBytedance(ctx context.Context, id int64
 	}
 	if _, err = local.MarkRefunded(ctx, id, service.AsyncMediaStatusRefunded, reason); err != nil {
 		return false, err
+	}
+	if errorCode != "" {
+		if _, err = tx.ExecContext(ctx, `UPDATE async_media_tasks SET error_code=$2 WHERE id=$1`, id, errorCode); err != nil {
+			return false, err
+		}
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE bytedance_image_executions SET state='refunded',billing_error=$2,updated_at=NOW() WHERE task_id=$1`, id, reason)
 	if err != nil {

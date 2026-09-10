@@ -66,6 +66,7 @@ type modelAPIStatusResponse struct {
 
 type modelAPIResponseError struct {
 	Type    string `json:"type"`
+	Code    string `json:"code,omitempty"`
 	Message string `json:"message"`
 }
 
@@ -599,7 +600,7 @@ func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, 
 		return
 	}
 	if task.Status != service.AsyncMediaStatusSucceeded {
-		response := modelAPIStatusFailureResponse(reqID, task.Status == service.AsyncMediaStatusExpired, isCanceledReason(task.ErrorReason), false)
+		response := modelAPIStatusFailureResponseWithCode(reqID, task.Status == service.AsyncMediaStatusExpired, isCanceledReason(task.ErrorReason), false, derefStringPtr(task.ErrorCode), derefStringPtr(task.ErrorReason))
 		logModelAPIClientResponse(c, upstream, http.StatusOK, response)
 		c.JSON(http.StatusOK, response)
 		return
@@ -650,6 +651,10 @@ func modelAPIResultPayload(payload map[string]any, actualCost float64) map[strin
 }
 
 func modelAPIStatusFailureResponse(reqID string, timeout, canceled, video bool) modelAPIStatusResponse {
+	return modelAPIStatusFailureResponseWithCode(reqID, timeout, canceled, video, "", "")
+}
+
+func modelAPIStatusFailureResponseWithCode(reqID string, timeout, canceled, video bool, code, messageOverride string) modelAPIStatusResponse {
 	message := "Image generation failed; please check the error field."
 	if video {
 		message = "Video generation failed; please check the error field."
@@ -674,9 +679,12 @@ func modelAPIStatusFailureResponse(reqID string, timeout, canceled, video bool) 
 			message = "Image generation timed out."
 		}
 	}
+	if strings.TrimSpace(code) != "" && strings.TrimSpace(messageOverride) != "" {
+		message = messageOverride
+	}
 	return modelAPIStatusResponse{
 		StatusResponse: fal.StatusResponse{Status: status, RequestID: reqID},
-		Error:          &modelAPIResponseError{Type: errorType, Message: message},
+		Error:          &modelAPIResponseError{Type: errorType, Code: strings.TrimSpace(code), Message: message},
 	}
 }
 

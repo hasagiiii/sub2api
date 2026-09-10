@@ -63,7 +63,7 @@ func TestBytedanceDurableTransactions(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.Equal(t, int32(1), claims.Load())
-			_, err := repo.RefundBytedance(ctx, task.ID, "cancel", true)
+			_, err := repo.RefundBytedance(ctx, task.ID, "cancel", "", true)
 			require.ErrorIs(t, err, service.ErrBytedanceAlreadyRunning)
 			result := map[string]any{"data": []any{map[string]any{"url": "https://example.com/background.jpg", "z_index": 0, "size": "2048x2048"}, map[string]any{"url": "https://example.com/layer.png", "z_index": 1, "bounding_box": map[string]any{"normalized": []int{100, 200, 300, 400}}}}, "usage": map[string]any{"generated_images": count, "output_tokens": 23107}}
 			require.NoError(t, repo.SaveBytedanceResult(ctx, task.ID, result))

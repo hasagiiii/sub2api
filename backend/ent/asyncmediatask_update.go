@@ -607,6 +607,26 @@ func (_u *AsyncMediaTaskUpdate) ClearErrorReason() *AsyncMediaTaskUpdate {
 	return _u
 }
 
+// SetErrorCode sets the "error_code" field.
+func (_u *AsyncMediaTaskUpdate) SetErrorCode(v string) *AsyncMediaTaskUpdate {
+	_u.mutation.SetErrorCode(v)
+	return _u
+}
+
+// SetNillableErrorCode sets the "error_code" field if the given value is not nil.
+func (_u *AsyncMediaTaskUpdate) SetNillableErrorCode(v *string) *AsyncMediaTaskUpdate {
+	if v != nil {
+		_u.SetErrorCode(*v)
+	}
+	return _u
+}
+
+// ClearErrorCode clears the value of the "error_code" field.
+func (_u *AsyncMediaTaskUpdate) ClearErrorCode() *AsyncMediaTaskUpdate {
+	_u.mutation.ClearErrorCode()
+	return _u
+}
+
 // SetFailDeadlineAt sets the "fail_deadline_at" field.
 func (_u *AsyncMediaTaskUpdate) SetFailDeadlineAt(v time.Time) *AsyncMediaTaskUpdate {
 	_u.mutation.SetFailDeadlineAt(v)
@@ -835,6 +855,11 @@ func (_u *AsyncMediaTaskUpdate) check() error {
 			return &ValidationError{Name: "error_reason", err: fmt.Errorf(`ent: validator failed for field "AsyncMediaTask.error_reason": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ErrorCode(); ok {
+		if err := asyncmediatask.ErrorCodeValidator(v); err != nil {
+			return &ValidationError{Name: "error_code", err: fmt.Errorf(`ent: validator failed for field "AsyncMediaTask.error_code": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.ClientIP(); ok {
 		if err := asyncmediatask.ClientIPValidator(v); err != nil {
 			return &ValidationError{Name: "client_ip", err: fmt.Errorf(`ent: validator failed for field "AsyncMediaTask.client_ip": %w`, err)}
@@ -1056,6 +1081,12 @@ func (_u *AsyncMediaTaskUpdate) sqlSave(ctx context.Context) (_node int, err err
 	}
 	if _u.mutation.ErrorReasonCleared() {
 		_spec.ClearField(asyncmediatask.FieldErrorReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.ErrorCode(); ok {
+		_spec.SetField(asyncmediatask.FieldErrorCode, field.TypeString, value)
+	}
+	if _u.mutation.ErrorCodeCleared() {
+		_spec.ClearField(asyncmediatask.FieldErrorCode, field.TypeString)
 	}
 	if value, ok := _u.mutation.FailDeadlineAt(); ok {
 		_spec.SetField(asyncmediatask.FieldFailDeadlineAt, field.TypeTime, value)
@@ -1691,6 +1722,26 @@ func (_u *AsyncMediaTaskUpdateOne) ClearErrorReason() *AsyncMediaTaskUpdateOne {
 	return _u
 }
 
+// SetErrorCode sets the "error_code" field.
+func (_u *AsyncMediaTaskUpdateOne) SetErrorCode(v string) *AsyncMediaTaskUpdateOne {
+	_u.mutation.SetErrorCode(v)
+	return _u
+}
+
+// SetNillableErrorCode sets the "error_code" field if the given value is not nil.
+func (_u *AsyncMediaTaskUpdateOne) SetNillableErrorCode(v *string) *AsyncMediaTaskUpdateOne {
+	if v != nil {
+		_u.SetErrorCode(*v)
+	}
+	return _u
+}
+
+// ClearErrorCode clears the value of the "error_code" field.
+func (_u *AsyncMediaTaskUpdateOne) ClearErrorCode() *AsyncMediaTaskUpdateOne {
+	_u.mutation.ClearErrorCode()
+	return _u
+}
+
 // SetFailDeadlineAt sets the "fail_deadline_at" field.
 func (_u *AsyncMediaTaskUpdateOne) SetFailDeadlineAt(v time.Time) *AsyncMediaTaskUpdateOne {
 	_u.mutation.SetFailDeadlineAt(v)
@@ -1932,6 +1983,11 @@ func (_u *AsyncMediaTaskUpdateOne) check() error {
 			return &ValidationError{Name: "error_reason", err: fmt.Errorf(`ent: validator failed for field "AsyncMediaTask.error_reason": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ErrorCode(); ok {
+		if err := asyncmediatask.ErrorCodeValidator(v); err != nil {
+			return &ValidationError{Name: "error_code", err: fmt.Errorf(`ent: validator failed for field "AsyncMediaTask.error_code": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.ClientIP(); ok {
 		if err := asyncmediatask.ClientIPValidator(v); err != nil {
 			return &ValidationError{Name: "client_ip", err: fmt.Errorf(`ent: validator failed for field "AsyncMediaTask.client_ip": %w`, err)}
@@ -2170,6 +2226,12 @@ func (_u *AsyncMediaTaskUpdateOne) sqlSave(ctx context.Context) (_node *AsyncMed
 	}
 	if _u.mutation.ErrorReasonCleared() {
 		_spec.ClearField(asyncmediatask.FieldErrorReason, field.TypeString)
+	}
+	if value, ok := _u.mutation.ErrorCode(); ok {
+		_spec.SetField(asyncmediatask.FieldErrorCode, field.TypeString, value)
+	}
+	if _u.mutation.ErrorCodeCleared() {
+		_spec.ClearField(asyncmediatask.FieldErrorCode, field.TypeString)
 	}
 	if value, ok := _u.mutation.FailDeadlineAt(); ok {
 		_spec.SetField(asyncmediatask.FieldFailDeadlineAt, field.TypeTime, value)

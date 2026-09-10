@@ -74,7 +74,7 @@ func (r *seedreamTestRepo) SettleBytedance(_ context.Context, _ *AsyncMediaTask,
 	}
 	return true, nil
 }
-func (r *seedreamTestRepo) RefundBytedance(_ context.Context, _ int64, reason string, cancel bool) (bool, error) {
+func (r *seedreamTestRepo) RefundBytedance(_ context.Context, id int64, reason, errorCode string, cancel bool) (bool, error) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 	if cancel && r.execution.State != "pending" {
@@ -82,6 +82,10 @@ func (r *seedreamTestRepo) RefundBytedance(_ context.Context, _ int64, reason st
 	}
 	r.execution.State = "refunded"
 	r.reason = reason
+	if task, ok := r.byID[id]; ok {
+		task.ErrorCode = amStrPtr(errorCode)
+		task.ErrorReason = amStrPtr(reason)
+	}
 	return true, nil
 }
 
@@ -214,6 +218,24 @@ func TestBytedanceUnknownOutcomeWaitsForDeadline(t *testing.T) {
 	require.Equal(t, "running", repo.execution.State)
 	require.NoError(t, svc.runBytedance(context.Background(), task.ID, account))
 	require.Equal(t, "running", repo.execution.State)
+}
+
+func TestBytedanceImageLayerDecompositionErrorIsPersistedAsProjectCode(t *testing.T) {
+	svc, repo, account, in := seedreamFixture(t)
+	task, err := svc.SubmitAsync(context.Background(), in)
+	require.NoError(t, err)
+	svc.bytedanceClientFactory = func(*Account) (bytedanceImageClient, error) {
+		return seedreamTestClient(func(context.Context, map[string]any) (map[string]any, error) {
+			return nil, bytedance.ErrImageLayerDecomposition
+		}), nil
+	}
+
+	require.NoError(t, svc.runBytedance(context.Background(), task.ID, account))
+	stored, err := repo.GetByID(context.Background(), task.ID)
+	require.NoError(t, err)
+	require.Equal(t, bytedance.ImageLayerDecompositionErrorCode, amDerefStr(stored.ErrorCode))
+	require.Equal(t, bytedance.ImageLayerDecompositionErrorMessage, amDerefStr(stored.ErrorReason))
+	require.Equal(t, "refunded", repo.execution.State)
 }
 
 func TestBytedanceUsesSubmissionPriceSnapshot(t *testing.T) {

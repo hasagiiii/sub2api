@@ -463,20 +463,24 @@ func init() {
 	asyncmediataskDescErrorReason := asyncmediataskFields[27].Descriptor()
 	// asyncmediatask.ErrorReasonValidator is a validator for the "error_reason" field. It is called by the builders before save.
 	asyncmediatask.ErrorReasonValidator = asyncmediataskDescErrorReason.Validators[0].(func(string) error)
+	// asyncmediataskDescErrorCode is the schema descriptor for error_code field.
+	asyncmediataskDescErrorCode := asyncmediataskFields[28].Descriptor()
+	// asyncmediatask.ErrorCodeValidator is a validator for the "error_code" field. It is called by the builders before save.
+	asyncmediatask.ErrorCodeValidator = asyncmediataskDescErrorCode.Validators[0].(func(string) error)
 	// asyncmediataskDescClientIP is the schema descriptor for client_ip field.
-	asyncmediataskDescClientIP := asyncmediataskFields[30].Descriptor()
+	asyncmediataskDescClientIP := asyncmediataskFields[31].Descriptor()
 	// asyncmediatask.ClientIPValidator is a validator for the "client_ip" field. It is called by the builders before save.
 	asyncmediatask.ClientIPValidator = asyncmediataskDescClientIP.Validators[0].(func(string) error)
 	// asyncmediataskDescUserAgent is the schema descriptor for user_agent field.
-	asyncmediataskDescUserAgent := asyncmediataskFields[31].Descriptor()
+	asyncmediataskDescUserAgent := asyncmediataskFields[32].Descriptor()
 	// asyncmediatask.UserAgentValidator is a validator for the "user_agent" field. It is called by the builders before save.
 	asyncmediatask.UserAgentValidator = asyncmediataskDescUserAgent.Validators[0].(func(string) error)
 	// asyncmediataskDescInboundEndpoint is the schema descriptor for inbound_endpoint field.
-	asyncmediataskDescInboundEndpoint := asyncmediataskFields[32].Descriptor()
+	asyncmediataskDescInboundEndpoint := asyncmediataskFields[33].Descriptor()
 	// asyncmediatask.InboundEndpointValidator is a validator for the "inbound_endpoint" field. It is called by the builders before save.
 	asyncmediatask.InboundEndpointValidator = asyncmediataskDescInboundEndpoint.Validators[0].(func(string) error)
 	// asyncmediataskDescUpstreamEndpoint is the schema descriptor for upstream_endpoint field.
-	asyncmediataskDescUpstreamEndpoint := asyncmediataskFields[33].Descriptor()
+	asyncmediataskDescUpstreamEndpoint := asyncmediataskFields[34].Descriptor()
 	// asyncmediatask.UpstreamEndpointValidator is a validator for the "upstream_endpoint" field. It is called by the builders before save.
 	asyncmediatask.UpstreamEndpointValidator = asyncmediataskDescUpstreamEndpoint.Validators[0].(func(string) error)
 	asyncvideotaskMixin := schema.AsyncVideoTask{}.Mixin()

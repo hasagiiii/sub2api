@@ -78,6 +78,8 @@ type AsyncMediaTask struct {
 	CosUrls []string `json:"cos_urls,omitempty"`
 	// 失败/退费原因
 	ErrorReason *string `json:"error_reason,omitempty"`
+	// 对外项目错误码
+	ErrorCode *string `json:"error_code,omitempty"`
 	// 失败兜底截止时间（到达仍未完成则判定超期退费）
 	FailDeadlineAt *time.Time `json:"fail_deadline_at,omitempty"`
 	// 任务终结时间
@@ -104,7 +106,7 @@ func (*AsyncMediaTask) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case asyncmediatask.FieldID, asyncmediatask.FieldAccountID, asyncmediatask.FieldAPIKeyID, asyncmediatask.FieldUserID, asyncmediatask.FieldOrganizationID, asyncmediatask.FieldPayerUserID, asyncmediatask.FieldAuthzGeneration, asyncmediatask.FieldGroupID, asyncmediatask.FieldChannelID, asyncmediatask.FieldNumImages:
 			values[i] = new(sql.NullInt64)
-		case asyncmediatask.FieldInternalRequestID, asyncmediatask.FieldUpstreamRequestID, asyncmediatask.FieldStatusURL, asyncmediatask.FieldResponseURL, asyncmediatask.FieldBalanceSource, asyncmediatask.FieldFacade, asyncmediatask.FieldRequestedModel, asyncmediatask.FieldUpstreamModel, asyncmediatask.FieldImageSize, asyncmediatask.FieldQuality, asyncmediatask.FieldStatus, asyncmediatask.FieldSizeTier, asyncmediatask.FieldErrorReason, asyncmediatask.FieldClientIP, asyncmediatask.FieldUserAgent, asyncmediatask.FieldInboundEndpoint, asyncmediatask.FieldUpstreamEndpoint:
+		case asyncmediatask.FieldInternalRequestID, asyncmediatask.FieldUpstreamRequestID, asyncmediatask.FieldStatusURL, asyncmediatask.FieldResponseURL, asyncmediatask.FieldBalanceSource, asyncmediatask.FieldFacade, asyncmediatask.FieldRequestedModel, asyncmediatask.FieldUpstreamModel, asyncmediatask.FieldImageSize, asyncmediatask.FieldQuality, asyncmediatask.FieldStatus, asyncmediatask.FieldSizeTier, asyncmediatask.FieldErrorReason, asyncmediatask.FieldErrorCode, asyncmediatask.FieldClientIP, asyncmediatask.FieldUserAgent, asyncmediatask.FieldInboundEndpoint, asyncmediatask.FieldUpstreamEndpoint:
 			values[i] = new(sql.NullString)
 		case asyncmediatask.FieldCreatedAt, asyncmediatask.FieldUpdatedAt, asyncmediatask.FieldFailDeadlineAt, asyncmediatask.FieldFinishedAt:
 			values[i] = new(sql.NullTime)
@@ -330,6 +332,13 @@ func (_m *AsyncMediaTask) assignValues(columns []string, values []any) error {
 				_m.ErrorReason = new(string)
 				*_m.ErrorReason = value.String
 			}
+		case asyncmediatask.FieldErrorCode:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field error_code", values[i])
+			} else if value.Valid {
+				_m.ErrorCode = new(string)
+				*_m.ErrorCode = value.String
+			}
 		case asyncmediatask.FieldFailDeadlineAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
 				return fmt.Errorf("unexpected type %T for field fail_deadline_at", values[i])
@@ -525,6 +534,11 @@ func (_m *AsyncMediaTask) String() string {
 	builder.WriteString(", ")
 	if v := _m.ErrorReason; v != nil {
 		builder.WriteString("error_reason=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.ErrorCode; v != nil {
+		builder.WriteString("error_code=")
 		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")

@@ -386,6 +386,20 @@ func (_c *AsyncMediaTaskCreate) SetNillableErrorReason(v *string) *AsyncMediaTas
 	return _c
 }
 
+// SetErrorCode sets the "error_code" field.
+func (_c *AsyncMediaTaskCreate) SetErrorCode(v string) *AsyncMediaTaskCreate {
+	_c.mutation.SetErrorCode(v)
+	return _c
+}
+
+// SetNillableErrorCode sets the "error_code" field if the given value is not nil.
+func (_c *AsyncMediaTaskCreate) SetNillableErrorCode(v *string) *AsyncMediaTaskCreate {
+	if v != nil {
+		_c.SetErrorCode(*v)
+	}
+	return _c
+}
+
 // SetFailDeadlineAt sets the "fail_deadline_at" field.
 func (_c *AsyncMediaTaskCreate) SetFailDeadlineAt(v time.Time) *AsyncMediaTaskCreate {
 	_c.mutation.SetFailDeadlineAt(v)
@@ -642,6 +656,11 @@ func (_c *AsyncMediaTaskCreate) check() error {
 			return &ValidationError{Name: "error_reason", err: fmt.Errorf(`ent: validator failed for field "AsyncMediaTask.error_reason": %w`, err)}
 		}
 	}
+	if v, ok := _c.mutation.ErrorCode(); ok {
+		if err := asyncmediatask.ErrorCodeValidator(v); err != nil {
+			return &ValidationError{Name: "error_code", err: fmt.Errorf(`ent: validator failed for field "AsyncMediaTask.error_code": %w`, err)}
+		}
+	}
 	if v, ok := _c.mutation.ClientIP(); ok {
 		if err := asyncmediatask.ClientIPValidator(v); err != nil {
 			return &ValidationError{Name: "client_ip", err: fmt.Errorf(`ent: validator failed for field "AsyncMediaTask.client_ip": %w`, err)}
@@ -808,6 +827,10 @@ func (_c *AsyncMediaTaskCreate) createSpec() (*AsyncMediaTask, *sqlgraph.CreateS
 	if value, ok := _c.mutation.ErrorReason(); ok {
 		_spec.SetField(asyncmediatask.FieldErrorReason, field.TypeString, value)
 		_node.ErrorReason = &value
+	}
+	if value, ok := _c.mutation.ErrorCode(); ok {
+		_spec.SetField(asyncmediatask.FieldErrorCode, field.TypeString, value)
+		_node.ErrorCode = &value
 	}
 	if value, ok := _c.mutation.FailDeadlineAt(); ok {
 		_spec.SetField(asyncmediatask.FieldFailDeadlineAt, field.TypeTime, value)
@@ -1410,6 +1433,24 @@ func (u *AsyncMediaTaskUpsert) UpdateErrorReason() *AsyncMediaTaskUpsert {
 // ClearErrorReason clears the value of the "error_reason" field.
 func (u *AsyncMediaTaskUpsert) ClearErrorReason() *AsyncMediaTaskUpsert {
 	u.SetNull(asyncmediatask.FieldErrorReason)
+	return u
+}
+
+// SetErrorCode sets the "error_code" field.
+func (u *AsyncMediaTaskUpsert) SetErrorCode(v string) *AsyncMediaTaskUpsert {
+	u.Set(asyncmediatask.FieldErrorCode, v)
+	return u
+}
+
+// UpdateErrorCode sets the "error_code" field to the value that was provided on create.
+func (u *AsyncMediaTaskUpsert) UpdateErrorCode() *AsyncMediaTaskUpsert {
+	u.SetExcluded(asyncmediatask.FieldErrorCode)
+	return u
+}
+
+// ClearErrorCode clears the value of the "error_code" field.
+func (u *AsyncMediaTaskUpsert) ClearErrorCode() *AsyncMediaTaskUpsert {
+	u.SetNull(asyncmediatask.FieldErrorCode)
 	return u
 }
 
@@ -2179,6 +2220,27 @@ func (u *AsyncMediaTaskUpsertOne) UpdateErrorReason() *AsyncMediaTaskUpsertOne {
 func (u *AsyncMediaTaskUpsertOne) ClearErrorReason() *AsyncMediaTaskUpsertOne {
 	return u.Update(func(s *AsyncMediaTaskUpsert) {
 		s.ClearErrorReason()
+	})
+}
+
+// SetErrorCode sets the "error_code" field.
+func (u *AsyncMediaTaskUpsertOne) SetErrorCode(v string) *AsyncMediaTaskUpsertOne {
+	return u.Update(func(s *AsyncMediaTaskUpsert) {
+		s.SetErrorCode(v)
+	})
+}
+
+// UpdateErrorCode sets the "error_code" field to the value that was provided on create.
+func (u *AsyncMediaTaskUpsertOne) UpdateErrorCode() *AsyncMediaTaskUpsertOne {
+	return u.Update(func(s *AsyncMediaTaskUpsert) {
+		s.UpdateErrorCode()
+	})
+}
+
+// ClearErrorCode clears the value of the "error_code" field.
+func (u *AsyncMediaTaskUpsertOne) ClearErrorCode() *AsyncMediaTaskUpsertOne {
+	return u.Update(func(s *AsyncMediaTaskUpsert) {
+		s.ClearErrorCode()
 	})
 }
 
@@ -3132,6 +3194,27 @@ func (u *AsyncMediaTaskUpsertBulk) UpdateErrorReason() *AsyncMediaTaskUpsertBulk
 func (u *AsyncMediaTaskUpsertBulk) ClearErrorReason() *AsyncMediaTaskUpsertBulk {
 	return u.Update(func(s *AsyncMediaTaskUpsert) {
 		s.ClearErrorReason()
+	})
+}
+
+// SetErrorCode sets the "error_code" field.
+func (u *AsyncMediaTaskUpsertBulk) SetErrorCode(v string) *AsyncMediaTaskUpsertBulk {
+	return u.Update(func(s *AsyncMediaTaskUpsert) {
+		s.SetErrorCode(v)
+	})
+}
+
+// UpdateErrorCode sets the "error_code" field to the value that was provided on create.
+func (u *AsyncMediaTaskUpsertBulk) UpdateErrorCode() *AsyncMediaTaskUpsertBulk {
+	return u.Update(func(s *AsyncMediaTaskUpsert) {
+		s.UpdateErrorCode()
+	})
+}
+
+// ClearErrorCode clears the value of the "error_code" field.
+func (u *AsyncMediaTaskUpsertBulk) ClearErrorCode() *AsyncMediaTaskUpsertBulk {
+	return u.Update(func(s *AsyncMediaTaskUpsert) {
+		s.ClearErrorCode()
 	})
 }
 

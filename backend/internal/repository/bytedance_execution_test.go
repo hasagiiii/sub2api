@@ -71,7 +71,7 @@ func TestBytedanceCancellationCannotRefundAnExecutingRequest(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("SELECT state,billing_type").WillReturnRows(sqlmock.NewRows([]string{"state", "billing_type"}).AddRow("running", 0))
 	mock.ExpectRollback()
-	_, err = repo.RefundBytedance(context.Background(), 1, "cancel", true)
+	_, err = repo.RefundBytedance(context.Background(), 1, "cancel", "", true)
 	require.ErrorIs(t, err, service.ErrBytedanceAlreadyRunning)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
