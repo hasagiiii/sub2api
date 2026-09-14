@@ -900,6 +900,18 @@ const routes: RouteRecordRaw[] = [
       descriptionKey: 'admin.usage.description'
     }
   },
+  {
+    path: '/admin/iq-test',
+    name: 'AdminIQTest',
+    component: () => import('@/views/admin/IQTestView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'IQ Test',
+      titleKey: 'nav.iqTest',
+      descriptionKey: 'admin.iqTest.description'
+    }
+  },
   // ==================== Admin Support Tickets (D1) ====================
   // admin 工单管理。后端 admin 路由不卡 feature_enabled——管理员可以提前
   // 编辑 settings 或处理存量工单；sidebar 入口由 support_ticket_enabled 控制。

@@ -8,6 +8,7 @@ import audit from './audit'
 import promptAudit from './promptAudit'
 import costCenter from './costCenter'
 import plugins from './plugins'
+import iqTest from './iqTest'
 
 export default {
   ...overview,
@@ -20,4 +21,5 @@ export default {
   ...promptAudit,
   ...costCenter,
   ...plugins,
+  ...iqTest,
 }

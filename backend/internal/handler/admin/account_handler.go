@@ -69,6 +69,7 @@ type AccountHandler struct {
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
 	costCenter              *service.CostCenterService
+	billingService          *service.BillingService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -82,6 +83,11 @@ func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUs
 
 func (h *AccountHandler) SetCostCenterService(costCenter *service.CostCenterService) {
 	h.costCenter = costCenter
+}
+
+// SetBillingService attaches the pricing calculator used by diagnostics.
+func (h *AccountHandler) SetBillingService(billing *service.BillingService) {
+	h.billingService = billing
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -1323,6 +1329,85 @@ func (h *AccountHandler) Test(c *gin.Context) {
 			_ = c.Error(err)
 		}
 	}
+}
+
+const iqTestPrompt = "创建一个HTML，内容是SVG绘制一个鹈鹏骑自行车的2D动画，你不需要任何测试"
+
+type iqTestResult struct {
+	AccountID    int64   `json:"account_id"`
+	AccountName  string  `json:"account_name"`
+	Status       string  `json:"status"`
+	HTML         string  `json:"html"`
+	ErrorMessage string  `json:"error_message,omitempty"`
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	TotalTokens  int     `json:"total_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+}
+
+// IQTest runs the one-shot GPT-6 Astra HTML generation test for every matching account.
+// POST /api/v1/admin/iq-test
+func (h *AccountHandler) IQTest(c *gin.Context) {
+	if h.adminService == nil || h.accountTestService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Account test service unavailable")
+		return
+	}
+	accounts, err := h.adminService.ListAccountsForSchedulerScoreFilter(c.Request.Context(), service.PlatformOpenAI, "", "", "", 0, "")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	targets := make([]service.Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account.IsModelSupported("gpt-6-astra") {
+			targets = append(targets, account)
+		}
+	}
+
+	results := make([]iqTestResult, len(targets))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for i := range targets {
+		wg.Add(1)
+		go func(index int, account service.Account) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			result := iqTestResult{AccountID: account.ID, AccountName: account.Name, Status: "failed"}
+			cacheReadTokens, cacheCreationTokens := 0, 0
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+			defer cancel()
+			probe, probeErr := h.accountTestService.RunPromptBackground(ctx, account.ID, "gpt-6-astra", iqTestPrompt)
+			if probe != nil {
+				result.HTML = probe.ResponseText
+				result.ErrorMessage = probe.ErrorMessage
+				result.InputTokens = probe.InputTokens
+				result.OutputTokens = probe.OutputTokens
+				result.TotalTokens = probe.TotalTokens
+				cacheReadTokens = probe.CacheReadTokens
+				cacheCreationTokens = probe.CacheCreationTokens
+			}
+			if probeErr == nil && result.ErrorMessage == "" {
+				result.Status = "success"
+				if h.rateLimitService != nil {
+					if _, recoverErr := h.rateLimitService.RecoverAccountAfterSuccessfulTest(ctx, account.ID); recoverErr != nil {
+						result.ErrorMessage = recoverErr.Error()
+						result.Status = "failed"
+					}
+				}
+			} else if result.ErrorMessage == "" && probeErr != nil {
+				result.ErrorMessage = probeErr.Error()
+			}
+			if h.billingService != nil {
+				if cost, costErr := h.billingService.CalculateCost("gpt-6-astra", service.UsageTokens{InputTokens: result.InputTokens, OutputTokens: result.OutputTokens, CacheReadTokens: cacheReadTokens, CacheCreationTokens: cacheCreationTokens}, account.BillingRateMultiplier()); costErr == nil && cost != nil {
+					result.CostUSD = cost.ActualCost
+				}
+			}
+			results[index] = result
+		}(i, targets[i])
+	}
+	wg.Wait()
+	c.JSON(http.StatusOK, gin.H{"model": "gpt-6-astra", "prompt": iqTestPrompt, "results": results})
 }
 
 // RecoverState handles unified recovery of recoverable account runtime state.

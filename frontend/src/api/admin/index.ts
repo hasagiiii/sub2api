@@ -41,6 +41,7 @@ import adminComplianceAPI from './compliance'
 import auditAPI from './audit'
 import costCenterAPI from './costCenter'
 import pluginsAPI from './plugins'
+import iqTestAPI from './iqTest'
 
 /**
  * Unified admin API object for convenient access
@@ -83,7 +84,8 @@ export const adminAPI = {
   compliance: adminComplianceAPI,
   audit: auditAPI,
   costCenter: costCenterAPI,
-  plugins: pluginsAPI
+  plugins: pluginsAPI,
+  iqTest: iqTestAPI
 }
 
 export {
@@ -124,7 +126,8 @@ export {
   adminComplianceAPI,
   auditAPI,
   costCenterAPI,
-  pluginsAPI
+  pluginsAPI,
+  iqTestAPI
 }
 
 export default adminAPI

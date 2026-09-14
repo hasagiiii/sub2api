@@ -58,12 +58,29 @@ type TestEvent struct {
 	Code     string `json:"code,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
 	// AudioURL / VideoURL are data: or https URLs for in-browser media players.
-	AudioURL string `json:"audio_url,omitempty"`
-	VideoURL string `json:"video_url,omitempty"`
-	MimeType string `json:"mime_type,omitempty"`
-	Data     any    `json:"data,omitempty"`
-	Success  bool   `json:"success,omitempty"`
-	Error    string `json:"error,omitempty"`
+	AudioURL            string `json:"audio_url,omitempty"`
+	VideoURL            string `json:"video_url,omitempty"`
+	MimeType            string `json:"mime_type,omitempty"`
+	Data                any    `json:"data,omitempty"`
+	Success             bool   `json:"success,omitempty"`
+	Error               string `json:"error,omitempty"`
+	InputTokens         int    `json:"input_tokens,omitempty"`
+	OutputTokens        int    `json:"output_tokens,omitempty"`
+	TotalTokens         int    `json:"total_tokens,omitempty"`
+	CacheReadTokens     int    `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int    `json:"cache_creation_tokens,omitempty"`
+}
+
+// AccountPromptTestResult is the captured result of an in-memory account test.
+// It is used by admin diagnostics that need both response content and usage.
+type AccountPromptTestResult struct {
+	ResponseText        string
+	ErrorMessage        string
+	InputTokens         int
+	OutputTokens        int
+	TotalTokens         int
+	CacheReadTokens     int
+	CacheCreationTokens int
 }
 
 // AccountTestOptions carries optional media for admin connectivity tests.
@@ -963,7 +980,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -2845,7 +2862,11 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 }
 
 // createOpenAITestPayload creates a test payload for OpenAI Responses API
-func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
+func createOpenAITestPayload(modelID string, isOAuth bool, prompts ...string) map[string]any {
+	testPrompt := "hi"
+	if len(prompts) > 0 && strings.TrimSpace(prompts[0]) != "" {
+		testPrompt = prompts[0]
+	}
 	payload := map[string]any{
 		"model": modelID,
 		"input": []map[string]any{
@@ -2854,7 +2875,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": "hi",
+						"text": testPrompt,
 					},
 				},
 			},
@@ -2986,6 +3007,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 			return s.sendErrorAndEnd(c, "Invalid Chat Completions response from /v1/chat/completions: expected JSON data")
 		}
 		seenJSON = true
+		if usage := extractAccountTestUsage(data); usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.TotalTokens > 0 {
+			s.sendEvent(c, TestEvent{Type: "usage", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, TotalTokens: usage.TotalTokens, CacheReadTokens: usage.CacheReadTokens, CacheCreationTokens: usage.CacheCreationTokens})
+		}
 
 		if errData, ok := data["error"].(map[string]any); ok {
 			errorMsg := "Chat Completions API (/v1/chat/completions) returned an error"
@@ -3067,6 +3091,8 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			usage := extractAccountTestUsage(data)
+			s.sendEvent(c, TestEvent{Type: "usage", InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, TotalTokens: usage.TotalTokens, CacheReadTokens: usage.CacheReadTokens, CacheCreationTokens: usage.CacheCreationTokens})
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":
@@ -3088,6 +3114,60 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 			}
 			return s.sendErrorAndEnd(c, errorMsg)
 		}
+	}
+}
+
+func extractAccountTestUsage(data map[string]any) AccountPromptTestResult {
+	var usage map[string]any
+	if response, ok := data["response"].(map[string]any); ok {
+		usage, _ = response["usage"].(map[string]any)
+	}
+	if usage == nil {
+		usage, _ = data["usage"].(map[string]any)
+	}
+	readValue := func(value any) int {
+		switch n := value.(type) {
+		case float64:
+			return int(n)
+		case int:
+			return n
+		case json.Number:
+			i, _ := n.Int64()
+			return int(i)
+		default:
+			return 0
+		}
+	}
+	read := func(keys ...string) int {
+		var value any
+		for _, key := range keys {
+			if candidate, ok := usage[key]; ok {
+				value = candidate
+				break
+			}
+		}
+		if value == nil {
+			return 0
+		}
+		return readValue(value)
+	}
+	readNested := func(detailKey, valueKey string) int {
+		details, ok := usage[detailKey].(map[string]any)
+		if !ok {
+			return 0
+		}
+		return readValue(details[valueKey])
+	}
+	cacheReadTokens := readNested("input_tokens_details", "cached_tokens")
+	if cacheReadTokens == 0 {
+		cacheReadTokens = readNested("prompt_tokens_details", "cached_tokens")
+	}
+	return AccountPromptTestResult{
+		InputTokens:         read("input_tokens", "prompt_tokens"),
+		OutputTokens:        read("output_tokens", "completion_tokens"),
+		TotalTokens:         read("total_tokens"),
+		CacheReadTokens:     cacheReadTokens,
+		CacheCreationTokens: read("cache_creation_input_tokens", "cache_creation_tokens"),
 	}
 }
 
@@ -3379,9 +3459,28 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 	}, nil
 }
 
+// RunPromptBackground executes an account test with a custom prompt and captures usage.
+func (s *AccountTestService) RunPromptBackground(ctx context.Context, accountID int64, modelID, prompt string) (*AccountPromptTestResult, error) {
+	w := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(w)
+	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt, AccountTestModeDefault)
+	result := parseTestSSEOutputWithUsage(w.Body.String())
+	if testErr != nil && result.ErrorMessage == "" {
+		result.ErrorMessage = testErr.Error()
+	}
+	return &result, testErr
+}
+
 // parseTestSSEOutput extracts response text and error message from captured SSE output.
 func parseTestSSEOutput(body string) (responseText, errMsg string) {
+	result := parseTestSSEOutputWithUsage(body)
+	return result.ResponseText, result.ErrorMessage
+}
+
+func parseTestSSEOutputWithUsage(body string) AccountPromptTestResult {
 	var texts []string
+	result := AccountPromptTestResult{}
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "data: ") {
@@ -3398,9 +3497,15 @@ func parseTestSSEOutput(body string) (responseText, errMsg string) {
 				texts = append(texts, event.Text)
 			}
 		case "error":
-			errMsg = event.Error
+			result.ErrorMessage = event.Error
+		case "usage":
+			result.InputTokens, result.OutputTokens, result.TotalTokens = event.InputTokens, event.OutputTokens, event.TotalTokens
+			result.CacheReadTokens, result.CacheCreationTokens = event.CacheReadTokens, event.CacheCreationTokens
 		}
 	}
-	responseText = strings.Join(texts, "")
-	return
+	result.ResponseText = strings.Join(texts, "")
+	if result.TotalTokens == 0 {
+		result.TotalTokens = result.InputTokens + result.OutputTokens
+	}
+	return result
 }
