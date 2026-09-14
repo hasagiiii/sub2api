@@ -5,6 +5,10 @@ export default {
     prompt: 'Test prompt',
     run: 'Run test',
     running: 'Test running…',
+    selectAll: 'Select all',
+    selectedCount: '{selected} of {total} selected',
+    refreshAccounts: 'Refresh accounts',
+    loadAccountsFailed: 'Failed to load eligible accounts',
     empty: 'No test has been run yet.',
     noEligible: 'No account supports GPT-6 Astra.',
     account: 'Account',
@@ -18,10 +22,22 @@ export default {
     total: 'Total',
     source: 'HTML source',
     preview: 'Rendered preview',
+    response: 'Live response',
+    results: 'Test results',
+    progress: '{completed} of {total} completed',
+    continue: 'Continue',
+    noResponseBody: 'The test returned no response body.',
     error: 'Error',
     totalCost: 'Total cost',
     totalTokens: 'Total tokens',
     eligible: 'Eligible accounts',
-    runFailed: 'Test request failed'
+    runFailed: 'Test request failed',
+    statuses: {
+      pending: 'Pending',
+      running: 'Running',
+      success: 'Success',
+      failed: 'Failed',
+      skipped: 'Skipped'
+    }
   }
 }

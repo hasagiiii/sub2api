@@ -5,6 +5,10 @@ export default {
     prompt: '测试 Prompt',
     run: '开始测试',
     running: '测试进行中…',
+    selectAll: '全选',
+    selectedCount: '已选择 {selected} / {total}',
+    refreshAccounts: '刷新账号',
+    loadAccountsFailed: '加载符合条件的账号失败',
     empty: '尚未运行测试。',
     noEligible: '没有找到支持 GPT-6 Astra 的账号。',
     account: '账号',
@@ -18,10 +22,22 @@ export default {
     total: '合计',
     source: 'HTML 源码',
     preview: '渲染预览',
+    response: '实时返回',
+    results: '测试结果',
+    progress: '已完成 {completed} / {total}',
+    continue: '继续',
+    noResponseBody: '测试没有返回响应内容。',
     error: '错误',
     totalCost: '总费用',
     totalTokens: '总 Token',
     eligible: '符合账号',
-    runFailed: '测试请求失败'
+    runFailed: '测试请求失败',
+    statuses: {
+      pending: '等待中',
+      running: '测试中',
+      success: '成功',
+      failed: '失败',
+      skipped: '已跳过'
+    }
   }
 }

@@ -1345,6 +1345,40 @@ type iqTestResult struct {
 	CostUSD      float64 `json:"cost_usd"`
 }
 
+type iqTestAccount struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Status   string `json:"status"`
+	Platform string `json:"platform"`
+}
+
+// IQTestAccounts returns the accounts that satisfy the GPT-6 Astra test
+// criteria without starting any upstream requests.
+// GET /api/v1/admin/iq-test/accounts
+func (h *AccountHandler) IQTestAccounts(c *gin.Context) {
+	if h.adminService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Account test service unavailable")
+		return
+	}
+	accounts, err := h.adminService.ListAccountsForSchedulerScoreFilter(c.Request.Context(), service.PlatformOpenAI, "", "", "", 0, "")
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	eligible := make([]iqTestAccount, 0, len(accounts))
+	for _, account := range accounts {
+		if !account.IsModelSupported("gpt-6-astra") {
+			continue
+		}
+		eligible = append(eligible, iqTestAccount{
+			ID: account.ID, Name: account.Name, Type: account.Type,
+			Status: account.Status, Platform: account.Platform,
+		})
+	}
+	c.JSON(http.StatusOK, eligible)
+}
+
 // IQTest runs the one-shot GPT-6 Astra HTML generation test for every matching account.
 // POST /api/v1/admin/iq-test
 func (h *AccountHandler) IQTest(c *gin.Context) {
