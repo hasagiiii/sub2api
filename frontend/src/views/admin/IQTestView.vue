@@ -132,7 +132,7 @@ const { t } = useI18n()
 const prompt = '创建一个HTML，内容是SVG绘制一个鹈鹏骑自行车的2D动画，你不需要任何测试'
 const overloadMessage = 'Our servers are currently overloaded. Please try again later.'
 
-type TestStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped'
+type TestStatus = 'pending' | 'running' | 'success' | 'failed'
 
 interface IQTestState {
   account: IQTestAccount
@@ -157,7 +157,7 @@ let abortController: AbortController | null = null
 
 const selectedCount = computed(() => selectedIds.value.size)
 const allSelected = computed(() => accounts.value.length > 0 && selectedCount.value === accounts.value.length)
-const completedCount = computed(() => testStates.value.filter((state) => ['success', 'failed', 'skipped'].includes(state.status)).length)
+const completedCount = computed(() => testStates.value.filter((state) => ['success', 'failed'].includes(state.status)).length)
 const totalCost = computed(() => testStates.value.reduce((sum, state) => sum + state.costUSD, 0))
 
 onMounted(loadAccounts)
@@ -216,10 +216,7 @@ async function processQueue(): Promise<void> {
   for (let index = queueIndex.value + 1; index < testStates.value.length; index += 1) {
     queueIndex.value = index
     const state = testStates.value[index]
-    state.status = 'running'
-    state.errorMessage = ''
-    state.retryable503 = false
-    const result = await streamAccountTest(state)
+    const result = await runAccountTest(state, prompt)
     if (result.retryable503) {
       state.status = 'failed'
       state.retryable503 = true
@@ -234,14 +231,43 @@ async function processQueue(): Promise<void> {
 
 async function continueAfter503(state: IQTestState): Promise<void> {
   if (loading.value || state.status !== 'failed' || !state.retryable503) return
-  state.retryable503 = false
-  state.status = 'skipped'
+  loading.value = true
+  const continuationPrompt = buildContinuationPrompt(state.output)
+  const result = await runAccountTest(state, continuationPrompt)
+  if (result.retryable503) {
+    state.status = 'failed'
+    state.retryable503 = true
+    loading.value = false
+    return
+  }
+  state.status = result.success ? 'success' : 'failed'
   await processQueue()
 }
 
-async function streamAccountTest(state: IQTestState): Promise<{ success: boolean; retryable503: boolean }> {
+async function runAccountTest(state: IQTestState, requestPrompt: string): Promise<{ success: boolean; retryable503: boolean }> {
+  state.status = 'running'
+  state.errorMessage = ''
+  state.retryable503 = false
+  return streamAccountTest(state, requestPrompt)
+}
+
+async function streamAccountTest(state: IQTestState, requestPrompt: string): Promise<{ success: boolean; retryable503: boolean }> {
   const controller = new AbortController()
   abortController = controller
+  let requestInputTokens = 0
+  let requestOutputTokens = 0
+  let requestTotalTokens = 0
+  let requestCostUSD = 0
+  const previousInputTokens = state.inputTokens
+  const previousOutputTokens = state.outputTokens
+  const previousTotalTokens = state.totalTokens
+  const previousCostUSD = state.costUSD
+  const applyRequestUsage = (): void => {
+    state.inputTokens = previousInputTokens + requestInputTokens
+    state.outputTokens = previousOutputTokens + requestOutputTokens
+    state.totalTokens = previousTotalTokens + requestTotalTokens
+    state.costUSD = previousCostUSD + requestCostUSD
+  }
   try {
     const response = await fetch(buildApiUrl(`/admin/accounts/${state.account.id}/test`), {
       method: 'POST',
@@ -250,7 +276,7 @@ async function streamAccountTest(state: IQTestState): Promise<{ success: boolean
         'Content-Type': 'application/json',
         [ADMIN_UI_REQUEST_HEADER]: '1'
       },
-      body: JSON.stringify({ model_id: 'gpt-6-astra', prompt }),
+      body: JSON.stringify({ model_id: 'gpt-6-astra', prompt: requestPrompt }),
       signal: controller.signal
     })
 
@@ -292,10 +318,11 @@ async function streamAccountTest(state: IQTestState): Promise<{ success: boolean
           if (isOverloadMessage(state.errorMessage)) return true
         }
         if (event.type === 'usage') {
-          state.inputTokens = event.input_tokens || 0
-          state.outputTokens = event.output_tokens || 0
-          state.totalTokens = event.total_tokens || state.inputTokens + state.outputTokens
-          state.costUSD = event.cost_usd || 0
+          requestInputTokens = event.input_tokens || 0
+          requestOutputTokens = event.output_tokens || 0
+          requestTotalTokens = event.total_tokens || requestInputTokens + requestOutputTokens
+          requestCostUSD = event.cost_usd || 0
+          applyRequestUsage()
         }
         if (event.type === 'test_complete') success = event.success === true
       } catch {
@@ -325,6 +352,21 @@ async function streamAccountTest(state: IQTestState): Promise<{ success: boolean
   }
 }
 
+function buildContinuationPrompt(previousOutput: string): string {
+  const context = previousOutput.trim()
+  if (!context) {
+    return `继续完成原任务：${prompt}`
+  }
+  return [
+    '继续完成原任务，不要从头开始。',
+    `原任务：${prompt}`,
+    '上一次请求已经返回了下面这段内容，但响应中途被中断。请基于已有内容从中断位置继续，只输出尚未完成的部分，不要重复已有内容。',
+    '<previous_response>',
+    context,
+    '</previous_response>'
+  ].join('\n')
+}
+
 function isOverloadMessage(message: string): boolean {
   return message.includes(overloadMessage)
 }
@@ -346,7 +388,6 @@ function statusClass(status: TestStatus): string {
   if (status === 'success') return 'bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300'
   if (status === 'running') return 'bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300'
   if (status === 'pending') return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
-  if (status === 'skipped') return 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
   return 'bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300'
 }
 

@@ -36,8 +36,7 @@ export default {
       pending: '等待中',
       running: '测试中',
       success: '成功',
-      failed: '失败',
-      skipped: '已跳过'
+      failed: '失败'
     }
   }
 }

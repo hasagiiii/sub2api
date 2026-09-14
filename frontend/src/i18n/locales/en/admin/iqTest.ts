@@ -36,8 +36,7 @@ export default {
       pending: 'Pending',
       running: 'Running',
       success: 'Success',
-      failed: 'Failed',
-      skipped: 'Skipped'
+      failed: 'Failed'
     }
   }
 }
