@@ -1011,11 +1011,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 
 	// Set common headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	// The admin test must have the same Codex client identity as the normal
-	// Responses probe; OAuth requests are capacity-shed when these headers are
-	// missing even though authentication is otherwise valid.
-	applyOpenAICodexProbeHeaders(req.Header)
+	if !isOAuth {
+		applyOpenAICodexProbeHeaders(req.Header)
+	}
 	if credentialAccount.IsOpenAIAgentIdentity() {
 		authHeaders, authErr := buildAgentIdentityAuthenticationHeaders(ctx, s.accountRepo, s.agentIdentityWS, &s.agentIdentityTaskMu, credentialAccount)
 		if authErr != nil {
@@ -1043,12 +1041,6 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			req.Header.Set("User-Agent", canonical.userAgent)
 		}
 		setOpenAIChatGPTAccountHeaders(req.Header, credentialAccount)
-		probeSessionID := compactProbeSessionID(account.ID)
-		req.Header.Set("Session_ID", probeSessionID)
-		req.Header.Set("Conversation_ID", probeSessionID)
-		if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header); fpIDs != nil {
-			applyCodexFingerprintHeaders(req.Header, fpIDs)
-		}
 		// 与真实转发一致：账号级自定义 UA 同样作为管理员显式配置传入，否则测试用的身份
 		// 与该账号真实出站的身份不是同一个（issue #3901 的配对不变式由收口保证）。
 		enforceCodexIdentityHeadersWithUA(req.Header, credentialAccount.GetOpenAIUserAgent())
