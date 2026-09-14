@@ -69,6 +69,7 @@
           <h2 class="font-medium text-gray-900 dark:text-white">{{ t('admin.iqTest.results') }}</h2>
           <div class="text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.iqTest.progress', { completed: completedCount, total: testStates.length }) }}
+            <span class="ml-3">{{ t('admin.iqTest.totalCost') }}: ${{ totalCost.toFixed(6) }}</span>
           </div>
         </div>
 
@@ -85,6 +86,7 @@
               <span>{{ t('admin.iqTest.input') }}: {{ state.inputTokens.toLocaleString() }}</span>
               <span>{{ t('admin.iqTest.output') }}: {{ state.outputTokens.toLocaleString() }}</span>
               <span>{{ t('admin.iqTest.total') }}: {{ state.totalTokens.toLocaleString() }}</span>
+              <span class="font-medium text-gray-700 dark:text-gray-300">{{ t('admin.iqTest.cost') }}: ${{ state.costUSD.toFixed(6) }}</span>
             </div>
           </header>
 
@@ -141,6 +143,7 @@ interface IQTestState {
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  costUSD: number
 }
 
 const accounts = ref<IQTestAccount[]>([])
@@ -155,6 +158,7 @@ let abortController: AbortController | null = null
 const selectedCount = computed(() => selectedIds.value.size)
 const allSelected = computed(() => accounts.value.length > 0 && selectedCount.value === accounts.value.length)
 const completedCount = computed(() => testStates.value.filter((state) => ['success', 'failed', 'skipped'].includes(state.status)).length)
+const totalCost = computed(() => testStates.value.reduce((sum, state) => sum + state.costUSD, 0))
 
 onMounted(loadAccounts)
 
@@ -201,7 +205,8 @@ async function run(): Promise<void> {
       retryable503: false,
       inputTokens: 0,
       outputTokens: 0,
-      totalTokens: 0
+      totalTokens: 0,
+      costUSD: 0
     }))
   queueIndex.value = -1
   await processQueue()
@@ -279,6 +284,7 @@ async function streamAccountTest(state: IQTestState): Promise<{ success: boolean
           input_tokens?: number
           output_tokens?: number
           total_tokens?: number
+          cost_usd?: number
         }
         if (event.type === 'content' || event.type === 'status') state.output += event.text || ''
         if (event.type === 'error') {
@@ -289,6 +295,7 @@ async function streamAccountTest(state: IQTestState): Promise<{ success: boolean
           state.inputTokens = event.input_tokens || 0
           state.outputTokens = event.output_tokens || 0
           state.totalTokens = event.total_tokens || state.inputTokens + state.outputTokens
+          state.costUSD = event.cost_usd || 0
         }
         if (event.type === 'test_complete') success = event.success === true
       } catch {

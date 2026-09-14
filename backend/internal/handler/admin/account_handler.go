@@ -88,6 +88,9 @@ func (h *AccountHandler) SetCostCenterService(costCenter *service.CostCenterServ
 // SetBillingService attaches the pricing calculator used by diagnostics.
 func (h *AccountHandler) SetBillingService(billing *service.BillingService) {
 	h.billingService = billing
+	if h.accountTestService != nil {
+		h.accountTestService.SetBillingService(billing)
+	}
 }
 
 // NewAccountHandler creates a new admin account handler

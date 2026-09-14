@@ -58,17 +58,18 @@ type TestEvent struct {
 	Code     string `json:"code,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
 	// AudioURL / VideoURL are data: or https URLs for in-browser media players.
-	AudioURL            string `json:"audio_url,omitempty"`
-	VideoURL            string `json:"video_url,omitempty"`
-	MimeType            string `json:"mime_type,omitempty"`
-	Data                any    `json:"data,omitempty"`
-	Success             bool   `json:"success,omitempty"`
-	Error               string `json:"error,omitempty"`
-	InputTokens         int    `json:"input_tokens,omitempty"`
-	OutputTokens        int    `json:"output_tokens,omitempty"`
-	TotalTokens         int    `json:"total_tokens,omitempty"`
-	CacheReadTokens     int    `json:"cache_read_tokens,omitempty"`
-	CacheCreationTokens int    `json:"cache_creation_tokens,omitempty"`
+	AudioURL            string  `json:"audio_url,omitempty"`
+	VideoURL            string  `json:"video_url,omitempty"`
+	MimeType            string  `json:"mime_type,omitempty"`
+	Data                any     `json:"data,omitempty"`
+	Success             bool    `json:"success,omitempty"`
+	Error               string  `json:"error,omitempty"`
+	InputTokens         int     `json:"input_tokens,omitempty"`
+	OutputTokens        int     `json:"output_tokens,omitempty"`
+	TotalTokens         int     `json:"total_tokens,omitempty"`
+	CostUSD             float64 `json:"cost_usd,omitempty"`
+	CacheReadTokens     int     `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens int     `json:"cache_creation_tokens,omitempty"`
 }
 
 // AccountPromptTestResult is the captured result of an in-memory account test.
@@ -171,11 +172,20 @@ type AccountTestService struct {
 	modelMetadataRegistryAt   time.Time
 	pluginManager             *PluginManager
 	openaiGatewayService      *OpenAIGatewayService
+	billingService            *BillingService
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
 	grokWSDialer openAIWSClientDialer
+}
+
+// SetBillingService attaches the pricing calculator used to enrich account-test
+// usage events with the account's actual cost.
+func (s *AccountTestService) SetBillingService(billingService *BillingService) {
+	if s != nil {
+		s.billingService = billingService
+	}
 }
 
 func (s *AccountTestService) SetSettingService(settingService *SettingService) {
@@ -357,6 +367,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	c.Set(accountTestBillingContextKey, accountTestBillingContext{
+		account: account,
+		model:   modelID,
+	})
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
@@ -3411,12 +3425,45 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 			}
 		}
 	}
+	if event.Type == "usage" {
+		s.enrichUsageEventCost(c, &event)
+	}
 	eventJSON, _ := json.Marshal(event)
 	if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", eventJSON); err != nil {
 		log.Printf("failed to write SSE event: %v", err)
 		return
 	}
 	c.Writer.Flush()
+}
+
+const accountTestBillingContextKey = "account_test_billing_context"
+
+type accountTestBillingContext struct {
+	account *Account
+	model   string
+}
+
+func (s *AccountTestService) enrichUsageEventCost(c *gin.Context, event *TestEvent) {
+	if s == nil || s.billingService == nil || c == nil || event == nil {
+		return
+	}
+	billingContextValue, ok := c.Get(accountTestBillingContextKey)
+	if !ok {
+		return
+	}
+	billingContext, ok := billingContextValue.(accountTestBillingContext)
+	if !ok || billingContext.account == nil || strings.TrimSpace(billingContext.model) == "" {
+		return
+	}
+	cost, err := s.billingService.CalculateCost(billingContext.model, UsageTokens{
+		InputTokens:         event.InputTokens,
+		OutputTokens:        event.OutputTokens,
+		CacheReadTokens:     event.CacheReadTokens,
+		CacheCreationTokens: event.CacheCreationTokens,
+	}, billingContext.account.BillingRateMultiplier())
+	if err == nil && cost != nil {
+		event.CostUSD = cost.ActualCost
+	}
 }
 
 // sendErrorAndEnd sends an error event and ends the stream
