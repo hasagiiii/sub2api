@@ -159,6 +159,9 @@ func TestAccountTestService_OpenAIOAuthTestNormalizesGPT56Alias(t *testing.T) {
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.6", "", "")
 	require.NoError(t, err)
 	require.Len(t, upstream.requests, 1)
+	requireOpenAICodexProbeHeaders(t, upstream.requests[0].Header)
+	require.Equal(t, compactProbeSessionID(account.ID), upstream.requests[0].Header.Get("Session_Id"))
+	require.Equal(t, compactProbeSessionID(account.ID), upstream.requests[0].Header.Get("Conversation_Id"))
 
 	body, err := io.ReadAll(upstream.requests[0].Body)
 	require.NoError(t, err)
