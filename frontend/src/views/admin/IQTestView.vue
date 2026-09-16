@@ -197,6 +197,7 @@ import {
   saveIQTestHistoryEntry
 } from '@/utils/iqTestHistory'
 import type { IQTestHistoryEntry } from '@/utils/iqTestHistory'
+import { runWithConcurrency } from '@/utils/concurrency'
 
 const { t } = useI18n()
 // 测试 Prompt 支持临时修改，仅存在于当前组件实例的内存中：不做任何持久化
@@ -204,6 +205,9 @@ const { t } = useI18n()
 const DEFAULT_PROMPT = '创建一个HTML，内容是SVG绘制一个鹈鹏骑自行车的2D动画，你不需要任何测试'
 const prompt = ref(DEFAULT_PROMPT)
 const overloadMessage = 'Our servers are currently overloaded. Please try again later.'
+// 账号并行测试的上限，与后端 IQTest 批量探测的信号量容量保持一致：既让多个号
+// 同时开跑，又不会一次把所有账号压向同一上游导致过载（503）。
+const MAX_CONCURRENCY = 4
 
 type TestStatus = 'pending' | 'running' | 'success' | 'failed'
 
@@ -229,8 +233,11 @@ const viewingHistoryId = ref('')
 const loadingAccounts = ref(false)
 const loading = ref(false)
 const error = ref('')
-const queueIndex = ref(-1)
+// 一次运行内所有账号请求共用同一个 controller，开始新一轮时可一次性取消上一轮。
 let abortController: AbortController | null = null
+// 标识当前运行轮次。上一轮被取消后其 worker 仍会走完收尾流程，凭此丢弃这些迟到
+// 的收尾，避免它们把新一轮的 loading 关掉或写入历史。
+let runToken = 0
 // 本次运行实际发起的 Prompt：503 续跑期间用户可能又编辑了输入框，历史记录应
 // 保留发起时的内容而非最新草稿。
 let runPrompt = ''
@@ -282,6 +289,8 @@ async function run(): Promise<void> {
   if (selectedCount.value === 0 || trimmedPrompt.value.length === 0) return
   abortController?.abort()
   abortController = new AbortController()
+  runToken += 1
+  const token = runToken
   loading.value = true
   error.value = ''
   viewingHistoryId.value = ''
@@ -299,29 +308,36 @@ async function run(): Promise<void> {
       totalTokens: 0,
       costUSD: 0
     }))
-  queueIndex.value = -1
-  await processQueue()
+  await runPool(testStates.value, token)
 }
 
-async function processQueue(): Promise<void> {
-  for (let index = queueIndex.value + 1; index < testStates.value.length; index += 1) {
-    queueIndex.value = index
-    const state = testStates.value[index]
-    const result = await runAccountTest(state, runPrompt)
-    if (result.retryable503) {
-      state.status = 'failed'
-      state.retryable503 = true
-      loading.value = false
-      return
-    }
-    state.status = result.success ? 'success' : 'failed'
-  }
+// 多个账号并行开跑，最多 MAX_CONCURRENCY 个同时在途：快的账号先完成，不必等前
+// 面的号跑完。
+async function runPool(targets: IQTestState[], token: number): Promise<void> {
+  await runWithConcurrency(
+    targets,
+    MAX_CONCURRENCY,
+    async (state) => {
+      const result = await runAccountTest(state, runPrompt)
+      // 某个号被上游限流（503）不再中断整批：它单独等用户点「继续」续跑，
+      // 其余账号照常跑完。
+      state.retryable503 = result.retryable503
+      state.status = result.success ? 'success' : 'failed'
+    },
+    () => token === runToken
+  )
+  finalizeRun(token)
+}
+
+// 全部账号跑完才收尾。仍有账号等待 503 续跑时不写历史，避免留下半成品记录。
+function finalizeRun(token: number): void {
+  if (token !== runToken) return
   loading.value = false
-  queueIndex.value = -1
+  if (testStates.value.some((state) => state.retryable503)) return
   persistRun()
 }
 
-// 队列跑完（含 503 续跑后补完）才写入历史，中途因 503 暂停时不留半成品记录。
+// 把一次完整运行落到本地历史。
 function persistRun(): void {
   if (testStates.value.length === 0) return
   history.value = saveIQTestHistoryEntry({
@@ -389,17 +405,12 @@ function historyCost(entry: IQTestHistoryEntry): number {
 
 async function continueAfter503(state: IQTestState): Promise<void> {
   if (loading.value || state.status !== 'failed' || !state.retryable503) return
+  const token = runToken
   loading.value = true
-  const continuationPrompt = buildContinuationPrompt(state.output)
-  const result = await runAccountTest(state, continuationPrompt)
-  if (result.retryable503) {
-    state.status = 'failed'
-    state.retryable503 = true
-    loading.value = false
-    return
-  }
+  const result = await runAccountTest(state, buildContinuationPrompt(state.output))
+  state.retryable503 = result.retryable503
   state.status = result.success ? 'success' : 'failed'
-  await processQueue()
+  finalizeRun(token)
 }
 
 async function runAccountTest(state: IQTestState, requestPrompt: string): Promise<{ success: boolean; retryable503: boolean }> {
@@ -410,8 +421,8 @@ async function runAccountTest(state: IQTestState, requestPrompt: string): Promis
 }
 
 async function streamAccountTest(state: IQTestState, requestPrompt: string): Promise<{ success: boolean; retryable503: boolean }> {
-  const controller = new AbortController()
-  abortController = controller
+  // 并行下不能各自新建 controller 覆盖共享变量，否则只有最后一个请求可被取消。
+  const signal = abortController?.signal
   let requestInputTokens = 0
   let requestOutputTokens = 0
   let requestTotalTokens = 0
@@ -435,7 +446,7 @@ async function streamAccountTest(state: IQTestState, requestPrompt: string): Pro
         [ADMIN_UI_REQUEST_HEADER]: '1'
       },
       body: JSON.stringify({ model_id: 'gpt-6-astra', prompt: requestPrompt }),
-      signal: controller.signal
+      signal
     })
 
     if (!response.ok) {
