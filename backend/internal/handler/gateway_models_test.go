@@ -668,6 +668,177 @@ func TestGatewayModels_CompositeAntigravityAdvertisesAntigravityDefaults(t *test
 	require.Contains(t, ids, "gemini-2.5-flash")
 }
 
+// Scenario: a Leonardo account mapped inside a Composite group must be listed.
+// Leonardo accounts are picked by group_id through the media bypass scheduler,
+// so a composite key really can serve them and /v1/models has to say so.
+func TestGatewayModels_CompositeAdvertisesLeonardoMappedModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(66)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:          1,
+					Platform:    service.PlatformLeonardo,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"gpt-image-2": "gpt-image-2"},
+					},
+				},
+			},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Contains(t, modelIDsForTest(got.Data), "gpt-image-2")
+}
+
+// Scenario: an unmapped but schedulable Leonardo account falls back to the
+// platform's own static bridge models instead of listing nothing.
+func TestGatewayModels_CompositeUnmappedLeonardoUsesLeonardoDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(67)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:          1,
+					Platform:    service.PlatformLeonardo,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{},
+				},
+			},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	ids := modelIDsForTest(got.Data)
+	require.ElementsMatch(t, defaultModelIDsForPlatform(service.PlatformLeonardo), ids)
+}
+
+// Scenario: media platforms without their own static default list must never
+// inherit the Claude fallback, otherwise the group advertises models it cannot
+// serve. Such accounts only expose their configured mapping keys.
+//
+// A mapped Leonardo account keeps the aggregate non-empty so the assertion
+// targets the aggregation itself rather than the empty-list fallback, which
+// deliberately advertises every platform default.
+func TestGatewayModels_CompositeUnmappedBytedanceDoesNotAdvertiseClaude(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(68)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:          1,
+					Platform:    service.PlatformBytedance,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{},
+				},
+				{
+					ID:          2,
+					Platform:    service.PlatformLeonardo,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"gpt-image-2": "gpt-image-2"},
+					},
+				},
+			},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	ids := modelIDsForTest(got.Data)
+	require.Contains(t, ids, "gpt-image-2")
+	require.NotContains(t, ids, "claude-opus-4-6")
+}
+
+// Scenario: CN providers keep exposing only their mapping keys, never the
+// Claude fallback that defaultModelIDsForPlatform would return for them.
+func TestGatewayModels_CompositeCNProviderStillSkipsClaudeDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(69)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:          1,
+					Platform:    service.PlatformDeepseek,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{},
+				},
+				{
+					ID:          2,
+					Platform:    service.PlatformLeonardo,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"gpt-image-2": "gpt-image-2"},
+					},
+				},
+			},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	ids := modelIDsForTest(got.Data)
+	require.Contains(t, ids, "gpt-image-2")
+	require.NotContains(t, ids, "claude-opus-4-6")
+}
+
 func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -870,6 +1041,207 @@ func TestGatewayModels_CompositeIncludesFalAccountMappings(t *testing.T) {
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Contains(t, modelIDsForTest(got.Data), "gpt-image-2")
+}
+
+// Scenario: the reported bug. A composite group usually mixes text accounts
+// with media ones, which keeps the aggregate non-empty and therefore skips the
+// empty-list fallback. Leonardo models must still be listed; before the media
+// platforms joined the aggregation they silently vanished in exactly this mix,
+// while a Leonardo-only group appeared to work because it fell back to every
+// platform default.
+func TestGatewayModels_CompositeListsLeonardoAlongsideTextAccounts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(70)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:       1,
+					Platform: service.PlatformOpenAI,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"},
+					},
+				},
+				{
+					ID:       2,
+					Platform: service.PlatformLeonardo,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"gpt-image-2": "gpt-image-2"},
+					},
+				},
+			},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{ID: groupID, Platform: service.PlatformComposite},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	ids := modelIDsForTest(got.Data)
+	require.Contains(t, ids, "gpt-5.5")
+	require.Contains(t, ids, "gpt-image-2")
+}
+
+// Scenario: the exact production configuration behind the reported bug
+// (group 29, "视频生图分组"). A composite group holding only media accounts —
+// one Leonardo and one AtlasCloud — with the model allowlist enabled.
+//
+// Before the media platforms joined the aggregation this returned an empty
+// list: none of the nine text platforms had accounts, so the aggregate was
+// empty, and the allowlist branch filters that empty source without ever
+// reaching the composite fallback that does list Leonardo defaults.
+func TestGatewayModels_CompositeMediaOnlyGroupWithAllowlistListsMediaModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	groupID := int64(29)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:          785,
+					Platform:    service.PlatformLeonardo,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"gpt-image-2":             "gpt-image-2",
+							"openai/gpt-image-2":      "gpt-image-2",
+							"openai/gpt-image-2/edit": "gpt-image-2",
+						},
+					},
+				},
+				{
+					ID:          786,
+					Platform:    service.PlatformAtlasCloud,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"bytedance/seedance-2.5/text-to-video":      "bytedance/seedance-2.5/text-to-video",
+							"bytedance/seedance-2.5/image-to-video":     "bytedance/seedance-2.5/image-to-video",
+							"bytedance/seedance-2.5/reference-to-video": "bytedance/seedance-2.5/reference-to-video",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		Group: &service.Group{
+			ID:       groupID,
+			Platform: service.PlatformComposite,
+			ModelAllowlist: service.GroupModelAllowlist{
+				Enabled: true,
+				Models: []string{
+					"bytedance/seedance-2.5/reference-to-video",
+					"bytedance/seedance-2.5/text-to-video",
+					"bytedance/seedance-2.5/image-to-video",
+					"gpt-image-2",
+				},
+			},
+		},
+	})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	// Allowlist order is preserved, and every allowlisted model resolves.
+	require.Equal(t, []string{
+		"bytedance/seedance-2.5/reference-to-video",
+		"bytedance/seedance-2.5/text-to-video",
+		"bytedance/seedance-2.5/image-to-video",
+		"gpt-image-2",
+	}, modelIDsForTest(got.Data))
+}
+
+// Scenario: the per-platform breakdown that backs the
+// gateway.models.composite_available log line. It must name the platforms that
+// actually hold accounts in the group, so "分组里有账号但模型没列出来" can be
+// localized from logs alone instead of needing a database query.
+func TestCompositeAvailableModels_ReportsPerPlatformContributions(t *testing.T) {
+	groupID := int64(29)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:          785,
+					Platform:    service.PlatformLeonardo,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{"gpt-image-2": "gpt-image-2"},
+					},
+				},
+				{
+					ID:          786,
+					Platform:    service.PlatformAtlasCloud,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"bytedance/seedance-2.5/text-to-video": "bytedance/seedance-2.5/text-to-video",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	models, contributions := h.compositeAvailableModels(context.Background(), &groupID)
+
+	require.ElementsMatch(t, []string{
+		"gpt-image-2",
+		"bytedance/seedance-2.5/text-to-video",
+	}, models)
+
+	// Only the two platforms present in the group are reported; the remaining
+	// entries of compositeListingPlatforms stay out of the log.
+	require.Equal(t, []compositeModelContribution{
+		{Platform: service.PlatformLeonardo, HasAccounts: true, Count: 1, Source: "accounts"},
+		{Platform: service.PlatformAtlasCloud, HasAccounts: true, Count: 1, Source: "accounts"},
+	}, contributions)
+}
+
+// Scenario: an account exists but contributes nothing. The breakdown has to
+// surface has_accounts=true with count=0, which is the fingerprint of this
+// whole class of bug.
+func TestCompositeAvailableModels_ReportsAccountsWithoutModels(t *testing.T) {
+	groupID := int64(30)
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			groupID: {
+				{
+					ID:          800,
+					Platform:    service.PlatformAtlasCloud,
+					Status:      service.StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{},
+				},
+			},
+		},
+	})
+
+	models, contributions := h.compositeAvailableModels(context.Background(), &groupID)
+
+	require.Empty(t, models)
+	require.Equal(t, []compositeModelContribution{
+		{Platform: service.PlatformAtlasCloud, HasAccounts: true, Count: 0, Source: "none"},
+	}, contributions)
 }
 
 func TestGatewayModels_OpenAIGroupIncludesFalAccountMappings(t *testing.T) {

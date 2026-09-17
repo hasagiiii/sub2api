@@ -1198,12 +1198,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
+		availableModels, contributions := h.compositeAvailableModels(c.Request.Context(), groupID)
 		modelAllowlistEnabled := apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()
 		reqLog.Info("gateway.models.composite_available",
 			zap.Bool("model_allowlist", modelAllowlistEnabled),
 			zap.Int("available_count", len(availableModels)),
 			zap.Strings("available_models", availableModels),
+			zap.Any("platform_contributions", contributions),
 		)
 		if modelAllowlistEnabled {
 			availableModels = apiKey.Group.ModelAllowlist.FilterForListing(availableModels)
@@ -1337,7 +1338,7 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 		platform = group.Platform
 	}
 	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(ctx, groupID)
+		availableModels, _ := h.compositeAvailableModels(ctx, groupID)
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
 		if group.ModelAllowlistEnabled() {
 			source := availableModels
@@ -1363,22 +1364,86 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	return fallbackModels
 }
 
-func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
+// compositeListingPlatforms 列出 composite（混合）分组列举模型时要聚合的平台。
+//
+// 除 concrete 文本上游外，还包含挂在 composite 分组下参与图片/视频媒体旁路调度
+// 的平台（fal / leonardo / bytedance 等）。这些账号由 SelectAsyncImageAccountInGroup
+// 按 group_id 选取，与分组自身的 platform 无关，因此它们实际能服务的模型也必须
+// 出现在 /v1/models 里，否则客户端看不到自己本可调用的模型。
+var compositeListingPlatforms = []string{
+	service.PlatformAnthropic,
+	service.PlatformGemini,
+	service.PlatformOpenAI,
+	service.PlatformAntigravity,
+	service.PlatformGrok,
+	service.PlatformKimi,
+	service.PlatformZhipu,
+	service.PlatformDeepseek,
+	service.PlatformMiniMax,
+	service.PlatformFal,
+	service.PlatformLeonardo,
+	service.PlatformBytedance,
+	service.PlatformAtlasCloud,
+	service.PlatformApiz,
+	service.PlatformHiggsfield,
+}
+
+// hasStaticDefaultModelList 报告 defaultModelIDsForPlatform 是否为 platform 提供了
+// 专属的静态默认模型列表。
+//
+// 没有专属分支的平台会落到该函数的 Claude 兜底，所以聚合时绝不能为它们套用默认
+// 列表：那会让分组对外宣称自己根本不提供的 Claude 模型。CN 供应商与媒体旁路里
+// 的 bytedance/atlascloud/apiz/higgsfield 都属于这一类，它们只暴露账号映射键。
+func hasStaticDefaultModelList(platform string) bool {
+	switch platform {
+	case service.PlatformOpenAI, service.PlatformGemini, service.PlatformAntigravity,
+		service.PlatformAnthropic, service.PlatformGrok,
+		service.PlatformFal, service.PlatformLeonardo:
+		return true
+	default:
+		return false
+	}
+}
+
+// compositeModelContribution 记录 composite 聚合中单个平台的贡献情况。
+//
+// composite 会遍历十余个平台，但只把合并后的总列表写进日志，因此"某平台的模型
+// 为什么没出现在 /v1/models"无法只靠日志回答——service 层的 per-platform 日志
+// 仅对 openai/fal/leonardo 开启（shouldLogModelsListPlatform），media 平台里的
+// atlascloud/bytedance/apiz/higgsfield 与 CN 供应商全程静默。
+//
+// 这里按平台汇总成一个字段挂在既有日志行上：既补齐盲区，又不像放开
+// shouldLogModelsListPlatform 那样让每次 /v1/models 多出十余条日志
+// （GetAvailableModels 命中缓存时同样会打印）。
+type compositeModelContribution struct {
+	Platform string `json:"platform"`
+	// HasAccounts 表示该平台在本分组内有可调度账号。
+	// has_accounts=true 而 count=0 正是"分组里有账号但模型没列出来"的特征。
+	HasAccounts bool   `json:"has_accounts"`
+	Count       int    `json:"count"`
+	Source      string `json:"source"`
+}
+
+func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) ([]string, []compositeModelContribution) {
 	if h == nil || h.gatewayService == nil {
-		return nil
+		return nil, nil
 	}
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
+	contributions := make([]compositeModelContribution, 0, len(compositeListingPlatforms))
 	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
-	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax} {
+	for _, platform := range compositeListingPlatforms {
+		_, hasAccounts := schedulablePlatforms[platform]
 		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
+		source := "accounts"
 		if len(platformModels) == 0 {
-			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
-			// default 分支是 Claude 列表），composite 下只暴露账号映射键。
-			if _, ok := schedulablePlatforms[platform]; ok && !service.IsCNProvider(platform) {
+			source = "none"
+			if hasAccounts && hasStaticDefaultModelList(platform) {
 				platformModels = defaultModelIDsForPlatform(platform)
+				source = "platform_defaults"
 			}
 		}
+		added := 0
 		for _, model := range platformModels {
 			model = strings.TrimSpace(model)
 			if model == "" {
@@ -1389,9 +1454,19 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 			}
 			seen[model] = struct{}{}
 			models = append(models, model)
+			added++
+		}
+		// 只记录与本分组相关的平台，避免每次请求都打印十余条零贡献噪声。
+		if hasAccounts || added > 0 {
+			contributions = append(contributions, compositeModelContribution{
+				Platform:    platform,
+				HasAccounts: hasAccounts,
+				Count:       added,
+				Source:      source,
+			})
 		}
 	}
-	return models
+	return models, contributions
 }
 
 func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
