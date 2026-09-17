@@ -30,7 +30,17 @@ func (SubscriptionPlan) Annotations() []schema.Annotation {
 
 func (SubscriptionPlan) Fields() []ent.Field {
 	return []ent.Field{
+		// group_id 保留为"主分组"：等于 group_ids 的首个元素。
+		// 展示链路（结账页/广场卡片的平台徽标、倍率、限额）需要一个确定的代表
+		// 分组，且存量数据与旧客户端仍按单分组读取，因此写入时与 group_ids 同步
+		// 维护，不做废弃。
 		field.Int64("group_id"),
+		// group_ids 是套餐授予的全部分组（打包授予）：购买后为其中每个分组各发放
+		// 一条订阅。空数组表示尚未回填的存量行，读取方一律经 PlanGroupIDs 兜底回
+		// 退到 group_id，避免迁移期出现"套餐没有任何分组"。
+		field.JSON("group_ids", []int64{}).
+			Default([]int64{}).
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}),
 		field.String("name").
 			MaxLen(100).
 			NotEmpty(),

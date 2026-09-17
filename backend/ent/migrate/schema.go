@@ -1989,6 +1989,7 @@ var (
 		{Name: "order_type", Type: field.TypeString, Size: 20, Default: "balance"},
 		{Name: "plan_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "subscription_group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "subscription_group_ids", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "subscription_days", Type: field.TypeInt, Nullable: true},
 		{Name: "organization_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "provider_instance_id", Type: field.TypeString, Nullable: true, Size: 64},
@@ -2022,7 +2023,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "payment_orders_users_payment_orders",
-				Columns:    []*schema.Column{PaymentOrdersColumns[43]},
+				Columns:    []*schema.Column{PaymentOrdersColumns[44]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -2039,32 +2040,32 @@ var (
 			{
 				Name:    "paymentorder_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{PaymentOrdersColumns[43]},
+				Columns: []*schema.Column{PaymentOrdersColumns[44]},
 			},
 			{
 				Name:    "paymentorder_status",
 				Unique:  false,
-				Columns: []*schema.Column{PaymentOrdersColumns[25]},
+				Columns: []*schema.Column{PaymentOrdersColumns[26]},
 			},
 			{
 				Name:    "paymentorder_expires_at",
 				Unique:  false,
-				Columns: []*schema.Column{PaymentOrdersColumns[33]},
+				Columns: []*schema.Column{PaymentOrdersColumns[34]},
 			},
 			{
 				Name:    "paymentorder_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{PaymentOrdersColumns[41]},
+				Columns: []*schema.Column{PaymentOrdersColumns[42]},
 			},
 			{
 				Name:    "paymentorder_paid_at",
 				Unique:  false,
-				Columns: []*schema.Column{PaymentOrdersColumns[34]},
+				Columns: []*schema.Column{PaymentOrdersColumns[35]},
 			},
 			{
 				Name:    "paymentorder_payment_type_paid_at",
 				Unique:  false,
-				Columns: []*schema.Column{PaymentOrdersColumns[12], PaymentOrdersColumns[34]},
+				Columns: []*schema.Column{PaymentOrdersColumns[12], PaymentOrdersColumns[35]},
 			},
 			{
 				Name:    "paymentorder_order_type",
@@ -2074,7 +2075,7 @@ var (
 			{
 				Name:    "paymentorder_organization_id",
 				Unique:  false,
-				Columns: []*schema.Column{PaymentOrdersColumns[21]},
+				Columns: []*schema.Column{PaymentOrdersColumns[22]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "organization_id IS NOT NULL",
 				},
@@ -2474,6 +2475,7 @@ var (
 	SubscriptionPlansColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "group_id", Type: field.TypeInt64},
+		{Name: "group_ids", Type: field.TypeJSON, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "name", Type: field.TypeString, Size: 100},
 		{Name: "description", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "price", Type: field.TypeFloat64, SchemaType: map[string]string{"postgres": "decimal(20,2)"}},
@@ -2503,7 +2505,7 @@ var (
 			{
 				Name:    "subscriptionplan_for_sale",
 				Unique:  false,
-				Columns: []*schema.Column{SubscriptionPlansColumns[12]},
+				Columns: []*schema.Column{SubscriptionPlansColumns[13]},
 			},
 		},
 	}

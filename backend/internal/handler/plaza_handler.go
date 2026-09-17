@@ -150,6 +150,15 @@ func plazaImagePricesToDTO(p *service.PlazaImagePrices) *dto.PlazaImagePricesDTO
 func plazaPlanCardsToDTO(cards []service.PlazaPlanCard) []dto.PlazaPlanCardDTO {
 	out := make([]dto.PlazaPlanCardDTO, len(cards))
 	for i, c := range cards {
+		groups := make([]dto.PlazaPlanGroupDTO, 0, len(c.Groups))
+		for _, g := range c.Groups {
+			groups = append(groups, dto.PlazaPlanGroupDTO{
+				GroupID:        g.GroupID,
+				GroupName:      g.GroupName,
+				Platform:       g.Platform,
+				RateMultiplier: g.RateMultiplier,
+			})
+		}
 		out[i] = dto.PlazaPlanCardDTO{
 			ID:             c.ID,
 			Name:           c.Name,
@@ -163,6 +172,7 @@ func plazaPlanCardsToDTO(cards []service.PlazaPlanCard) []dto.PlazaPlanCardDTO {
 			GroupName:      c.GroupName,
 			Platform:       c.Platform,
 			RateMultiplier: c.RateMultiplier,
+			Groups:         groups,
 			Models:         c.Models,
 			ModelsOverflow: c.ModelsOverflow,
 		}

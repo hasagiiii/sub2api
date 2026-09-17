@@ -1037,10 +1037,13 @@ func TestExecuteSubscriptionFulfillmentRecoversCommittedAssignmentWithoutExtendi
 	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
 	assertPaymentSubscriptionExpiry(t, subRepo, order, expiresAt)
 
+	// 发放审计按分组记录（SUBSCRIPTION_ASSIGNED:<groupID>），多分组套餐下每个
+	// 分组各占一行，(order_id, action) 唯一索引因此不会挡住第二个分组。
+	assignedAction := paymentSubscriptionAssignedAction(*order.SubscriptionGroupID)
 	assignmentAuditCount, err := client.PaymentAuditLog.Query().
 		Where(
 			paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)),
-			paymentauditlog.ActionEQ("SUBSCRIPTION_ASSIGNED"),
+			paymentauditlog.ActionEQ(assignedAction),
 		).
 		Count(ctx)
 	require.NoError(t, err)
@@ -1060,7 +1063,7 @@ func TestExecuteSubscriptionFulfillmentRecoversCommittedAssignmentWithoutExtendi
 	assignmentAuditCount, err = client.PaymentAuditLog.Query().
 		Where(
 			paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)),
-			paymentauditlog.ActionEQ("SUBSCRIPTION_ASSIGNED"),
+			paymentauditlog.ActionEQ(assignedAction),
 		).
 		Count(ctx)
 	require.NoError(t, err)
@@ -1113,6 +1116,157 @@ func createPaymentFulfillmentSubscriptionOrder(
 		Save(ctx)
 	require.NoError(t, err)
 	return order
+}
+
+// 打包授予：一笔订单为快照里的每个分组各发放一条订阅。
+//
+// (order_id, action) 唯一索引是这条路径的关键约束——沿用单一的
+// SUBSCRIPTION_ASSIGNED 动作会让第二个分组既写不进审计、又被"已发放"判定跳过，
+// 用户付了全款只拿到第一个分组。
+func TestExecuteSubscriptionFulfillmentAssignsEveryBundledGroup(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPaid, time.Now())
+	order, err := client.PaymentOrder.UpdateOneID(order.ID).
+		SetSubscriptionGroupIds([]int64{7, 8, 9}).
+		SetSubscriptionGroupID(7).
+		Save(ctx)
+	require.NoError(t, err)
+
+	subRepo := newSubscriptionUserSubRepoStub()
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+
+	for _, gid := range []int64{7, 8, 9} {
+		sub, err := subRepo.GetByUserIDAndGroupID(ctx, order.UserID, gid)
+		require.NoError(t, err, "group %d should have been assigned a subscription", gid)
+		require.Equal(t, gid, sub.GroupID)
+
+		count, err := client.PaymentAuditLog.Query().
+			Where(
+				paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)),
+				paymentauditlog.ActionEQ(paymentSubscriptionAssignedAction(gid)),
+			).
+			Count(ctx)
+		require.NoError(t, err)
+		require.Equal(t, 1, count, "group %d should have exactly one assignment audit row", gid)
+	}
+	require.Equal(t, 3, subRepo.createCalls)
+
+	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
+	require.NoError(t, err)
+	require.Equal(t, OrderStatusCompleted, reloaded.Status)
+}
+
+// 重放整笔多分组订单不得重复发放：每个分组的发放审计各自把守。
+func TestExecuteSubscriptionFulfillmentReplayDoesNotReassignBundledGroups(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	staleAt := time.Now().Add(-paymentFulfillmentLeaseDuration - time.Minute)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusPaid, time.Now())
+	order, err := client.PaymentOrder.UpdateOneID(order.ID).
+		SetSubscriptionGroupIds([]int64{7, 8}).
+		SetSubscriptionGroupID(7).
+		Save(ctx)
+	require.NoError(t, err)
+
+	subRepo := newSubscriptionUserSubRepoStub()
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+	require.Equal(t, 2, subRepo.createCalls)
+
+	expiries := make(map[int64]time.Time, 2)
+	for _, gid := range []int64{7, 8} {
+		sub, err := subRepo.GetByUserIDAndGroupID(ctx, order.UserID, gid)
+		require.NoError(t, err)
+		expiries[gid] = sub.ExpiresAt
+	}
+
+	// 让订单回到可重入状态再跑一次，模拟租约过期后的补偿重试。
+	_, err = client.PaymentOrder.UpdateOneID(order.ID).
+		SetStatus(OrderStatusRecharging).
+		SetUpdatedAt(staleAt).
+		ClearCompletedAt().
+		Save(ctx)
+	require.NoError(t, err)
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+
+	require.Equal(t, 2, subRepo.createCalls, "replay must not create more subscriptions")
+	for _, gid := range []int64{7, 8} {
+		sub, err := subRepo.GetByUserIDAndGroupID(ctx, order.UserID, gid)
+		require.NoError(t, err)
+		require.True(t, sub.ExpiresAt.Equal(expiries[gid]),
+			"group %d expiry changed from %s to %s", gid, expiries[gid], sub.ExpiresAt)
+	}
+}
+
+// 存量订单（只有单值快照列、审计里是裸 SUBSCRIPTION_ASSIGNED）在升级后重试时
+// 必须被识别为"已发放"，不能因为动作名换了就重复发一次。
+func TestExecuteSubscriptionFulfillmentHonorsLegacyBareAssignmentAudit(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+	staleAt := time.Now().Add(-paymentFulfillmentLeaseDuration - time.Minute)
+	order := createPaymentFulfillmentSubscriptionOrder(t, ctx, client, OrderStatusRecharging, staleAt)
+
+	// 存量形态：subscription_group_ids 为空，仅有 subscription_group_id。
+	// 同时把 updated_at 写回 staleAt——ent 的 UpdateDefault 会刷新它，而租约是
+	// 按 updated_at 判定是否过期的，不写回会被判成"正在处理中"。
+	order, err := client.PaymentOrder.UpdateOneID(order.ID).
+		SetSubscriptionGroupIds(nil).
+		SetUpdatedAt(staleAt).
+		Save(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []int64{7}, OrderSubscriptionGroupIDs(order))
+
+	_, err = client.PaymentAuditLog.Create().
+		SetOrderID(strconv.FormatInt(order.ID, 10)).
+		SetAction("SUBSCRIPTION_ASSIGNED").
+		SetDetail(`{"groupID":7}`).
+		SetOperator("system").
+		Save(ctx)
+	require.NoError(t, err)
+
+	expiresAt := time.Now().Add(30 * 24 * time.Hour).Truncate(time.Second)
+	subRepo := newSubscriptionUserSubRepoStub()
+	subRepo.seed(&UserSubscription{
+		ID:        99,
+		UserID:    order.UserID,
+		GroupID:   7,
+		StartsAt:  time.Now().Add(-time.Hour),
+		ExpiresAt: expiresAt,
+		Status:    SubscriptionStatusActive,
+	})
+	groupRepo := &subscriptionGroupRepoStub{
+		group: &Group{ID: 7, Status: payment.EntityStatusActive, SubscriptionType: SubscriptionTypeSubscription},
+	}
+	svc := &PaymentService{
+		entClient:       client,
+		groupRepo:       groupRepo,
+		subscriptionSvc: NewSubscriptionService(groupRepo, subRepo, nil, nil, nil),
+	}
+
+	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
+	assertPaymentSubscriptionExpiry(t, subRepo, order, expiresAt)
+	require.Zero(t, subRepo.createCalls)
 }
 
 func assertPaymentSubscriptionExpiry(t *testing.T, repo *subscriptionUserSubRepoStub, order *dbent.PaymentOrder, expected time.Time) {

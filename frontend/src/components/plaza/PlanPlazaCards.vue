@@ -58,7 +58,8 @@
             <div class="text-[10px] uppercase tracking-wider text-gray-400">
               {{ t('plaza.plans.group') }}
             </div>
-            <div class="font-medium text-gray-900 dark:text-white">{{ card.group_name }}</div>
+            <!-- 打包授予多个分组时列出全部，单分组保持原样。 -->
+            <div class="font-medium text-gray-900 dark:text-white">{{ cardGroupNames(card) }}</div>
           </div>
           <div>
             <div class="text-[10px] uppercase tracking-wider text-gray-400">
@@ -248,6 +249,18 @@ function featureLines(card: PlazaPlanCard): string[] {
     .split(/\r?\n/)
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
+}
+
+/**
+ * 套餐可打包授予多个分组，卡片需要把它们都列出来，否则用户只看到主分组、
+ * 误以为这一笔只买到一个分组的权益。
+ */
+function cardGroupNames(card: PlazaPlanCard): string {
+  const names = (card.groups ?? [])
+    .map((group) => group.group_name?.trim() || `#${group.group_id}`)
+    .filter((name) => name.length > 0)
+  if (names.length === 0) return card.group_name
+  return names.join(' + ')
 }
 
 function displayedModels(card: PlazaPlanCard): string[] {

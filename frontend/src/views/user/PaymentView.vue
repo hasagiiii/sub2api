@@ -409,6 +409,7 @@ import {
   writePaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
 import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, platformTextClass, platformLabel } from '@/utils/platformColors'
+import { planCoversGroup } from '@/utils/subscriptionPlan'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -1058,7 +1059,8 @@ const planTextClass = computed(() => platformTextClass(selectedPlan.value?.group
 const isSelectedPlanRenewal = computed(() =>
   selectedPlan.value !== null
   && activeSubscriptions.value.some(
-    subscription => subscription.status === 'active' && subscription.group_id === selectedPlan.value?.group_id,
+    // 打包授予：套餐里任一分组已有活跃订阅即为续费。
+    subscription => subscription.status === 'active' && planCoversGroup(selectedPlan.value, subscription.group_id),
   ),
 )
 
@@ -1067,7 +1069,8 @@ const showRenewalModal = ref(false)
 const renewGroupId = ref<number | null>(null)
 const renewalPlans = computed(() => {
   if (renewGroupId.value == null) return []
-  return checkout.value.plans.filter(p => p.group_id === renewGroupId.value)
+  // 多分组套餐只要包含该分组就可用于续费，不能只匹配主分组。
+  return checkout.value.plans.filter(p => planCoversGroup(p, renewGroupId.value as number))
 })
 
 const planValiditySuffix = computed(() => {
@@ -1592,7 +1595,7 @@ onMounted(async () => {
       activeTab.value = 'subscription'
       if (route.query.group) {
         const groupId = Number(route.query.group)
-        const groupPlans = checkout.value.plans.filter(p => p.group_id === groupId)
+        const groupPlans = checkout.value.plans.filter(p => planCoversGroup(p, groupId))
         if (groupPlans.length === 1) {
           selectedPlan.value = groupPlans[0]
         } else if (groupPlans.length > 1) {

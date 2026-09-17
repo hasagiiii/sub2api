@@ -251,7 +251,11 @@ func (r *costCenterRepository) SnapshotSubscriptionEntitlement(ctx context.Conte
 	if in.StandardQuotaTokens > 0 {
 		factor = in.PriceUSD / float64(in.StandardQuotaTokens)
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO cost_center_subscription_entitlements(order_id,user_id,plan_id,group_id,price_usd,standard_quota_tokens,realization_factor,starts_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(order_id) DO NOTHING`, in.OrderID, in.UserID, in.PlanID, in.GroupID, in.PriceUSD, in.StandardQuotaTokens, factor, in.StartsAt, in.ExpiresAt)
+	// 唯一键是 (order_id, COALESCE(group_id,0))：一笔订单的套餐可绑定多个分组，
+	// 每个分组各一条权益行。ON CONFLICT 的推断表达式必须与迁移 244 建的唯一索引
+	// 等价，否则 Postgres 找不到可用的冲突目标而直接报错；按语法要求，表达式形式
+	// 的推断项需额外套一层括号。
+	_, err := r.db.ExecContext(ctx, `INSERT INTO cost_center_subscription_entitlements(order_id,user_id,plan_id,group_id,price_usd,standard_quota_tokens,realization_factor,starts_at,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (order_id, (COALESCE(group_id, 0))) DO NOTHING`, in.OrderID, in.UserID, in.PlanID, in.GroupID, in.PriceUSD, in.StandardQuotaTokens, factor, in.StartsAt, in.ExpiresAt)
 	return err
 }
 

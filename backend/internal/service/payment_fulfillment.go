@@ -547,8 +547,18 @@ func (s *PaymentService) markCompleted(ctx context.Context, o *dbent.PaymentOrde
 				if snapshotter, ok := s.costCenter.(interface {
 					SnapshotSubscriptionEntitlement(context.Context, *SubscriptionEntitlementSnapshot) error
 				}); ok {
-					groupID := plan.GroupID
-					_ = snapshotter.SnapshotSubscriptionEntitlement(ctx, &SubscriptionEntitlementSnapshot{OrderID: o.ID, UserID: o.UserID, PlanID: o.PlanID, GroupID: &groupID, PriceUSD: amount, StandardQuotaTokens: plan.StandardQuotaTokens, StartsAt: starts, ExpiresAt: expires})
+					// 打包授予：每个分组各记一条权益行（唯一键为 order_id + group_id）。
+					// 价格与标准配额按分组数均摊，否则 N 个分组会各自按全额记账，
+					// 把一笔订单的收入放大 N 倍、并压低成本中心的 realization_factor。
+					groupIDs := OrderSubscriptionGroupIDs(o)
+					if len(groupIDs) > 0 {
+						share := amount / float64(len(groupIDs))
+						quotaShare := plan.StandardQuotaTokens / int64(len(groupIDs))
+						for _, gid := range groupIDs {
+							groupID := gid
+							_ = snapshotter.SnapshotSubscriptionEntitlement(ctx, &SubscriptionEntitlementSnapshot{OrderID: o.ID, UserID: o.UserID, PlanID: o.PlanID, GroupID: &groupID, PriceUSD: share, StandardQuotaTokens: quotaShare, StartsAt: starts, ExpiresAt: expires})
+						}
+					}
 				}
 			}
 		}
@@ -612,16 +622,32 @@ func (s *PaymentService) sendSubscriptionPurchaseSuccessNotification(ctx context
 	if o.SubscriptionDays != nil {
 		variables["subscription_days"] = strconv.Itoa(*o.SubscriptionDays)
 	}
-	if o.SubscriptionGroupID != nil {
-		if s.groupRepo != nil {
-			if group, err := s.groupRepo.GetByID(ctx, *o.SubscriptionGroupID); err == nil && group != nil && strings.TrimSpace(group.Name) != "" {
-				variables["subscription_group"] = group.Name
+	// 打包授予：邮件列出全部分组名，到期时间取各分组订阅中最早的一个（最保守的
+	// 口径，避免让用户以为所有权益都到最晚那个时间）。
+	groupIDs := OrderSubscriptionGroupIDs(o)
+	if len(groupIDs) > 0 {
+		names := make([]string, 0, len(groupIDs))
+		var earliest *time.Time
+		for _, gid := range groupIDs {
+			if s.groupRepo != nil {
+				if group, err := s.groupRepo.GetByID(ctx, gid); err == nil && group != nil && strings.TrimSpace(group.Name) != "" {
+					names = append(names, group.Name)
+				}
+			}
+			if s.subscriptionSvc != nil {
+				if sub, err := s.subscriptionSvc.GetActiveSubscription(ctx, o.UserID, gid); err == nil && sub != nil {
+					if earliest == nil || sub.ExpiresAt.Before(*earliest) {
+						expiresAt := sub.ExpiresAt
+						earliest = &expiresAt
+					}
+				}
 			}
 		}
-		if s.subscriptionSvc != nil {
-			if sub, err := s.subscriptionSvc.GetActiveSubscription(ctx, o.UserID, *o.SubscriptionGroupID); err == nil && sub != nil {
-				variables["expiry_time"] = sub.ExpiresAt.Format("2006-01-02 15:04")
-			}
+		if len(names) > 0 {
+			variables["subscription_group"] = strings.Join(names, ", ")
+		}
+		if earliest != nil {
+			variables["expiry_time"] = earliest.Format("2006-01-02 15:04")
 		}
 	}
 	return s.notificationEmailService.Send(ctx, NotificationEmailSendInput{
@@ -649,7 +675,7 @@ func (s *PaymentService) ExecuteSubscriptionFulfillment(ctx context.Context, oid
 	if o.Status != OrderStatusPaid && o.Status != OrderStatusFailed && o.Status != OrderStatusRecharging {
 		return infraerrors.BadRequest("INVALID_STATUS", "order cannot fulfill in status "+o.Status)
 	}
-	if o.SubscriptionGroupID == nil || o.SubscriptionDays == nil {
+	if len(OrderSubscriptionGroupIDs(o)) == 0 || o.SubscriptionDays == nil {
 		return infraerrors.BadRequest("INVALID_STATUS", "missing subscription info")
 	}
 	lease, err := s.acquirePaymentFulfillmentLease(ctx, o)
@@ -667,22 +693,30 @@ func (s *PaymentService) ExecuteSubscriptionFulfillment(ctx context.Context, oid
 }
 
 func (s *PaymentService) doSub(ctx context.Context, o *dbent.PaymentOrder, lease *paymentFulfillmentLease) error {
-	gid := *o.SubscriptionGroupID
+	// 以订单快照为准遍历全部分组：套餐可能已被改绑/删除，已付款订单的履约范围
+	// 必须固定在下单那一刻。
+	groupIDs := OrderSubscriptionGroupIDs(o)
 	days := *o.SubscriptionDays
-	g, err := s.groupRepo.GetByID(ctx, gid)
-	if err != nil || g.Status != payment.EntityStatusActive {
-		return fmt.Errorf("group %d no longer exists or inactive", gid)
+	// 先整体校验再逐个发放：避免"前几个分组已发放、后面某个分组失效"导致的部分
+	// 履约。逐组发放本身是幂等且可续跑的，重试只补未完成的分组。
+	for _, gid := range groupIDs {
+		g, err := s.groupRepo.GetByID(ctx, gid)
+		if err != nil || g.Status != payment.EntityStatusActive {
+			return fmt.Errorf("group %d no longer exists or inactive", gid)
+		}
 	}
-	// Enterprise subscription order: fulfill onto the company subject
-	// (organization_subscriptions) instead of the buyer's personal
-	// subscription. Payment itself already went through the standard personal
-	// gateway pipeline; only the provisioning target differs.
-	if o.OrganizationID != nil {
-		if err := s.ensurePaymentOrganizationSubscriptionAssigned(ctx, o, *o.OrganizationID, gid, days); err != nil {
+	for _, gid := range groupIDs {
+		// Enterprise subscription order: fulfill onto the company subject
+		// (organization_subscriptions) instead of the buyer's personal
+		// subscription. Payment itself already went through the standard personal
+		// gateway pipeline; only the provisioning target differs.
+		if o.OrganizationID != nil {
+			if err := s.ensurePaymentOrganizationSubscriptionAssigned(ctx, o, *o.OrganizationID, gid, days); err != nil {
+				return err
+			}
+		} else if err := s.ensurePaymentSubscriptionAssigned(ctx, o, gid, days); err != nil {
 			return err
 		}
-	} else if err := s.ensurePaymentSubscriptionAssigned(ctx, o, gid, days); err != nil {
-		return err
 	}
 	// 订阅成功后结算邀请返利。
 	// 返利按订单 ID + 金额做审计去重，重复调用是安全的。
@@ -701,7 +735,7 @@ func (s *PaymentService) ensurePaymentOrganizationSubscriptionAssigned(ctx conte
 	if s.orgSubFulfiller == nil {
 		return errors.New("organization subscription fulfiller is unavailable")
 	}
-	alreadyAssigned, err := hasPaymentSubscriptionAssignmentAudit(ctx, s.entClient, o.ID)
+	alreadyAssigned, err := hasPaymentSubscriptionAssignmentAudit(ctx, s.entClient, o.ID, groupID)
 	if err != nil {
 		return fmt.Errorf("check subscription assignment audit: %w", err)
 	}
@@ -719,12 +753,12 @@ func (s *PaymentService) ensurePaymentOrganizationSubscriptionAssigned(ctx conte
 	})
 	if _, err := s.entClient.PaymentAuditLog.Create().
 		SetOrderID(strconv.FormatInt(o.ID, 10)).
-		SetAction("SUBSCRIPTION_ASSIGNED").
+		SetAction(paymentSubscriptionAssignedAction(groupID)).
 		SetDetail(string(detail)).
 		SetOperator("system").
 		Save(ctx); err != nil {
 		if dbent.IsConstraintError(err) {
-			claimed, checkErr := hasPaymentSubscriptionAssignmentAudit(ctx, s.entClient, o.ID)
+			claimed, checkErr := hasPaymentSubscriptionAssignmentAudit(ctx, s.entClient, o.ID, groupID)
 			if checkErr == nil && claimed {
 				return nil
 			}
@@ -747,7 +781,7 @@ func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, 
 
 	txCtx := dbent.NewTxContext(ctx, tx)
 	txClient := tx.Client()
-	alreadyAssigned, err := hasPaymentSubscriptionAssignmentAudit(txCtx, txClient, o.ID)
+	alreadyAssigned, err := hasPaymentSubscriptionAssignmentAudit(txCtx, txClient, o.ID, groupID)
 	if err != nil {
 		return fmt.Errorf("check subscription assignment audit: %w", err)
 	}
@@ -780,13 +814,13 @@ func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, 
 		})
 		if _, err := txClient.PaymentAuditLog.Create().
 			SetOrderID(strconv.FormatInt(o.ID, 10)).
-			SetAction("SUBSCRIPTION_ASSIGNED").
+			SetAction(paymentSubscriptionAssignedAction(groupID)).
 			SetDetail(string(detail)).
 			SetOperator("system").
 			Save(txCtx); err != nil {
 			if dbent.IsConstraintError(err) {
 				_ = tx.Rollback()
-				claimed, checkErr := hasPaymentSubscriptionAssignmentAudit(ctx, s.entClient, o.ID)
+				claimed, checkErr := hasPaymentSubscriptionAssignmentAudit(ctx, s.entClient, o.ID, groupID)
 				if checkErr == nil && claimed {
 					return s.subscriptionSvc.invalidateSubscriptionCaches(o.UserID, groupID)
 				}
@@ -808,11 +842,32 @@ func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, 
 	return nil
 }
 
-func hasPaymentSubscriptionAssignmentAudit(ctx context.Context, client *dbent.Client, orderID int64) (bool, error) {
+// paymentSubscriptionAssignedAction 返回某个分组的发放审计动作名。
+//
+// 多分组打包授予需要 per-group 幂等：payment_audit_logs 上有 (order_id, action)
+// 唯一索引，沿用单一的 "SUBSCRIPTION_ASSIGNED" 会让一笔订单只能记录一次发放，
+// 第二个分组既写不进审计、又会被"已发放"判定挡住而静默跳过。动作名带上分组后，
+// 每个分组各占一行，中途失败重试时已完成的分组被正确跳过、未完成的继续发放。
+//
+// 长度：前缀 22 字符 + int64 最多 19 位 = 41，未超过 action 列的 50 上限。
+func paymentSubscriptionAssignedAction(groupID int64) string {
+	return "SUBSCRIPTION_ASSIGNED:" + strconv.FormatInt(groupID, 10)
+}
+
+// hasPaymentSubscriptionAssignmentAudit 判断某订单的某个分组是否已发放。
+//
+// 除 per-group 动作外还认以下两种历史标记，避免升级后重复发放：
+//   - 裸 "SUBSCRIPTION_ASSIGNED"：本次改动之前的存量订单（必然是单分组）；
+//   - "SUBSCRIPTION_SUCCESS"：整单已完成，所有分组都已发放。
+func hasPaymentSubscriptionAssignmentAudit(ctx context.Context, client *dbent.Client, orderID, groupID int64) (bool, error) {
 	count, err := client.PaymentAuditLog.Query().
 		Where(
 			paymentauditlog.OrderIDEQ(strconv.FormatInt(orderID, 10)),
-			paymentauditlog.ActionIn("SUBSCRIPTION_ASSIGNED", "SUBSCRIPTION_SUCCESS"),
+			paymentauditlog.ActionIn(
+				paymentSubscriptionAssignedAction(groupID),
+				"SUBSCRIPTION_ASSIGNED",
+				"SUBSCRIPTION_SUCCESS",
+			),
 		).
 		Limit(1).
 		Count(ctx)

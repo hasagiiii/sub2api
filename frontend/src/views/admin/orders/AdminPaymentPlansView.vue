@@ -14,17 +14,22 @@
         <template #cell-name="{ value, row }">
           <span class="text-sm font-medium" :class="getPlanNameClass(row.group_id)">{{ value }}</span>
         </template>
-        <template #cell-group_id="{ value }">
-          <span v-if="isGroupMissing(value)" class="text-sm">
-            <span class="text-gray-400">#{{ value }}</span>
-            <span class="ml-1 badge badge-danger">{{ t('payment.admin.groupMissing') }}</span>
-          </span>
-          <GroupBadge
-            v-else-if="getGroup(value)"
-            :name="getGroup(value)!.name"
-            :platform="getGroup(value)!.platform"
-            :rate-multiplier="getGroup(value)!.rate_multiplier"
-          />
+        <template #cell-group_id="{ row }">
+          <!-- 打包授予：逐个展示套餐绑定的全部分组，首个为主分组。 -->
+          <div v-if="planGroupIds(row).length > 0" class="flex flex-wrap items-center gap-1">
+            <template v-for="gid in planGroupIds(row)" :key="gid">
+              <span v-if="isGroupMissing(gid)" class="text-sm">
+                <span class="text-gray-400">#{{ gid }}</span>
+                <span class="ml-1 badge badge-danger">{{ t('payment.admin.groupMissing') }}</span>
+              </span>
+              <GroupBadge
+                v-else-if="getGroup(gid)"
+                :name="getGroup(gid)!.name"
+                :platform="getGroup(gid)!.platform"
+                :rate-multiplier="getGroup(gid)!.rate_multiplier"
+              />
+            </template>
+          </div>
           <span v-else class="text-sm text-gray-400">-</span>
         </template>
         <template #cell-price="{ value, row }">
@@ -94,6 +99,7 @@ import GroupBadge from '@/components/common/GroupBadge.vue'
 import PlanEditDialog from './PlanEditDialog.vue'
 import { currencySymbol } from '@/components/payment/currency'
 import { platformTextClass } from '@/utils/platformColors'
+import { planGroupIds } from '@/utils/subscriptionPlan'
 
 const { t } = useI18n()
 const appStore = useAppStore()

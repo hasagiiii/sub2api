@@ -151,7 +151,10 @@ type RefundPlan struct {
 	DeductionType   string
 	BalanceToDeduct float64
 	SubDaysToDeduct int
-	SubscriptionID  int64
+	// SubscriptionIDs 是本次退款要回收的订阅（打包授予的套餐会命中多条）。
+	// 每条都扣减 SubDaysToDeduct 天：订单为整个套餐付了一份钱，各分组的有效期
+	// 也是各自独立按同样天数发放的，退款必须对称地全部收回。
+	SubscriptionIDs []int64
 }
 
 type RefundResult struct {

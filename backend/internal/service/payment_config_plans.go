@@ -26,12 +26,19 @@ func normalizePlanCurrency(raw string) (string, error) {
 }
 
 // validatePlanRequired checks that all required fields for a plan are provided.
-func validatePlanRequired(name string, groupID int64, price float64, validityDays int, validityUnit string, originalPrice *float64) error {
+func validatePlanRequired(name string, groupIDs []int64, price float64, validityDays int, validityUnit string, originalPrice *float64) error {
 	if strings.TrimSpace(name) == "" {
 		return infraerrors.BadRequest("PLAN_NAME_REQUIRED", "plan name is required")
 	}
-	if groupID <= 0 {
-		return infraerrors.BadRequest("PLAN_GROUP_REQUIRED", "group is required")
+	if len(groupIDs) == 0 {
+		return infraerrors.BadRequest("PLAN_GROUP_REQUIRED", "at least one group is required")
+	}
+	// 调用方通常已经过 normalizeGroupIDs，这里仍逐个校验：本函数是套餐必填项的
+	// 唯一收口，不能依赖调用方一定做了清洗。
+	for _, id := range groupIDs {
+		if id <= 0 {
+			return infraerrors.BadRequest("PLAN_GROUP_REQUIRED", "group id must be > 0")
+		}
 	}
 	if price <= 0 {
 		return infraerrors.BadRequest("PLAN_PRICE_INVALID", "price must be > 0")
@@ -53,8 +60,8 @@ func validatePlanPatch(req UpdatePlanRequest) error {
 	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
 		return infraerrors.BadRequest("PLAN_NAME_REQUIRED", "plan name is required")
 	}
-	if req.GroupID != nil && *req.GroupID <= 0 {
-		return infraerrors.BadRequest("PLAN_GROUP_REQUIRED", "group is required")
+	if groupIDs, touched := req.ResolvedGroupIDs(); touched && len(groupIDs) == 0 {
+		return infraerrors.BadRequest("PLAN_GROUP_REQUIRED", "at least one group is required")
 	}
 	if req.Price != nil && *req.Price <= 0 {
 		return infraerrors.BadRequest("PLAN_PRICE_INVALID", "price must be > 0")
@@ -67,6 +74,41 @@ func validatePlanPatch(req UpdatePlanRequest) error {
 	}
 	if req.OriginalPrice != nil && *req.OriginalPrice < 0 {
 		return infraerrors.BadRequest("PLAN_ORIGINAL_PRICE_INVALID", "original price must be >= 0")
+	}
+	return nil
+}
+
+// validatePlanGroupsExist 校验套餐绑定的每个分组都存在、启用且为订阅型。
+//
+// 多分组下这一步不可省：单分组时代下单前才校验（validateSubOrder），管理员配错
+// 只会在用户付款时暴露；打包授予里任何一个分组不合法都会让整笔订单履约失败，
+// 必须在保存套餐时就拦住。
+func (s *PaymentConfigService) validatePlanGroupsExist(ctx context.Context, groupIDs []int64) error {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+	groups, err := s.entClient.Group.Query().Where(group.IDIn(groupIDs...)).All(ctx)
+	if err != nil {
+		return fmt.Errorf("load plan groups: %w", err)
+	}
+	found := make(map[int64]*dbent.Group, len(groups))
+	for _, g := range groups {
+		found[int64(g.ID)] = g
+	}
+	for _, id := range groupIDs {
+		g, ok := found[id]
+		if !ok {
+			return infraerrors.BadRequest("PLAN_GROUP_NOT_FOUND",
+				fmt.Sprintf("group %d does not exist", id))
+		}
+		if g.Status != payment.EntityStatusActive {
+			return infraerrors.BadRequest("PLAN_GROUP_INACTIVE",
+				fmt.Sprintf("group %d is not active", id))
+		}
+		if g.SubscriptionType != SubscriptionTypeSubscription {
+			return infraerrors.BadRequest("PLAN_GROUP_TYPE_MISMATCH",
+				fmt.Sprintf("group %d is not a subscription type", id))
+		}
 	}
 	return nil
 }
@@ -89,13 +131,16 @@ type PlanGroupInfo struct {
 }
 
 // GetGroupInfoMap returns a map of group_id → PlanGroupInfo for the given plans.
+// 覆盖每个套餐绑定的所有分组，而非仅主分组。
 func (s *PaymentConfigService) GetGroupInfoMap(ctx context.Context, plans []*dbent.SubscriptionPlan) map[int64]PlanGroupInfo {
 	ids := make([]int64, 0, len(plans))
 	seen := make(map[int64]bool)
 	for _, p := range plans {
-		if !seen[p.GroupID] {
-			seen[p.GroupID] = true
-			ids = append(ids, p.GroupID)
+		for _, gid := range PlanGroupIDs(p) {
+			if !seen[gid] {
+				seen[gid] = true
+				ids = append(ids, gid)
+			}
 		}
 	}
 	if len(ids) == 0 {
@@ -133,7 +178,11 @@ func (s *PaymentConfigService) ListPlansForSale(ctx context.Context) ([]*dbent.S
 }
 
 func (s *PaymentConfigService) CreatePlan(ctx context.Context, req CreatePlanRequest) (*dbent.SubscriptionPlan, error) {
-	if err := validatePlanRequired(req.Name, req.GroupID, req.Price, req.ValidityDays, req.ValidityUnit, req.OriginalPrice); err != nil {
+	groupIDs := req.ResolvedGroupIDs()
+	if err := validatePlanRequired(req.Name, groupIDs, req.Price, req.ValidityDays, req.ValidityUnit, req.OriginalPrice); err != nil {
+		return nil, err
+	}
+	if err := s.validatePlanGroupsExist(ctx, groupIDs); err != nil {
 		return nil, err
 	}
 	currency, err := normalizePlanCurrency(req.Currency)
@@ -141,7 +190,9 @@ func (s *PaymentConfigService) CreatePlan(ctx context.Context, req CreatePlanReq
 		return nil, err
 	}
 	b := s.entClient.SubscriptionPlan.Create().
-		SetGroupID(req.GroupID).SetName(req.Name).SetDescription(req.Description).
+		// 数组与主分组同步写入：主分组恒等于数组首元素。
+		SetGroupIds(groupIDs).SetGroupID(groupIDs[0]).
+		SetName(req.Name).SetDescription(req.Description).
 		SetPrice(req.Price).SetCurrency(currency).SetValidityDays(req.ValidityDays).SetValidityUnit(req.ValidityUnit).
 		SetFeatures(req.Features).SetProductName(req.ProductName).
 		SetForSale(req.ForSale).SetSortOrder(req.SortOrder)
@@ -159,8 +210,11 @@ func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req Upd
 		return nil, err
 	}
 	u := s.entClient.SubscriptionPlan.UpdateOneID(id)
-	if req.GroupID != nil {
-		u.SetGroupID(*req.GroupID)
+	if groupIDs, touched := req.ResolvedGroupIDs(); touched {
+		if err := s.validatePlanGroupsExist(ctx, groupIDs); err != nil {
+			return nil, err
+		}
+		u.SetGroupIds(groupIDs).SetGroupID(groupIDs[0])
 	}
 	if req.Name != nil {
 		u.SetName(*req.Name)

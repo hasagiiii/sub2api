@@ -83,6 +83,19 @@
             </span>
           </div>
         </div>
+        <!--
+          打包授予多个分组时列出全部分组，让用户知道这一笔买到的权益范围。
+          单分组套餐不显示：上方的平台徽标与倍率已经代表了它。
+        -->
+        <div v-if="bundledGroupNames.length > 1" class="col-span-2 flex items-center justify-between gap-2">
+          <span class="shrink-0 text-gray-400 dark:text-dark-500">{{ t('payment.planCard.includedGroups') }}</span>
+          <div class="flex flex-wrap justify-end gap-1">
+            <span v-for="name in bundledGroupNames" :key="name"
+              class="rounded bg-gray-200/80 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-600 dark:text-gray-300">
+              {{ name }}
+            </span>
+          </div>
+        </div>
       </div>
 
       <!-- Features list (compact) -->
@@ -128,14 +141,17 @@ import {
   platformDiscountClass,
   platformLabel,
 } from '@/utils/platformColors'
+import { planCoversGroup } from '@/utils/subscriptionPlan'
 
 const props = defineProps<{ plan: SubscriptionPlan; activeSubscriptions?: UserSubscription[] }>()
 const emit = defineEmits<{ select: [plan: SubscriptionPlan] }>()
 const { t } = useI18n()
 
 const platform = computed(() => props.plan.group_platform || '')
+// 打包授予：套餐里任一分组已有活跃订阅即视为续费（购买会延长已有的、补发缺失的）。
+// 单分组时代这里直接比较 group_id，多分组下必须按"包含"判断。
 const isRenewal = computed(() =>
-  props.activeSubscriptions?.some(s => s.group_id === props.plan.group_id && s.status === 'active') ?? false
+  props.activeSubscriptions?.some(s => s.status === 'active' && planCoversGroup(props.plan, s.group_id)) ?? false
 )
 
 // Derived color classes from central config
@@ -163,6 +179,12 @@ const appStore = useAppStore()
 const planCurrencySymbol = computed(() => currencySymbol(props.plan.currency || 'USD'))
 
 const hasPeakRate = computed(() => groupHasPeakRate(props.plan))
+
+// 套餐打包授予的分组名。后端在 groups 里按 group_ids 顺序返回，缺名时退回 #id，
+// 保证多分组套餐不会因为某个分组缺少展示信息而少列一项。
+const bundledGroupNames = computed(() =>
+  (props.plan.groups ?? []).map((group) => group.name?.trim() || `#${group.group_id}`)
+)
 
 const peakRateDisplay = computed(() => {
   return formatPeakRateWindow(props.plan, serverTimezoneLabel(appStore.cachedPublicSettings?.server_utc_offset))

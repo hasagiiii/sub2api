@@ -58,22 +58,33 @@ type PlazaModelRowDTO struct {
 	DiscountPercent float64 `json:"discount_percent"`
 }
 
+// PlazaPlanGroupDTO is one group bundled by a subscription plan.
+type PlazaPlanGroupDTO struct {
+	GroupID        int64   `json:"group_id"`
+	GroupName      string  `json:"group_name"`
+	Platform       string  `json:"platform"`
+	RateMultiplier float64 `json:"rate_multiplier"`
+}
+
 // PlazaPlanCardDTO represents one subscription-plan card on the public plaza.
 type PlazaPlanCardDTO struct {
-	ID             int64    `json:"id"`
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	Price          float64  `json:"price"`
-	OriginalPrice  *float64 `json:"original_price,omitempty"`
-	ValidityDays   int      `json:"validity_days"`
-	ValidityUnit   string   `json:"validity_unit"`
-	Features       string   `json:"features,omitempty"`
-	GroupID        int64    `json:"group_id"`
-	GroupName      string   `json:"group_name"`
-	Platform       string   `json:"platform"`
-	RateMultiplier float64  `json:"rate_multiplier"`
-	Models         []string `json:"models"`
-	ModelsOverflow int      `json:"models_overflow"`
+	ID            int64    `json:"id"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	Price         float64  `json:"price"`
+	OriginalPrice *float64 `json:"original_price,omitempty"`
+	ValidityDays  int      `json:"validity_days"`
+	ValidityUnit  string   `json:"validity_unit"`
+	Features      string   `json:"features,omitempty"`
+	// GroupID and the three flat fields below describe the primary group and are
+	// kept for existing clients; Groups carries the full bundle.
+	GroupID        int64               `json:"group_id"`
+	GroupName      string              `json:"group_name"`
+	Platform       string              `json:"platform"`
+	RateMultiplier float64             `json:"rate_multiplier"`
+	Groups         []PlazaPlanGroupDTO `json:"groups"`
+	Models         []string            `json:"models"`
+	ModelsOverflow int                 `json:"models_overflow"`
 }
 
 // PlazaModelsResponseDTO is the response payload for GET /api/v1/plaza/models.

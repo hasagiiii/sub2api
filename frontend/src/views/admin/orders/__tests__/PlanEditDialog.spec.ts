@@ -3,6 +3,7 @@ import { defineComponent } from 'vue'
 import { mount } from '@vue/test-utils'
 
 import PlanEditDialog from '../PlanEditDialog.vue'
+import { adminPaymentAPI } from '@/api/admin/payment'
 import type { AdminGroup } from '@/types'
 
 vi.mock('vue-i18n', () => ({
@@ -188,9 +189,51 @@ describe('PlanEditDialog', () => {
       ],
     })
 
-    const options = wrapper.findAll('option').map(option => option.text())
+    // 分组是多选（复选框列表），不再是单选下拉。
+    const labels = wrapper.findAll('input[type="checkbox"]').map(box => box.element.parentElement?.textContent?.trim())
 
-    expect(options).toContain('OpenAI + Claude + Gemini + Grok — composite (1.2x)')
-    expect(options).not.toContain('Standard OpenAI — openai (1x)')
+    expect(labels).toContain('OpenAI + Claude + Gemini + Grok — composite (1.2x)')
+    expect(labels).not.toContain('Standard OpenAI — openai (1x)')
+  })
+
+  // 打包授予：勾选多个分组后 payload 必须带上完整的 group_ids，并把首个选中的
+  // 分组作为主分组写进 group_id（后端据此决定结账页/广场卡片的展示分组）。
+  it('submits every selected group and keeps the first as the primary group', async () => {
+    const createPlan = vi.mocked(adminPaymentAPI.createPlan)
+    createPlan.mockClear()
+    createPlan.mockResolvedValue({ data: {} } as never)
+
+    const wrapper = mountDialog({
+      groups: [
+        groupFixture({ id: 10, name: 'Alpha', platform: 'openai', subscription_type: 'subscription' }),
+        groupFixture({ id: 11, name: 'Beta', platform: 'gemini', subscription_type: 'subscription' }),
+      ],
+    })
+
+    const boxes = wrapper.findAll('input[type="checkbox"]')
+    await boxes[1].setValue(true)
+    await boxes[0].setValue(true)
+    await wrapper.find('input[type="number"]').setValue('9.99')
+    await wrapper.find('form').trigger('submit')
+
+    expect(createPlan).toHaveBeenCalledTimes(1)
+    const payload = createPlan.mock.calls[0][0] as { group_ids: number[]; group_id: number }
+    // 顺序即勾选顺序，首个是主分组。
+    expect(payload.group_ids).toEqual([11, 10])
+    expect(payload.group_id).toBe(11)
+  })
+
+  it('refuses to save when no group is selected', async () => {
+    const createPlan = vi.mocked(adminPaymentAPI.createPlan)
+    createPlan.mockClear()
+
+    const wrapper = mountDialog({
+      groups: [groupFixture({ id: 10, name: 'Alpha', platform: 'openai', subscription_type: 'subscription' })],
+    })
+
+    await wrapper.find('input[type="number"]').setValue('9.99')
+    await wrapper.find('form').trigger('submit')
+
+    expect(createPlan).not.toHaveBeenCalled()
   })
 })

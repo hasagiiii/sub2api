@@ -1,35 +1,58 @@
 <template>
   <BaseDialog :show="show" :title="plan ? t('payment.admin.editPlan') : t('payment.admin.createPlan')" width="wide" @close="emit('close')">
     <form id="plan-form" @submit.prevent="handleSavePlan" class="space-y-4">
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="input-label">{{ t('payment.admin.planName') }} <span class="text-red-500">*</span></label>
-          <input v-model="planForm.name" type="text" class="input" required />
-        </div>
-        <div>
-          <label class="input-label">{{ t('payment.admin.group') }} <span class="text-red-500">*</span></label>
-          <Select v-model="planForm.group_id" :options="groupOptions" :placeholder="t('payment.admin.selectGroup')" class="w-full">
-            <template #selected="{ option }">
-              <span v-if="option?.platform" :class="platformTextClass(String(option.platform))">{{ option.label }}</span>
-              <span v-else>{{ option?.label || t('payment.admin.selectGroup') }}</span>
-            </template>
-            <template #option="{ option, selected }">
-              <span class="flex-1 truncate text-left" :class="option.platform ? platformTextClass(String(option.platform)) : ''">{{ option.label }}</span>
-              <Icon v-if="selected" name="check" size="sm" class="text-primary-500" :stroke-width="2" />
-            </template>
-          </Select>
-        </div>
+      <div>
+        <label class="input-label">{{ t('payment.admin.planName') }} <span class="text-red-500">*</span></label>
+        <input v-model="planForm.name" type="text" class="input" required />
       </div>
 
-      <!-- Group Info Preview -->
-      <div v-if="selectedGroupInfo" class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800">
-        <div class="mb-2 flex items-center gap-2">
-          <GroupBadge :name="selectedGroupInfo.name" :platform="selectedGroupInfo.platform" :rate-multiplier="selectedGroupInfo.rate_multiplier" />
+      <!-- 分组多选：套餐打包授予所选的全部分组，购买后每个分组各发放一条订阅。 -->
+      <div>
+        <label class="input-label">
+          {{ t('payment.admin.groups') }} <span class="text-red-500">*</span>
+          <span class="font-normal text-gray-400">{{ t('common.selectedCount', { count: planForm.group_ids.length }) }}</span>
+        </label>
+        <div class="grid max-h-40 grid-cols-2 gap-1 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-2 dark:border-dark-600 dark:bg-dark-800">
+          <label
+            v-for="group in subscriptionGroups"
+            :key="group.id"
+            class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-white dark:hover:bg-dark-700"
+          >
+            <input
+              type="checkbox"
+              :checked="planForm.group_ids.includes(group.id)"
+              class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+              @change="toggleGroup(group.id, ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="min-w-0 flex-1 truncate text-left text-sm" :class="platformTextClass(group.platform)">
+              {{ group.name }} — {{ group.platform }} ({{ group.rate_multiplier }}x)
+            </span>
+          </label>
+          <div v-if="subscriptionGroups.length === 0" class="col-span-2 py-2 text-center text-sm text-gray-500 dark:text-gray-400">
+            {{ t('common.noGroupsAvailable') }}
+          </div>
         </div>
-        <div class="grid grid-cols-2 gap-2 text-xs">
-          <div><span class="text-gray-500">{{ t('payment.admin.dailyLimit') }}:</span> <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{ selectedGroupInfo.daily_limit_usd != null ? '$' + selectedGroupInfo.daily_limit_usd : t('payment.admin.unlimited') }}</span></div>
-          <div><span class="text-gray-500">{{ t('payment.admin.weeklyLimit') }}:</span> <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{ selectedGroupInfo.weekly_limit_usd != null ? '$' + selectedGroupInfo.weekly_limit_usd : t('payment.admin.unlimited') }}</span></div>
-          <div><span class="text-gray-500">{{ t('payment.admin.monthlyLimit') }}:</span> <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{ selectedGroupInfo.monthly_limit_usd != null ? '$' + selectedGroupInfo.monthly_limit_usd : t('payment.admin.unlimited') }}</span></div>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.admin.groupsHint') }}</p>
+      </div>
+
+      <!-- Group Info Preview：逐个展示已选分组，首个为主分组 -->
+      <div v-if="selectedGroupInfos.length > 0" class="space-y-2">
+        <div
+          v-for="(info, index) in selectedGroupInfos"
+          :key="info.id"
+          class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800"
+        >
+          <div class="mb-2 flex items-center gap-2">
+            <GroupBadge :name="info.name" :platform="info.platform" :rate-multiplier="info.rate_multiplier" />
+            <span v-if="index === 0" class="rounded-full bg-primary-100 px-2 py-0.5 text-xs text-primary-700 dark:bg-primary-950/40 dark:text-primary-300">
+              {{ t('payment.admin.primaryGroup') }}
+            </span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div><span class="text-gray-500">{{ t('payment.admin.dailyLimit') }}:</span> <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{ info.daily_limit_usd != null ? '$' + info.daily_limit_usd : t('payment.admin.unlimited') }}</span></div>
+            <div><span class="text-gray-500">{{ t('payment.admin.weeklyLimit') }}:</span> <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{ info.weekly_limit_usd != null ? '$' + info.weekly_limit_usd : t('payment.admin.unlimited') }}</span></div>
+            <div><span class="text-gray-500">{{ t('payment.admin.monthlyLimit') }}:</span> <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">{{ info.monthly_limit_usd != null ? '$' + info.monthly_limit_usd : t('payment.admin.unlimited') }}</span></div>
+          </div>
         </div>
       </div>
 
@@ -102,7 +125,6 @@ import type { SubscriptionPlan } from '@/types/payment'
 import type { AdminGroup } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
-import Icon from '@/components/icons/Icon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import { platformTextClass } from '@/utils/platformColors'
 
@@ -122,7 +144,9 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const saving = ref(false)
-const planForm = reactive({ name: '', group_id: null as number | null, description: '', price: 0, original_price: 0, currency: '', validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true })
+// group_ids 按勾选顺序保存：首个是主分组，后端会把它写回单值 group_id，
+// 决定结账页与广场卡片展示哪个分组的平台与倍率。
+const planForm = reactive({ name: '', group_ids: [] as number[], description: '', price: 0, original_price: 0, currency: '', validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true })
 const planFeaturesText = ref('')
 
 const validityUnitOptions = computed(() => [
@@ -131,20 +155,23 @@ const validityUnitOptions = computed(() => [
   { value: 'months', label: t('payment.admin.months') },
 ])
 
-const groupOptions = computed(() =>
-  props.groups
-    .filter(g => g.subscription_type === 'subscription')
-    .map(g => ({
-      value: g.id,
-      label: `${g.name} — ${g.platform} (${g.rate_multiplier}x)`,
-      platform: g.platform,
-    })),
+// 只有订阅型分组能绑定到套餐：标准（余额）分组按用量扣费，没有订阅期概念。
+const subscriptionGroups = computed(() => props.groups.filter(g => g.subscription_type === 'subscription'))
+
+// 按勾选顺序（而非分组列表顺序）展示，让"首个即主分组"在界面上可见。
+const selectedGroupInfos = computed(() =>
+  planForm.group_ids
+    .map(id => props.groups.find(g => g.id === id))
+    .filter((g): g is AdminGroup => g != null),
 )
 
-const selectedGroupInfo = computed(() => {
-  if (!planForm.group_id) return null
-  return props.groups.find(g => g.id === planForm.group_id) || null
-})
+function toggleGroup(groupId: number, checked: boolean) {
+  if (checked) {
+    if (!planForm.group_ids.includes(groupId)) planForm.group_ids.push(groupId)
+    return
+  }
+  planForm.group_ids = planForm.group_ids.filter(id => id !== groupId)
+}
 
 function roundCnyAmount(value: number): number {
   return Math.round(value * 100) / 100
@@ -175,10 +202,12 @@ const subscriptionCnyPreview = computed(() => {
 watch(() => props.show, (visible) => {
   if (!visible) return
   if (props.plan) {
-    Object.assign(planForm, { name: props.plan.name, group_id: props.plan.group_id, description: props.plan.description, price: props.plan.price, original_price: props.plan.original_price || 0, currency: props.plan.currency || '', validity_days: props.plan.validity_days, validity_unit: props.plan.validity_unit || 'days', sort_order: props.plan.sort_order || 0, for_sale: props.plan.for_sale })
+    // 兼容尚未回填 group_ids 的存量套餐：回退到单值 group_id。
+    const groupIDs = props.plan.group_ids?.length ? [...props.plan.group_ids] : (props.plan.group_id ? [props.plan.group_id] : [])
+    Object.assign(planForm, { name: props.plan.name, group_ids: groupIDs, description: props.plan.description, price: props.plan.price, original_price: props.plan.original_price || 0, currency: props.plan.currency || '', validity_days: props.plan.validity_days, validity_unit: props.plan.validity_unit || 'days', sort_order: props.plan.sort_order || 0, for_sale: props.plan.for_sale })
     planFeaturesText.value = (props.plan.features || []).join('\n')
   } else {
-    Object.assign(planForm, { name: '', group_id: null, description: '', price: 0, original_price: 0, currency: '', validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true })
+    Object.assign(planForm, { name: '', group_ids: [], description: '', price: 0, original_price: 0, currency: '', validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true })
     planFeaturesText.value = ''
   }
 })
@@ -188,7 +217,9 @@ function buildPlanPayload() {
   const features = planFeaturesText.value.split('\n').map(f => f.trim()).filter(Boolean).join('\n')
   return {
     name: planForm.name,
-    group_id: planForm.group_id,
+    // group_ids 是权威字段；同时带上 group_id（首个）让旧版后端也能正确落库。
+    group_ids: [...planForm.group_ids],
+    group_id: planForm.group_ids[0] ?? null,
     description: planForm.description,
     price: planForm.price,
     original_price: planForm.original_price || 0,
@@ -202,7 +233,7 @@ function buildPlanPayload() {
 }
 
 async function handleSavePlan() {
-  if (!planForm.group_id) {
+  if (planForm.group_ids.length === 0) {
     appStore.showError(t('payment.admin.groupRequired'))
     return
   }

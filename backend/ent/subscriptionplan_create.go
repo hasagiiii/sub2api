@@ -28,6 +28,12 @@ func (_c *SubscriptionPlanCreate) SetGroupID(v int64) *SubscriptionPlanCreate {
 	return _c
 }
 
+// SetGroupIds sets the "group_ids" field.
+func (_c *SubscriptionPlanCreate) SetGroupIds(v []int64) *SubscriptionPlanCreate {
+	_c.mutation.SetGroupIds(v)
+	return _c
+}
+
 // SetName sets the "name" field.
 func (_c *SubscriptionPlanCreate) SetName(v string) *SubscriptionPlanCreate {
 	_c.mutation.SetName(v)
@@ -243,6 +249,10 @@ func (_c *SubscriptionPlanCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *SubscriptionPlanCreate) defaults() {
+	if _, ok := _c.mutation.GroupIds(); !ok {
+		v := subscriptionplan.DefaultGroupIds
+		_c.mutation.SetGroupIds(v)
+	}
 	if _, ok := _c.mutation.Description(); !ok {
 		v := subscriptionplan.DefaultDescription
 		_c.mutation.SetDescription(v)
@@ -293,6 +303,9 @@ func (_c *SubscriptionPlanCreate) defaults() {
 func (_c *SubscriptionPlanCreate) check() error {
 	if _, ok := _c.mutation.GroupID(); !ok {
 		return &ValidationError{Name: "group_id", err: errors.New(`ent: missing required field "SubscriptionPlan.group_id"`)}
+	}
+	if _, ok := _c.mutation.GroupIds(); !ok {
+		return &ValidationError{Name: "group_ids", err: errors.New(`ent: missing required field "SubscriptionPlan.group_ids"`)}
 	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "SubscriptionPlan.name"`)}
@@ -383,6 +396,10 @@ func (_c *SubscriptionPlanCreate) createSpec() (*SubscriptionPlan, *sqlgraph.Cre
 	if value, ok := _c.mutation.GroupID(); ok {
 		_spec.SetField(subscriptionplan.FieldGroupID, field.TypeInt64, value)
 		_node.GroupID = value
+	}
+	if value, ok := _c.mutation.GroupIds(); ok {
+		_spec.SetField(subscriptionplan.FieldGroupIds, field.TypeJSON, value)
+		_node.GroupIds = value
 	}
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(subscriptionplan.FieldName, field.TypeString, value)
@@ -507,6 +524,18 @@ func (u *SubscriptionPlanUpsert) UpdateGroupID() *SubscriptionPlanUpsert {
 // AddGroupID adds v to the "group_id" field.
 func (u *SubscriptionPlanUpsert) AddGroupID(v int64) *SubscriptionPlanUpsert {
 	u.Add(subscriptionplan.FieldGroupID, v)
+	return u
+}
+
+// SetGroupIds sets the "group_ids" field.
+func (u *SubscriptionPlanUpsert) SetGroupIds(v []int64) *SubscriptionPlanUpsert {
+	u.Set(subscriptionplan.FieldGroupIds, v)
+	return u
+}
+
+// UpdateGroupIds sets the "group_ids" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsert) UpdateGroupIds() *SubscriptionPlanUpsert {
+	u.SetExcluded(subscriptionplan.FieldGroupIds)
 	return u
 }
 
@@ -765,6 +794,20 @@ func (u *SubscriptionPlanUpsertOne) AddGroupID(v int64) *SubscriptionPlanUpsertO
 func (u *SubscriptionPlanUpsertOne) UpdateGroupID() *SubscriptionPlanUpsertOne {
 	return u.Update(func(s *SubscriptionPlanUpsert) {
 		s.UpdateGroupID()
+	})
+}
+
+// SetGroupIds sets the "group_ids" field.
+func (u *SubscriptionPlanUpsertOne) SetGroupIds(v []int64) *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetGroupIds(v)
+	})
+}
+
+// UpdateGroupIds sets the "group_ids" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertOne) UpdateGroupIds() *SubscriptionPlanUpsertOne {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateGroupIds()
 	})
 }
 
@@ -1221,6 +1264,20 @@ func (u *SubscriptionPlanUpsertBulk) AddGroupID(v int64) *SubscriptionPlanUpsert
 func (u *SubscriptionPlanUpsertBulk) UpdateGroupID() *SubscriptionPlanUpsertBulk {
 	return u.Update(func(s *SubscriptionPlanUpsert) {
 		s.UpdateGroupID()
+	})
+}
+
+// SetGroupIds sets the "group_ids" field.
+func (u *SubscriptionPlanUpsertBulk) SetGroupIds(v []int64) *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.SetGroupIds(v)
+	})
+}
+
+// UpdateGroupIds sets the "group_ids" field to the value that was provided on create.
+func (u *SubscriptionPlanUpsertBulk) UpdateGroupIds() *SubscriptionPlanUpsertBulk {
+	return u.Update(func(s *SubscriptionPlanUpsert) {
+		s.UpdateGroupIds()
 	})
 }
 

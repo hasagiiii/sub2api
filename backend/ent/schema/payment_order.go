@@ -99,6 +99,12 @@ func (PaymentOrder) Fields() []ent.Field {
 		field.Int64("subscription_group_id").
 			Optional().
 			Nillable(),
+		// 下单时把套餐的全部分组快照进订单：套餐后续被改动或删除都不影响已下单的
+		// 履约范围。subscription_group_id 同步保留首个分组，供邮件/退款等既有单值
+		// 读取方与存量订单使用；读取方一律经 OrderSubscriptionGroupIDs 兜底。
+		field.JSON("subscription_group_ids", []int64{}).
+			Default([]int64{}).
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}),
 		field.Int("subscription_days").
 			Optional().
 			Nillable(),

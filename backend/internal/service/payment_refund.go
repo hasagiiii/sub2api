@@ -276,12 +276,21 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 func (s *PaymentService) prepDeduct(ctx context.Context, o *dbent.PaymentOrder, p *RefundPlan, force bool) (*RefundResult, error) {
 	if o.OrderType == payment.OrderTypeSubscription {
 		p.DeductionType = payment.DeductionTypeSubscription
-		if o.SubscriptionGroupID != nil && o.SubscriptionDays != nil {
+		groupIDs := OrderSubscriptionGroupIDs(o)
+		if len(groupIDs) > 0 && o.SubscriptionDays != nil {
 			p.SubDaysToDeduct = *o.SubscriptionDays
-			sub, err := s.subscriptionSvc.GetActiveSubscription(ctx, o.UserID, *o.SubscriptionGroupID)
-			if err == nil && sub != nil {
-				p.SubscriptionID = sub.ID
-			} else if !force {
+			// 打包授予：逐个分组找出对应订阅。任一分组找不到活跃订阅就要求 force，
+			// 否则会出现"退了钱但部分分组的权益没收回"。
+			missing := false
+			for _, gid := range groupIDs {
+				sub, err := s.subscriptionSvc.GetActiveSubscription(ctx, o.UserID, gid)
+				if err == nil && sub != nil {
+					p.SubscriptionIDs = append(p.SubscriptionIDs, sub.ID)
+					continue
+				}
+				missing = true
+			}
+			if missing && !force {
 				return &RefundResult{Success: false, Warning: "cannot find active subscription for deduction, use force", RequireForce: true}, nil
 			}
 		}
@@ -351,21 +360,23 @@ func (s *PaymentService) ExecuteRefund(ctx context.Context, p *RefundPlan) (*Ref
 			p.BalanceToDeduct = 0
 		}
 	}
-	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
+	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && len(p.SubscriptionIDs) > 0 {
 		if !s.hasAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED") {
-			_, err := s.subscriptionSvc.ExtendSubscription(ctx, p.SubscriptionID, -p.SubDaysToDeduct)
-			if err != nil {
-				if errors.Is(err, ErrAdjustWouldExpire) {
-					// Deduction would expire the subscription — revoke it entirely
-					slog.Info("subscription deduction would expire, revoking", "orderID", p.OrderID, "subID", p.SubscriptionID, "days", p.SubDaysToDeduct)
-					if revokeErr := s.subscriptionSvc.RevokeSubscription(ctx, p.SubscriptionID); revokeErr != nil {
+			for _, subID := range p.SubscriptionIDs {
+				_, err := s.subscriptionSvc.ExtendSubscription(ctx, subID, -p.SubDaysToDeduct)
+				if err != nil {
+					if errors.Is(err, ErrAdjustWouldExpire) {
+						// Deduction would expire the subscription — revoke it entirely
+						slog.Info("subscription deduction would expire, revoking", "orderID", p.OrderID, "subID", subID, "days", p.SubDaysToDeduct)
+						if revokeErr := s.subscriptionSvc.RevokeSubscription(ctx, subID); revokeErr != nil {
+							s.restoreStatus(ctx, p)
+							return nil, fmt.Errorf("revoke subscription: %w", revokeErr)
+						}
+					} else {
+						// Other errors (DB failure, not found) — abort refund
 						s.restoreStatus(ctx, p)
-						return nil, fmt.Errorf("revoke subscription: %w", revokeErr)
+						return nil, fmt.Errorf("deduct subscription days: %w", err)
 					}
-				} else {
-					// Other errors (DB failure, not found) — abort refund
-					s.restoreStatus(ctx, p)
-					return nil, fmt.Errorf("deduct subscription days: %w", err)
 				}
 			}
 		} else {
@@ -577,14 +588,16 @@ func (s *PaymentService) applyRefundFinalDeduction(ctx context.Context, p *Refun
 		}
 		p.BalanceToDeduct = deducted
 	}
-	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
-		if _, err := s.subscriptionSvc.ExtendSubscription(ctx, p.SubscriptionID, -p.SubDaysToDeduct); err != nil {
-			if errors.Is(err, ErrAdjustWouldExpire) {
-				if revokeErr := s.subscriptionSvc.RevokeSubscription(ctx, p.SubscriptionID); revokeErr != nil {
-					return fmt.Errorf("revoke subscription: %w", revokeErr)
+	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && len(p.SubscriptionIDs) > 0 {
+		for _, subID := range p.SubscriptionIDs {
+			if _, err := s.subscriptionSvc.ExtendSubscription(ctx, subID, -p.SubDaysToDeduct); err != nil {
+				if errors.Is(err, ErrAdjustWouldExpire) {
+					if revokeErr := s.subscriptionSvc.RevokeSubscription(ctx, subID); revokeErr != nil {
+						return fmt.Errorf("revoke subscription: %w", revokeErr)
+					}
+				} else {
+					return fmt.Errorf("deduct subscription days: %w", err)
 				}
-			} else {
-				return fmt.Errorf("deduct subscription days: %w", err)
 			}
 		}
 	}
@@ -738,10 +751,18 @@ func (s *PaymentService) RollbackRefund(ctx context.Context, p *RefundPlan, gErr
 			return false
 		}
 	}
-	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && p.SubscriptionID > 0 {
-		if _, err := s.subscriptionSvc.ExtendSubscription(ctx, p.SubscriptionID, p.SubDaysToDeduct); err != nil {
-			slog.Error("[CRITICAL] subscription rollback failed", "orderID", p.OrderID, "subID", p.SubscriptionID, "days", p.SubDaysToDeduct, "error", err)
-			s.writeAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED", "admin", map[string]any{"gatewayError": psErrMsg(gErr), "rollbackError": psErrMsg(err), "subDaysDeducted": p.SubDaysToDeduct})
+	if p.DeductionType == payment.DeductionTypeSubscription && p.SubDaysToDeduct > 0 && len(p.SubscriptionIDs) > 0 {
+		// 逐条回滚。任一条失败即整体判定回滚失败并记审计：后续重试会读到
+		// REFUND_ROLLBACK_FAILED 从而跳过再次扣减，避免重复扣。
+		rolledBack := true
+		for _, subID := range p.SubscriptionIDs {
+			if _, err := s.subscriptionSvc.ExtendSubscription(ctx, subID, p.SubDaysToDeduct); err != nil {
+				slog.Error("[CRITICAL] subscription rollback failed", "orderID", p.OrderID, "subID", subID, "days", p.SubDaysToDeduct, "error", err)
+				s.writeAuditLog(ctx, p.OrderID, "REFUND_ROLLBACK_FAILED", "admin", map[string]any{"gatewayError": psErrMsg(gErr), "rollbackError": psErrMsg(err), "subDaysDeducted": p.SubDaysToDeduct, "subscriptionID": subID})
+				rolledBack = false
+			}
+		}
+		if !rolledBack {
 			return false
 		}
 	}

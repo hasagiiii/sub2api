@@ -51,33 +51,39 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 	}
 	// Enrich plans with group platform for frontend color coding
 	type planWithPlatform struct {
-		ID                 int64    `json:"id"`
-		GroupID            int64    `json:"group_id"`
-		GroupPlatform      string   `json:"group_platform"`
-		GroupName          string   `json:"group_name"`
-		RateMultiplier     float64  `json:"rate_multiplier"`
-		PeakRateEnabled    bool     `json:"peak_rate_enabled"`
-		PeakStart          string   `json:"peak_start"`
-		PeakEnd            string   `json:"peak_end"`
-		PeakRateMultiplier float64  `json:"peak_rate_multiplier"`
-		Name               string   `json:"name"`
-		Description        string   `json:"description"`
-		Price              float64  `json:"price"`
-		OriginalPrice      *float64 `json:"original_price,omitempty"`
-		Currency           string   `json:"currency,omitempty"`
-		ValidityDays       int      `json:"validity_days"`
-		ValidityUnit       string   `json:"validity_unit"`
-		Features           string   `json:"features"`
-		ProductName        string   `json:"product_name"`
-		ForSale            bool     `json:"for_sale"`
-		SortOrder          int      `json:"sort_order"`
+		ID int64 `json:"id"`
+		// GroupID 及其后的扁平字段是"主分组"；完整列表见 GroupIDs / Groups。
+		GroupID            int64              `json:"group_id"`
+		GroupIDs           []int64            `json:"group_ids"`
+		Groups             []planGroupSummary `json:"groups"`
+		GroupPlatform      string             `json:"group_platform"`
+		GroupName          string             `json:"group_name"`
+		RateMultiplier     float64            `json:"rate_multiplier"`
+		PeakRateEnabled    bool               `json:"peak_rate_enabled"`
+		PeakStart          string             `json:"peak_start"`
+		PeakEnd            string             `json:"peak_end"`
+		PeakRateMultiplier float64            `json:"peak_rate_multiplier"`
+		Name               string             `json:"name"`
+		Description        string             `json:"description"`
+		Price              float64            `json:"price"`
+		OriginalPrice      *float64           `json:"original_price,omitempty"`
+		Currency           string             `json:"currency,omitempty"`
+		ValidityDays       int                `json:"validity_days"`
+		ValidityUnit       string             `json:"validity_unit"`
+		Features           string             `json:"features"`
+		ProductName        string             `json:"product_name"`
+		ForSale            bool               `json:"for_sale"`
+		SortOrder          int                `json:"sort_order"`
 	}
 	groupInfo := h.configService.GetGroupInfoMap(c.Request.Context(), plans)
 	result := make([]planWithPlatform, 0, len(plans))
 	for _, p := range plans {
-		gi := groupInfo[p.GroupID]
+		groupIDs := service.PlanGroupIDs(p)
+		primaryID := service.PlanPrimaryGroupID(p)
+		gi := groupInfo[primaryID]
 		result = append(result, planWithPlatform{
-			ID: int64(p.ID), GroupID: p.GroupID,
+			ID: int64(p.ID), GroupID: primaryID,
+			GroupIDs: groupIDs, Groups: planGroupSummaries(groupIDs, groupInfo),
 			GroupPlatform: gi.Platform, GroupName: gi.Name,
 			RateMultiplier: gi.RateMultiplier, PeakRateEnabled: gi.PeakRateEnabled,
 			PeakStart: gi.PeakStart, PeakEnd: gi.PeakEnd, PeakRateMultiplier: gi.PeakRateMultiplier,
@@ -123,9 +129,12 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 	groupInfo := h.configService.GetGroupInfoMap(ctx, plans)
 	planList := make([]checkoutPlan, 0, len(plans))
 	for _, p := range plans {
-		gi := groupInfo[p.GroupID]
+		groupIDs := service.PlanGroupIDs(p)
+		primaryID := service.PlanPrimaryGroupID(p)
+		gi := groupInfo[primaryID]
 		planList = append(planList, checkoutPlan{
-			ID: int64(p.ID), GroupID: p.GroupID,
+			ID: int64(p.ID), GroupID: primaryID,
+			GroupIDs: groupIDs, Groups: planGroupSummaries(groupIDs, groupInfo),
 			GroupPlatform: gi.Platform, GroupName: gi.Name,
 			RateMultiplier:  gi.RateMultiplier,
 			PeakRateEnabled: gi.PeakRateEnabled, PeakStart: gi.PeakStart,
@@ -217,11 +226,11 @@ func checkoutPromoFromConfig(p *service.RechargePromo) *checkoutRechargePromo {
 	}
 }
 
-type checkoutPlan struct {
-	ID                 int64    `json:"id"`
+// planGroupSummary 描述套餐绑定的单个分组，供前端逐分组展示徽标与限额。
+type planGroupSummary struct {
 	GroupID            int64    `json:"group_id"`
-	GroupPlatform      string   `json:"group_platform"`
-	GroupName          string   `json:"group_name"`
+	Platform           string   `json:"platform"`
+	Name               string   `json:"name"`
 	RateMultiplier     float64  `json:"rate_multiplier"`
 	PeakRateEnabled    bool     `json:"peak_rate_enabled"`
 	PeakStart          string   `json:"peak_start"`
@@ -231,15 +240,57 @@ type checkoutPlan struct {
 	WeeklyLimitUSD     *float64 `json:"weekly_limit_usd"`
 	MonthlyLimitUSD    *float64 `json:"monthly_limit_usd"`
 	ModelScopes        []string `json:"supported_model_scopes"`
-	Name               string   `json:"name"`
-	Description        string   `json:"description"`
-	Price              float64  `json:"price"`
-	OriginalPrice      *float64 `json:"original_price,omitempty"`
-	Currency           string   `json:"currency,omitempty"`
-	ValidityDays       int      `json:"validity_days"`
-	ValidityUnit       string   `json:"validity_unit"`
-	Features           []string `json:"features"`
-	ProductName        string   `json:"product_name"`
+}
+
+// planGroupSummaries 按套餐绑定顺序展开分组信息。
+func planGroupSummaries(groupIDs []int64, groupInfo map[int64]service.PlanGroupInfo) []planGroupSummary {
+	out := make([]planGroupSummary, 0, len(groupIDs))
+	for _, gid := range groupIDs {
+		info := groupInfo[gid]
+		out = append(out, planGroupSummary{
+			GroupID:            gid,
+			Platform:           info.Platform,
+			Name:               info.Name,
+			RateMultiplier:     info.RateMultiplier,
+			PeakRateEnabled:    info.PeakRateEnabled,
+			PeakStart:          info.PeakStart,
+			PeakEnd:            info.PeakEnd,
+			PeakRateMultiplier: info.PeakRateMultiplier,
+			DailyLimitUSD:      info.DailyLimitUSD,
+			WeeklyLimitUSD:     info.WeeklyLimitUSD,
+			MonthlyLimitUSD:    info.MonthlyLimitUSD,
+			ModelScopes:        info.ModelScopes,
+		})
+	}
+	return out
+}
+
+type checkoutPlan struct {
+	ID int64 `json:"id"`
+	// GroupID 及其后的扁平字段是"主分组"，保留给既有前端；完整列表见 GroupIDs / Groups。
+	GroupID            int64              `json:"group_id"`
+	GroupIDs           []int64            `json:"group_ids"`
+	Groups             []planGroupSummary `json:"groups"`
+	GroupPlatform      string             `json:"group_platform"`
+	GroupName          string             `json:"group_name"`
+	RateMultiplier     float64            `json:"rate_multiplier"`
+	PeakRateEnabled    bool               `json:"peak_rate_enabled"`
+	PeakStart          string             `json:"peak_start"`
+	PeakEnd            string             `json:"peak_end"`
+	PeakRateMultiplier float64            `json:"peak_rate_multiplier"`
+	DailyLimitUSD      *float64           `json:"daily_limit_usd"`
+	WeeklyLimitUSD     *float64           `json:"weekly_limit_usd"`
+	MonthlyLimitUSD    *float64           `json:"monthly_limit_usd"`
+	ModelScopes        []string           `json:"supported_model_scopes"`
+	Name               string             `json:"name"`
+	Description        string             `json:"description"`
+	Price              float64            `json:"price"`
+	OriginalPrice      *float64           `json:"original_price,omitempty"`
+	Currency           string             `json:"currency,omitempty"`
+	ValidityDays       int                `json:"validity_days"`
+	ValidityUnit       string             `json:"validity_unit"`
+	Features           []string           `json:"features"`
+	ProductName        string             `json:"product_name"`
 }
 
 // parseFeatures splits a newline-separated features string into a string slice.

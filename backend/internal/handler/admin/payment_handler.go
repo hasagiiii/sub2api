@@ -287,29 +287,45 @@ func (h *PaymentHandler) ListPlans(c *gin.Context) {
 	response.Success(c, adminSubscriptionPlansForResponse(plans, groupInfo))
 }
 
+// AdminPlanGroupResult 是套餐绑定的单个分组的展示信息。
+type AdminPlanGroupResult struct {
+	GroupID         int64    `json:"group_id"`
+	Platform        string   `json:"platform,omitempty"`
+	Name            string   `json:"name,omitempty"`
+	RateMultiplier  float64  `json:"rate_multiplier,omitempty"`
+	DailyLimitUSD   *float64 `json:"daily_limit_usd,omitempty"`
+	WeeklyLimitUSD  *float64 `json:"weekly_limit_usd,omitempty"`
+	MonthlyLimitUSD *float64 `json:"monthly_limit_usd,omitempty"`
+	ModelScopes     []string `json:"supported_model_scopes,omitempty"`
+}
+
 type AdminSubscriptionPlanResult struct {
-	ID              int64     `json:"id"`
-	GroupID         int64     `json:"group_id"`
-	GroupPlatform   string    `json:"group_platform,omitempty"`
-	GroupName       string    `json:"group_name,omitempty"`
-	RateMultiplier  float64   `json:"rate_multiplier,omitempty"`
-	DailyLimitUSD   *float64  `json:"daily_limit_usd,omitempty"`
-	WeeklyLimitUSD  *float64  `json:"weekly_limit_usd,omitempty"`
-	MonthlyLimitUSD *float64  `json:"monthly_limit_usd,omitempty"`
-	ModelScopes     []string  `json:"supported_model_scopes,omitempty"`
-	Name            string    `json:"name"`
-	Description     string    `json:"description"`
-	Price           float64   `json:"price"`
-	OriginalPrice   *float64  `json:"original_price,omitempty"`
-	Currency        string    `json:"currency,omitempty"`
-	ValidityDays    int       `json:"validity_days"`
-	ValidityUnit    string    `json:"validity_unit"`
-	Features        string    `json:"features"`
-	ProductName     string    `json:"product_name"`
-	ForSale         bool      `json:"for_sale"`
-	SortOrder       int       `json:"sort_order"`
-	CreatedAt       time.Time `json:"created_at,omitempty"`
-	UpdatedAt       time.Time `json:"updated_at,omitempty"`
+	ID int64 `json:"id"`
+	// GroupID 与其后的扁平分组字段描述"主分组"（group_ids 首元素），保留给既有
+	// 前端列与旧客户端；完整的分组列表在 GroupIDs / Groups 中。
+	GroupID         int64                  `json:"group_id"`
+	GroupIDs        []int64                `json:"group_ids"`
+	Groups          []AdminPlanGroupResult `json:"groups,omitempty"`
+	GroupPlatform   string                 `json:"group_platform,omitempty"`
+	GroupName       string                 `json:"group_name,omitempty"`
+	RateMultiplier  float64                `json:"rate_multiplier,omitempty"`
+	DailyLimitUSD   *float64               `json:"daily_limit_usd,omitempty"`
+	WeeklyLimitUSD  *float64               `json:"weekly_limit_usd,omitempty"`
+	MonthlyLimitUSD *float64               `json:"monthly_limit_usd,omitempty"`
+	ModelScopes     []string               `json:"supported_model_scopes,omitempty"`
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description"`
+	Price           float64                `json:"price"`
+	OriginalPrice   *float64               `json:"original_price,omitempty"`
+	Currency        string                 `json:"currency,omitempty"`
+	ValidityDays    int                    `json:"validity_days"`
+	ValidityUnit    string                 `json:"validity_unit"`
+	Features        string                 `json:"features"`
+	ProductName     string                 `json:"product_name"`
+	ForSale         bool                   `json:"for_sale"`
+	SortOrder       int                    `json:"sort_order"`
+	CreatedAt       time.Time              `json:"created_at,omitempty"`
+	UpdatedAt       time.Time              `json:"updated_at,omitempty"`
 }
 
 func adminSubscriptionPlansForResponse(plans []*dbent.SubscriptionPlan, groupInfo map[int64]service.PlanGroupInfo) []AdminSubscriptionPlanResult {
@@ -318,10 +334,28 @@ func adminSubscriptionPlansForResponse(plans []*dbent.SubscriptionPlan, groupInf
 		if p == nil {
 			continue
 		}
-		gi := groupInfo[p.GroupID]
+		groupIDs := service.PlanGroupIDs(p)
+		groups := make([]AdminPlanGroupResult, 0, len(groupIDs))
+		for _, gid := range groupIDs {
+			info := groupInfo[gid]
+			groups = append(groups, AdminPlanGroupResult{
+				GroupID:         gid,
+				Platform:        info.Platform,
+				Name:            info.Name,
+				RateMultiplier:  info.RateMultiplier,
+				DailyLimitUSD:   info.DailyLimitUSD,
+				WeeklyLimitUSD:  info.WeeklyLimitUSD,
+				MonthlyLimitUSD: info.MonthlyLimitUSD,
+				ModelScopes:     info.ModelScopes,
+			})
+		}
+		primaryID := service.PlanPrimaryGroupID(p)
+		gi := groupInfo[primaryID]
 		result = append(result, AdminSubscriptionPlanResult{
 			ID:              int64(p.ID),
-			GroupID:         p.GroupID,
+			GroupID:         primaryID,
+			GroupIDs:        groupIDs,
+			Groups:          groups,
 			GroupPlatform:   gi.Platform,
 			GroupName:       gi.Name,
 			RateMultiplier:  gi.RateMultiplier,

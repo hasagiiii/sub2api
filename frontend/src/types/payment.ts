@@ -132,9 +132,33 @@ export interface PaymentOrder {
 
 // ==================== Plans & Channels ====================
 
+/** 订阅套餐绑定的单个分组。 */
+export interface SubscriptionPlanGroup {
+  group_id: number
+  platform?: string
+  name?: string
+  rate_multiplier?: number
+  peak_rate_enabled?: boolean
+  peak_start?: string
+  peak_end?: string
+  peak_rate_multiplier?: number
+  daily_limit_usd?: number | null
+  weekly_limit_usd?: number | null
+  monthly_limit_usd?: number | null
+  supported_model_scopes?: string[]
+}
+
 export interface SubscriptionPlan {
   id: number
+  /**
+   * 主分组（group_ids 首元素）。保留给徽标配色、续费判定等需要单一代表分组的
+   * 场景，以及尚未回填 group_ids 的存量数据。
+   */
   group_id: number
+  /** 套餐打包授予的全部分组；购买后每个分组各发放一条订阅。 */
+  group_ids?: number[]
+  /** 各分组的展示信息，顺序与 group_ids 一致。 */
+  groups?: SubscriptionPlanGroup[]
   group_platform?: string
   group_name?: string
   rate_multiplier?: number

@@ -170,7 +170,10 @@ type UpdateProviderInstanceRequest struct {
 	AllowUserRefund *bool             `json:"allow_user_refund"`
 }
 type CreatePlanRequest struct {
-	GroupID       int64    `json:"group_id"`
+	// GroupID 是旧版单分组入参，保留以兼容既有调用方；GroupIDs 非空时以 GroupIDs 为准。
+	GroupID int64 `json:"group_id"`
+	// GroupIDs 是套餐授予的全部分组（打包授予）。
+	GroupIDs      []int64  `json:"group_ids"`
 	Name          string   `json:"name"`
 	Description   string   `json:"description"`
 	Price         float64  `json:"price"`
@@ -184,8 +187,18 @@ type CreatePlanRequest struct {
 	SortOrder     int      `json:"sort_order"`
 }
 
+// ResolvedGroupIDs 归一化本次创建请求的分组列表（GroupIDs 优先，回退单值 GroupID）。
+func (r CreatePlanRequest) ResolvedGroupIDs() []int64 {
+	if ids := normalizeGroupIDs(r.GroupIDs); len(ids) > 0 {
+		return ids
+	}
+	return normalizeGroupIDs([]int64{r.GroupID})
+}
+
 type UpdatePlanRequest struct {
+	// GroupID 是旧版单分组入参，保留以兼容既有调用方；GroupIDs 非 nil 时以 GroupIDs 为准。
 	GroupID       *int64   `json:"group_id"`
+	GroupIDs      *[]int64 `json:"group_ids"`
 	Name          *string  `json:"name"`
 	Description   *string  `json:"description"`
 	Price         *float64 `json:"price"`
@@ -197,6 +210,18 @@ type UpdatePlanRequest struct {
 	ProductName   *string  `json:"product_name"`
 	ForSale       *bool    `json:"for_sale"`
 	SortOrder     *int     `json:"sort_order"`
+}
+
+// ResolvedGroupIDs 归一化本次补丁的分组列表。
+// 第二个返回值表示本次补丁是否触碰了分组字段（未触碰时不应改动已有绑定）。
+func (r UpdatePlanRequest) ResolvedGroupIDs() ([]int64, bool) {
+	if r.GroupIDs != nil {
+		return normalizeGroupIDs(*r.GroupIDs), true
+	}
+	if r.GroupID != nil {
+		return normalizeGroupIDs([]int64{*r.GroupID}), true
+	}
+	return nil, false
 }
 
 // PaymentConfigService manages payment configuration and CRUD for

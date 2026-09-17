@@ -65,6 +65,14 @@ export interface PlazaModelRow {
   discount_percent: number
 }
 
+/** One group bundled by a subscription plan. */
+export interface PlazaPlanGroup {
+  group_id: number
+  group_name: string
+  platform: string
+  rate_multiplier: number
+}
+
 /** One subscription-plan card on the plaza. */
 export interface PlazaPlanCard {
   id: number
@@ -76,11 +84,14 @@ export interface PlazaPlanCard {
   validity_days: number
   validity_unit: string
   features: string
+  /** 主分组（groups 首元素），保留给徽标配色等需要单一代表分组的场景。 */
   group_id: number
   group_name: string
   platform: string
   /** Current default multiplier of the associated group. */
   rate_multiplier: number
+  /** 套餐打包授予的全部分组；购买后每个分组各发放一条订阅。 */
+  groups?: PlazaPlanGroup[]
   /** Up to 50 model names; if more exist, exposed via `models_overflow`. */
   models: string[]
   models_overflow: number

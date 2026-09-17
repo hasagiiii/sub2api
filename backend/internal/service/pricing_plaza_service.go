@@ -91,22 +91,33 @@ type PlazaModelFilter struct {
 	Q        string // 模型名子串，大小写不敏感
 }
 
+// PlazaPlanGroup 套餐卡片里的单个分组。
+type PlazaPlanGroup struct {
+	GroupID        int64   `json:"group_id"`
+	GroupName      string  `json:"group_name"`
+	Platform       string  `json:"platform"`
+	RateMultiplier float64 `json:"rate_multiplier"`
+}
+
 // PlazaPlanCard 套餐卡片（CNY 原价透传）。
 type PlazaPlanCard struct {
-	ID             int64    `json:"id"`
-	Name           string   `json:"name"`
-	Description    string   `json:"description"`
-	Price          float64  `json:"price"`
-	OriginalPrice  *float64 `json:"original_price,omitempty"`
-	ValidityDays   int      `json:"validity_days"`
-	ValidityUnit   string   `json:"validity_unit"`
-	Features       string   `json:"features,omitempty"`
-	GroupID        int64    `json:"group_id"`
-	GroupName      string   `json:"group_name"`
-	Platform       string   `json:"platform"`
-	RateMultiplier float64  `json:"rate_multiplier"`
-	Models         []string `json:"models"`
-	ModelsOverflow int      `json:"models_overflow"` // 超出 Models 截断（cap=50）的剩余数量
+	ID            int64    `json:"id"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	Price         float64  `json:"price"`
+	OriginalPrice *float64 `json:"original_price,omitempty"`
+	ValidityDays  int      `json:"validity_days"`
+	ValidityUnit  string   `json:"validity_unit"`
+	Features      string   `json:"features,omitempty"`
+	// GroupID 及其后三个扁平字段描述"主分组"，保留给既有前端；打包授予的完整
+	// 分组列表在 Groups 中，Models 是各分组模型的并集。
+	GroupID        int64            `json:"group_id"`
+	GroupName      string           `json:"group_name"`
+	Platform       string           `json:"platform"`
+	RateMultiplier float64          `json:"rate_multiplier"`
+	Groups         []PlazaPlanGroup `json:"groups"`
+	Models         []string         `json:"models"`
+	ModelsOverflow int              `json:"models_overflow"` // 超出 Models 截断（cap=50）的剩余数量
 }
 
 const (
@@ -510,12 +521,27 @@ func (s *PlazaService) ListPlanCards(ctx context.Context) ([]PlazaPlanCard, Plaz
 
 	cards := make([]PlazaPlanCard, 0, len(plans))
 	for _, p := range plans {
-		g, ok := groupByID[p.GroupID]
-		if !ok || g == nil || !g.IsActive() {
+		// 打包授予：任一绑定分组失效就整张卡片不展示。这与 validateSubOrder 的
+		// 下单校验保持一致——那里同样要求全部分组可用，否则用户点了购买只会被
+		// 拒单。
+		groupIDs := PlanGroupIDs(p)
+		if len(groupIDs) == 0 {
 			continue
 		}
-		card := planToCard(p, g, groupModels[p.GroupID])
-		cards = append(cards, card)
+		planGroups := make([]*Group, 0, len(groupIDs))
+		allActive := true
+		for _, gid := range groupIDs {
+			g, ok := groupByID[gid]
+			if !ok || g == nil || !g.IsActive() {
+				allActive = false
+				break
+			}
+			planGroups = append(planGroups, g)
+		}
+		if !allActive {
+			continue
+		}
+		cards = append(cards, planToCard(p, planGroups, mergeGroupModelNames(groupIDs, groupModels)))
 	}
 
 	result := &plazaPlansResult{Cards: cards, CurrencyMeta: currencyMeta}
@@ -571,21 +597,56 @@ func buildGroupModelNamesFromAccounts(accounts []Account, groupByID map[int64]*G
 	return out
 }
 
+// mergeGroupModelNames 取多个分组模型名的并集，大小写不敏感去重后按字典序排序。
+// 与 buildGroupModelNamesFromAccounts 的单组口径保持一致。
+func mergeGroupModelNames(groupIDs []int64, groupModels map[int64][]string) []string {
+	if len(groupIDs) == 1 {
+		return groupModels[groupIDs[0]]
+	}
+	merged := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, gid := range groupIDs {
+		for _, name := range groupModels[gid] {
+			low := strings.ToLower(name)
+			if _, ok := seen[low]; ok {
+				continue
+			}
+			seen[low] = struct{}{}
+			merged = append(merged, name)
+		}
+	}
+	sort.Strings(merged)
+	return merged
+}
+
 // planToCard 把 ent 套餐映射到展示 DTO；models 截断到 plazaPlanModelsCap。
-func planToCard(p *dbent.SubscriptionPlan, g *Group, models []string) PlazaPlanCard {
+// groups 按套餐绑定顺序传入，首个为展示用主分组。
+func planToCard(p *dbent.SubscriptionPlan, groups []*Group, models []string) PlazaPlanCard {
 	card := PlazaPlanCard{
-		ID:             int64(p.ID),
-		Name:           p.Name,
-		Description:    p.Description,
-		Price:          p.Price,
-		OriginalPrice:  p.OriginalPrice,
-		ValidityDays:   p.ValidityDays,
-		ValidityUnit:   p.ValidityUnit,
-		Features:       p.Features,
-		GroupID:        p.GroupID,
-		GroupName:      g.Name,
-		Platform:       g.Platform,
-		RateMultiplier: g.RateMultiplier,
+		ID:            int64(p.ID),
+		Name:          p.Name,
+		Description:   p.Description,
+		Price:         p.Price,
+		OriginalPrice: p.OriginalPrice,
+		ValidityDays:  p.ValidityDays,
+		ValidityUnit:  p.ValidityUnit,
+		Features:      p.Features,
+	}
+	card.Groups = make([]PlazaPlanGroup, 0, len(groups))
+	for _, g := range groups {
+		card.Groups = append(card.Groups, PlazaPlanGroup{
+			GroupID:        g.ID,
+			GroupName:      g.Name,
+			Platform:       g.Platform,
+			RateMultiplier: g.RateMultiplier,
+		})
+	}
+	if len(groups) > 0 {
+		primary := groups[0]
+		card.GroupID = primary.ID
+		card.GroupName = primary.Name
+		card.Platform = primary.Platform
+		card.RateMultiplier = primary.RateMultiplier
 	}
 	if len(models) > plazaPlanModelsCap {
 		card.Models = append([]string(nil), models[:plazaPlanModelsCap]...)

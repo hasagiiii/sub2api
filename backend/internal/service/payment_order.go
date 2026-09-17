@@ -202,12 +202,20 @@ func (s *PaymentService) validateSubOrder(ctx context.Context, req CreateOrderRe
 	if err != nil || !plan.ForSale {
 		return nil, infraerrors.NotFound("PLAN_NOT_AVAILABLE", "plan not found or not for sale")
 	}
-	group, err := s.groupRepo.GetByID(ctx, plan.GroupID)
-	if err != nil || group.Status != payment.EntityStatusActive {
+	// 打包授予：任一分组不可用就拒绝下单。放过部分不可用的分组会让付款后的履约
+	// 只能部分成功，用户付了全款却拿不到全部权益。
+	groupIDs := PlanGroupIDs(plan)
+	if len(groupIDs) == 0 {
 		return nil, infraerrors.NotFound("GROUP_NOT_FOUND", "subscription group is no longer available")
 	}
-	if !group.IsSubscriptionType() {
-		return nil, infraerrors.BadRequest("GROUP_TYPE_MISMATCH", "group is not a subscription type")
+	for _, gid := range groupIDs {
+		group, err := s.groupRepo.GetByID(ctx, gid)
+		if err != nil || group.Status != payment.EntityStatusActive {
+			return nil, infraerrors.NotFound("GROUP_NOT_FOUND", "subscription group is no longer available")
+		}
+		if !group.IsSubscriptionType() {
+			return nil, infraerrors.BadRequest("GROUP_TYPE_MISMATCH", "group is not a subscription type")
+		}
 	}
 	return plan, nil
 }
@@ -270,7 +278,12 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 		b.SetProviderSnapshot(providerSnapshot)
 	}
 	if plan != nil {
-		b.SetPlanID(plan.ID).SetSubscriptionGroupID(plan.GroupID).SetSubscriptionDays(psComputeValidityDays(plan.ValidityDays, plan.ValidityUnit))
+		// 分组快照随订单固化：套餐之后被改绑或删除都不影响本单的履约范围。
+		planGroupIDs := PlanGroupIDs(plan)
+		b.SetPlanID(plan.ID).SetSubscriptionDays(psComputeValidityDays(plan.ValidityDays, plan.ValidityUnit))
+		if len(planGroupIDs) > 0 {
+			b.SetSubscriptionGroupIds(planGroupIDs).SetSubscriptionGroupID(planGroupIDs[0])
+		}
 	}
 	// 企业订阅订单：标记公司主体，履约时挂到 organization_subscriptions。
 	if req.OrganizationID > 0 {
