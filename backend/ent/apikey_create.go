@@ -105,6 +105,20 @@ func (_c *APIKeyCreate) SetFallbackGroupIds(v []int64) *APIKeyCreate {
 	return _c
 }
 
+// SetUserSubscriptionID sets the "user_subscription_id" field.
+func (_c *APIKeyCreate) SetUserSubscriptionID(v int64) *APIKeyCreate {
+	_c.mutation.SetUserSubscriptionID(v)
+	return _c
+}
+
+// SetNillableUserSubscriptionID sets the "user_subscription_id" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableUserSubscriptionID(v *int64) *APIKeyCreate {
+	if v != nil {
+		_c.SetUserSubscriptionID(*v)
+	}
+	return _c
+}
+
 // SetOrganizationSubscriptionID sets the "organization_subscription_id" field.
 func (_c *APIKeyCreate) SetOrganizationSubscriptionID(v int64) *APIKeyCreate {
 	_c.mutation.SetOrganizationSubscriptionID(v)
@@ -583,6 +597,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 		_spec.SetField(apikey.FieldFallbackGroupIds, field.TypeJSON, value)
 		_node.FallbackGroupIds = value
 	}
+	if value, ok := _c.mutation.UserSubscriptionID(); ok {
+		_spec.SetField(apikey.FieldUserSubscriptionID, field.TypeInt64, value)
+		_node.UserSubscriptionID = &value
+	}
 	if value, ok := _c.mutation.OrganizationSubscriptionID(); ok {
 		_spec.SetField(apikey.FieldOrganizationSubscriptionID, field.TypeInt64, value)
 		_node.OrganizationSubscriptionID = &value
@@ -850,6 +868,30 @@ func (u *APIKeyUpsert) SetFallbackGroupIds(v []int64) *APIKeyUpsert {
 // UpdateFallbackGroupIds sets the "fallback_group_ids" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateFallbackGroupIds() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldFallbackGroupIds)
+	return u
+}
+
+// SetUserSubscriptionID sets the "user_subscription_id" field.
+func (u *APIKeyUpsert) SetUserSubscriptionID(v int64) *APIKeyUpsert {
+	u.Set(apikey.FieldUserSubscriptionID, v)
+	return u
+}
+
+// UpdateUserSubscriptionID sets the "user_subscription_id" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateUserSubscriptionID() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldUserSubscriptionID)
+	return u
+}
+
+// AddUserSubscriptionID adds v to the "user_subscription_id" field.
+func (u *APIKeyUpsert) AddUserSubscriptionID(v int64) *APIKeyUpsert {
+	u.Add(apikey.FieldUserSubscriptionID, v)
+	return u
+}
+
+// ClearUserSubscriptionID clears the value of the "user_subscription_id" field.
+func (u *APIKeyUpsert) ClearUserSubscriptionID() *APIKeyUpsert {
+	u.SetNull(apikey.FieldUserSubscriptionID)
 	return u
 }
 
@@ -1325,6 +1367,34 @@ func (u *APIKeyUpsertOne) SetFallbackGroupIds(v []int64) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateFallbackGroupIds() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateFallbackGroupIds()
+	})
+}
+
+// SetUserSubscriptionID sets the "user_subscription_id" field.
+func (u *APIKeyUpsertOne) SetUserSubscriptionID(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetUserSubscriptionID(v)
+	})
+}
+
+// AddUserSubscriptionID adds v to the "user_subscription_id" field.
+func (u *APIKeyUpsertOne) AddUserSubscriptionID(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddUserSubscriptionID(v)
+	})
+}
+
+// UpdateUserSubscriptionID sets the "user_subscription_id" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateUserSubscriptionID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateUserSubscriptionID()
+	})
+}
+
+// ClearUserSubscriptionID clears the value of the "user_subscription_id" field.
+func (u *APIKeyUpsertOne) ClearUserSubscriptionID() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearUserSubscriptionID()
 	})
 }
 
@@ -2019,6 +2089,34 @@ func (u *APIKeyUpsertBulk) SetFallbackGroupIds(v []int64) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateFallbackGroupIds() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateFallbackGroupIds()
+	})
+}
+
+// SetUserSubscriptionID sets the "user_subscription_id" field.
+func (u *APIKeyUpsertBulk) SetUserSubscriptionID(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetUserSubscriptionID(v)
+	})
+}
+
+// AddUserSubscriptionID adds v to the "user_subscription_id" field.
+func (u *APIKeyUpsertBulk) AddUserSubscriptionID(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddUserSubscriptionID(v)
+	})
+}
+
+// UpdateUserSubscriptionID sets the "user_subscription_id" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateUserSubscriptionID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateUserSubscriptionID()
+	})
+}
+
+// ClearUserSubscriptionID clears the value of the "user_subscription_id" field.
+func (u *APIKeyUpsertBulk) ClearUserSubscriptionID() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearUserSubscriptionID()
 	})
 }
 

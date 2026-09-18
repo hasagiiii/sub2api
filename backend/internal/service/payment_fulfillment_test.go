@@ -1118,12 +1118,11 @@ func createPaymentFulfillmentSubscriptionOrder(
 	return order
 }
 
-// 打包授予：一笔订单为快照里的每个分组各发放一条订阅。
+// 打包授予：一笔订单只发【一条】覆盖全部分组的订阅，这些分组共享它的额度池。
 //
-// (order_id, action) 唯一索引是这条路径的关键约束——沿用单一的
-// SUBSCRIPTION_ASSIGNED 动作会让第二个分组既写不进审计、又被"已发放"判定跳过，
-// 用户付了全款只拿到第一个分组。
-func TestExecuteSubscriptionFulfillmentAssignsEveryBundledGroup(t *testing.T) {
+// 这是"限额算白送"的回归防线：若按分组各发一条订阅，每条都有自己的用量计数器，
+// 用户用一份钱就拿到了分组数倍的额度。
+func TestExecuteSubscriptionFulfillmentGrantsOneSharedSubscription(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentConfigServiceTestClient(t)
 	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
@@ -1146,28 +1145,34 @@ func TestExecuteSubscriptionFulfillmentAssignsEveryBundledGroup(t *testing.T) {
 
 	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
 
+	// 只建一条订阅——这是本测试的核心。
+	require.Equal(t, 1, subRepo.createCalls, "a bundled plan must grant exactly one quota pool")
+
+	// 三个分组都能解析到【同一条】订阅。
+	var poolID int64
 	for _, gid := range []int64{7, 8, 9} {
 		sub, err := subRepo.GetByUserIDAndGroupID(ctx, order.UserID, gid)
-		require.NoError(t, err, "group %d should have been assigned a subscription", gid)
-		require.Equal(t, gid, sub.GroupID)
-
-		count, err := client.PaymentAuditLog.Query().
-			Where(
-				paymentauditlog.OrderIDEQ(strconv.FormatInt(order.ID, 10)),
-				paymentauditlog.ActionEQ(paymentSubscriptionAssignedAction(gid)),
-			).
-			Count(ctx)
-		require.NoError(t, err)
-		require.Equal(t, 1, count, "group %d should have exactly one assignment audit row", gid)
+		require.NoError(t, err, "group %d should resolve to the shared subscription", gid)
+		if poolID == 0 {
+			poolID = sub.ID
+		}
+		require.Equal(t, poolID, sub.ID, "group %d must share the same quota pool", gid)
+		require.Equal(t, int64(7), sub.GroupID, "primary group comes from the order snapshot head")
 	}
-	require.Equal(t, 3, subRepo.createCalls)
+
+	// 订阅回指来源套餐，限额才能从套餐实时读取。
+	pool, err := subRepo.GetByID(ctx, poolID)
+	require.NoError(t, err)
+	require.NotNil(t, pool.PlanID)
+	require.Equal(t, int64(100), *pool.PlanID)
+	require.ElementsMatch(t, []int64{7, 8, 9}, pool.CoveredGroupIDs())
 
 	reloaded, err := client.PaymentOrder.Get(ctx, order.ID)
 	require.NoError(t, err)
 	require.Equal(t, OrderStatusCompleted, reloaded.Status)
 }
 
-// 重放整笔多分组订单不得重复发放：每个分组的发放审计各自把守。
+// 重放整笔多分组订单不得重复发放，也不得延长已发放的有效期。
 func TestExecuteSubscriptionFulfillmentReplayDoesNotReassignBundledGroups(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentConfigServiceTestClient(t)
@@ -1191,14 +1196,11 @@ func TestExecuteSubscriptionFulfillmentReplayDoesNotReassignBundledGroups(t *tes
 	}
 
 	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
-	require.Equal(t, 2, subRepo.createCalls)
+	require.Equal(t, 1, subRepo.createCalls)
 
-	expiries := make(map[int64]time.Time, 2)
-	for _, gid := range []int64{7, 8} {
-		sub, err := subRepo.GetByUserIDAndGroupID(ctx, order.UserID, gid)
-		require.NoError(t, err)
-		expiries[gid] = sub.ExpiresAt
-	}
+	pool, err := subRepo.GetByUserIDAndGroupID(ctx, order.UserID, 7)
+	require.NoError(t, err)
+	originalExpiry := pool.ExpiresAt
 
 	// 让订单回到可重入状态再跑一次，模拟租约过期后的补偿重试。
 	_, err = client.PaymentOrder.UpdateOneID(order.ID).
@@ -1209,12 +1211,13 @@ func TestExecuteSubscriptionFulfillmentReplayDoesNotReassignBundledGroups(t *tes
 	require.NoError(t, err)
 	require.NoError(t, svc.ExecuteSubscriptionFulfillment(ctx, order.ID))
 
-	require.Equal(t, 2, subRepo.createCalls, "replay must not create more subscriptions")
+	require.Equal(t, 1, subRepo.createCalls, "replay must not create more subscriptions")
 	for _, gid := range []int64{7, 8} {
 		sub, err := subRepo.GetByUserIDAndGroupID(ctx, order.UserID, gid)
 		require.NoError(t, err)
-		require.True(t, sub.ExpiresAt.Equal(expiries[gid]),
-			"group %d expiry changed from %s to %s", gid, expiries[gid], sub.ExpiresAt)
+		require.Equal(t, pool.ID, sub.ID)
+		require.True(t, sub.ExpiresAt.Equal(originalExpiry),
+			"replay changed expiry from %s to %s", originalExpiry, sub.ExpiresAt)
 	}
 }
 

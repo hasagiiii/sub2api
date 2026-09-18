@@ -46,45 +46,54 @@ func TestBillingBalanceKey(t *testing.T) {
 	}
 }
 
+// billingSubKey 以订阅 ID（而非分组 ID）作为第二段：一条订阅覆盖的多个分组共
+// 用它的一份用量计数器。前缀也刻意区别于旧的 "billing:sub:"，避免升级后残留的
+// 按分组键被当作按订阅键误读。
 func TestBillingSubKey(t *testing.T) {
 	tests := []struct {
-		name     string
-		userID   int64
-		groupID  int64
-		expected string
+		name           string
+		userID         int64
+		subscriptionID int64
+		expected       string
 	}{
 		{
-			name:     "normal_ids",
-			userID:   123,
-			groupID:  456,
-			expected: "billing:sub:123:456",
+			name:           "normal_ids",
+			userID:         123,
+			subscriptionID: 456,
+			expected:       "billing:subpool:123:456",
 		},
 		{
-			name:     "zero_ids",
-			userID:   0,
-			groupID:  0,
-			expected: "billing:sub:0:0",
+			name:           "zero_ids",
+			userID:         0,
+			subscriptionID: 0,
+			expected:       "billing:subpool:0:0",
 		},
 		{
-			name:     "negative_ids",
-			userID:   -1,
-			groupID:  -2,
-			expected: "billing:sub:-1:-2",
+			name:           "negative_ids",
+			userID:         -1,
+			subscriptionID: -2,
+			expected:       "billing:subpool:-1:-2",
 		},
 		{
-			name:     "max_int64_ids",
-			userID:   math.MaxInt64,
-			groupID:  math.MaxInt64,
-			expected: "billing:sub:9223372036854775807:9223372036854775807",
+			name:           "max_int64_ids",
+			userID:         math.MaxInt64,
+			subscriptionID: math.MaxInt64,
+			expected:       "billing:subpool:9223372036854775807:9223372036854775807",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := billingSubKey(tc.userID, tc.groupID)
+			got := billingSubKey(tc.userID, tc.subscriptionID)
 			require.Equal(t, tc.expected, got)
 		})
 	}
+}
+
+// 新旧前缀必须不同，否则升级后旧键会被按新语义误读（两者都是两个 int64）。
+func TestBillingSubKeyPrefixDiffersFromLegacyGroupKeyedPrefix(t *testing.T) {
+	require.NotEqual(t, "billing:sub:", billingSubKeyPrefix)
+	require.NotContains(t, billingSubKey(1, 2), "billing:sub:1:2")
 }
 
 func TestJitteredTTL(t *testing.T) {

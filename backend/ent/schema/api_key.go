@@ -47,6 +47,23 @@ func (APIKey) Fields() []ent.Field {
 		field.JSON("fallback_group_ids", []int64{}).
 			Default([]int64{}).
 			Comment("Ordered fallback group IDs for personal API keys"),
+		// When set, this API key is bound to one of the owner's personal
+		// subscriptions instead of a single group. The bound subscription is
+		// the quota pool the key consumes, and the groups that subscription
+		// covers become the key's routable candidates.
+		//
+		// This binding exists because a plan may cover several groups and two
+		// plans may both cover the same group, so the group alone can no longer
+		// identify which quota pool a request should draw from.
+		//
+		// Plain reference (no ent edge / FK), mirroring
+		// organization_subscription_id: the auth hot path reads a snapshot, and
+		// an application-level check gives a clearer error than a silently
+		// nulled FK when the subscription disappears.
+		field.Int64("user_subscription_id").
+			Optional().
+			Nillable().
+			Comment("Bound personal subscription id for subscription-scoped API keys (user_subscriptions.id)"),
 		// When set, this API key is an enterprise key that consumes the
 		// referenced organization subscription (organization_subscriptions.id)
 		// instead of the owner's personal user subscription. It is a plain

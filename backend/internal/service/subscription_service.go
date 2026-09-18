@@ -173,30 +173,87 @@ func (s *SubscriptionService) StartSubCacheInvalidationSubscriber(ctx context.Co
 	}
 }
 
-func (s *SubscriptionService) invalidateSubscriptionCaches(userID, groupID int64) error {
-	s.InvalidateSubCacheSync(userID, groupID)
+// invalidateSubscriptionCaches 失效一条订阅涉及的所有缓存。
+//
+// 两类缓存的键维度不同，必须区别对待：
+//   - L1 查找索引 sub:{uid}:{gid} 是"由用户+分组找订阅"的索引，订阅覆盖几个分
+//     组就有几个入口，必须逐个失效，漏掉任何一个都会让该分组继续命中旧订阅。
+//   - 额度池计数器按订阅 ID 寻址，只有一份。
+func (s *SubscriptionService) invalidateSubscriptionCaches(sub *UserSubscription) error {
+	if sub == nil {
+		return nil
+	}
+	for _, groupID := range sub.CoveredGroupIDs() {
+		s.InvalidateSubCacheSync(sub.UserID, groupID)
+	}
 	if s.billingCacheService == nil {
 		return nil
 	}
 
 	cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := s.billingCacheService.InvalidateSubscription(cacheCtx, userID, groupID); err != nil {
+	if err := s.billingCacheService.InvalidateSubscription(cacheCtx, sub.UserID, sub.ID); err != nil {
 		return fmt.Errorf("invalidate billing subscription cache: %w", err)
 	}
-	if err := s.billingCacheService.PublishSubscriptionCacheInvalidation(cacheCtx, subCacheKey(userID, groupID)); err != nil {
-		return fmt.Errorf("publish subscription cache invalidation: %w", err)
+	for _, groupID := range sub.CoveredGroupIDs() {
+		if err := s.billingCacheService.PublishSubscriptionCacheInvalidation(cacheCtx, subCacheKey(sub.UserID, groupID)); err != nil {
+			return fmt.Errorf("publish subscription cache invalidation: %w", err)
+		}
 	}
 	return nil
 }
 
+// invalidateCoveredGroupLookups 只清理 L1 的 (用户, 分组) → 订阅 查找入口。
+//
+// 用于"发放已由他处完成"的场景：额度池计数器由完成方负责失效，本进程只需确保
+// 自己的查找索引不再返回过期结果，因此不查库。
+func (s *SubscriptionService) invalidateCoveredGroupLookups(userID int64, groupIDs []int64) {
+	for _, groupID := range groupIDs {
+		if groupID > 0 {
+			s.InvalidateSubCacheSync(userID, groupID)
+		}
+	}
+}
+
 // AssignSubscriptionInput 分配订阅输入
 type AssignSubscriptionInput struct {
-	UserID       int64
-	GroupID      int64
+	UserID int64
+	// GroupID 是主分组（展示用代表分组）。
+	GroupID int64
+	// GroupIDs 是订阅要覆盖的全部分组，它们共享这条订阅的一份额度池。
+	// 为空时视为只覆盖 GroupID，对应后台手动分配单分组订阅的场景。
+	GroupIDs []int64
+	// PlanID 是来源套餐；限额从它实时读取。nil 表示手动分配，按分组限额走。
+	PlanID       *int64
 	ValidityDays int
 	AssignedBy   int64
 	Notes        string
+}
+
+// coveredGroupIDs 返回本次分配要覆盖的分组，主分组置首位并去重。
+func (in *AssignSubscriptionInput) coveredGroupIDs() []int64 {
+	if in == nil {
+		return nil
+	}
+	ordered := make([]int64, 0, len(in.GroupIDs)+1)
+	if in.GroupID > 0 {
+		ordered = append(ordered, in.GroupID)
+	}
+	ordered = append(ordered, in.GroupIDs...)
+
+	seen := make(map[int64]struct{}, len(ordered))
+	out := make([]int64, 0, len(ordered))
+	for _, id := range ordered {
+		if id <= 0 {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }
 
 // AssignSubscription 分配订阅给用户（不允许重复分配）
@@ -228,8 +285,17 @@ func (s *SubscriptionService) assignOrExtendSubscription(ctx context.Context, in
 		return nil, false, ErrGroupNotSubscriptionType
 	}
 
-	// 查询是否已有订阅
-	existingSub, err := s.userSubRepo.GetByUserIDAndGroupID(ctx, input.UserID, input.GroupID)
+	// 查询是否已有订阅。查找维度必须与唯一约束一致（见迁移 245）：
+	//   - 套餐订阅按 (user, plan)：重复购买同一套餐落到同一条订阅上做续期；
+	//     若误按分组查找，"另一个也含该分组的套餐"会被当成同一条而错误续期，
+	//     用户就买不到第二个额度池。
+	//   - 手动分配按 (user, group) 且限定 plan_id IS NULL：不能误命中套餐订阅。
+	var existingSub *UserSubscription
+	if input.PlanID != nil && *input.PlanID > 0 {
+		existingSub, err = s.userSubRepo.GetByUserIDAndPlanID(ctx, input.UserID, *input.PlanID)
+	} else {
+		existingSub, err = s.userSubRepo.GetManualByUserIDAndGroupID(ctx, input.UserID, input.GroupID)
+	}
 	if err != nil {
 		// 不存在记录是正常情况，其他错误需要返回
 		existingSub = nil
@@ -248,13 +314,25 @@ func (s *SubscriptionService) assignOrExtendSubscription(ctx context.Context, in
 		if err := s.updateExistingSubscriptionTerm(ctx, existingSub.ID, validityDays, input.Notes, false); err != nil {
 			return nil, false, err
 		}
-
-		// 失效订阅缓存
-		s.maybeInvalidateAssignmentCaches(input.UserID, input.GroupID, deferCacheInvalidation)
+		// 套餐的分组构成可能在两次购买之间被改过，续期时把覆盖集合同步到最新，
+		// 否则续了期却还停留在旧的分组范围上。
+		//
+		// 仅当调用方显式给出了覆盖集合（即套餐驱动的发放）才同步：手动分配的
+		// 覆盖集合本就只有主分组，重写一遍没有意义。
+		if len(input.GroupIDs) > 0 {
+			if err := s.userSubRepo.ReplaceCoveredGroups(ctx, existingSub.ID, input.coveredGroupIDs()); err != nil {
+				return nil, false, fmt.Errorf("sync subscription covered groups: %w", err)
+			}
+		}
 
 		// 返回更新后的订阅
 		sub, err := s.userSubRepo.GetByID(ctx, existingSub.ID)
-		return sub, true, err // true 表示是续期
+		if err != nil {
+			return nil, false, err
+		}
+		// 失效缓存需在覆盖集合同步之后：按最新的分组集合清理 L1 索引入口。
+		s.maybeInvalidateAssignmentCaches(sub, deferCacheInvalidation)
+		return sub, true, nil // true 表示是续期
 	}
 
 	// 没有订阅，创建新订阅
@@ -264,25 +342,32 @@ func (s *SubscriptionService) assignOrExtendSubscription(ctx context.Context, in
 	}
 
 	// 失效订阅缓存
-	s.maybeInvalidateAssignmentCaches(input.UserID, input.GroupID, deferCacheInvalidation)
+	s.maybeInvalidateAssignmentCaches(sub, deferCacheInvalidation)
 
 	return sub, false, nil // false 表示是新建
 }
 
-func (s *SubscriptionService) maybeInvalidateAssignmentCaches(userID, groupID int64, deferred bool) {
+// maybeInvalidateAssignmentCaches 分配/续期后失效缓存。
+//
+// 接收整条订阅而非 (用户, 分组)：额度池计数器按订阅 ID 寻址，而 L1 查找索引要
+// 按覆盖的每个分组逐个清理，只有订阅对象同时提供这两项信息。
+func (s *SubscriptionService) maybeInvalidateAssignmentCaches(sub *UserSubscription, deferred bool) {
 	// Payment fulfillment owns an outer transaction and performs a synchronous
 	// invalidation after commit. Invalidating inside that transaction can reload
 	// the pre-commit subscription into cache.
-	if deferred {
+	if deferred || sub == nil {
 		return
 	}
 
-	s.InvalidateSubCache(userID, groupID)
+	for _, groupID := range sub.CoveredGroupIDs() {
+		s.InvalidateSubCache(sub.UserID, groupID)
+	}
 	if s.billingCacheService != nil {
+		userID, subscriptionID := sub.UserID, sub.ID
 		go func() {
 			cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = s.billingCacheService.InvalidateSubscription(cacheCtx, userID, groupID)
+			_ = s.billingCacheService.InvalidateSubscription(cacheCtx, userID, subscriptionID)
 		}()
 	}
 }
@@ -424,8 +509,11 @@ func (s *SubscriptionService) createSubscription(ctx context.Context, input *Ass
 	}
 
 	sub := &UserSubscription{
-		UserID:     input.UserID,
-		GroupID:    input.GroupID,
+		UserID:  input.UserID,
+		GroupID: input.GroupID,
+		PlanID:  input.PlanID,
+		// 覆盖分组决定这份额度池能用在哪些分组上，必须随订阅一起落库。
+		GroupIDs:   input.coveredGroupIDs(),
 		StartsAt:   now,
 		ExpiresAt:  expiresAt,
 		Status:     SubscriptionStatusActive,
@@ -530,9 +618,12 @@ func (s *SubscriptionService) assignSubscriptionWithReuse(ctx context.Context, i
 			if err := s.updateExistingSubscriptionTerm(ctx, sub.ID, validityDays, input.Notes, true); err != nil {
 				return nil, false, err
 			}
-			s.maybeInvalidateAssignmentCaches(input.UserID, input.GroupID, false)
 			renewed, getErr := s.userSubRepo.GetByID(ctx, sub.ID)
-			return renewed, true, getErr
+			if getErr != nil {
+				return nil, false, getErr
+			}
+			s.maybeInvalidateAssignmentCaches(renewed, false)
+			return renewed, true, nil
 		}
 		if conflictReason, conflict := detectAssignSemanticConflict(sub, input); conflict {
 			return nil, false, ErrSubscriptionAssignConflict.WithMetadata(map[string]string{
@@ -608,7 +699,7 @@ func (s *SubscriptionService) RevokeSubscription(ctx context.Context, subscripti
 		return err
 	}
 
-	if err := s.invalidateSubscriptionCaches(sub.UserID, sub.GroupID); err != nil {
+	if err := s.invalidateSubscriptionCaches(sub); err != nil {
 		return err
 	}
 
@@ -644,7 +735,7 @@ func (s *SubscriptionService) RestoreSubscription(ctx context.Context, subscript
 		return nil, err
 	}
 
-	if err := s.invalidateSubscriptionCaches(restored.UserID, restored.GroupID); err != nil {
+	if err := s.invalidateSubscriptionCaches(restored); err != nil {
 		return nil, err
 	}
 	return restored, nil

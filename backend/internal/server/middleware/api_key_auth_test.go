@@ -1860,6 +1860,19 @@ func (r *stubUserSubscriptionRepo) GetByUserIDAndGroupID(ctx context.Context, us
 	return nil, errors.New("not implemented")
 }
 
+// 共享额度池新增的三个方法：这些认证测试走按分组的路径，不会调用它们。
+func (r *stubUserSubscriptionRepo) GetByUserIDAndPlanID(context.Context, int64, int64) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUserSubscriptionRepo) GetManualByUserIDAndGroupID(context.Context, int64, int64) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *stubUserSubscriptionRepo) ReplaceCoveredGroups(context.Context, int64, []int64) error {
+	return errors.New("not implemented")
+}
+
 func (r *stubUserSubscriptionRepo) GetActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	if r.getActive != nil {
 		return r.getActive(ctx, userID, groupID)

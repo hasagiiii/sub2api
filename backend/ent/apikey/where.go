@@ -90,6 +90,11 @@ func GroupID(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldGroupID, v))
 }
 
+// UserSubscriptionID applies equality check predicate on the "user_subscription_id" field. It's identical to UserSubscriptionIDEQ.
+func UserSubscriptionID(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldUserSubscriptionID, v))
+}
+
 // OrganizationSubscriptionID applies equality check predicate on the "organization_subscription_id" field. It's identical to OrganizationSubscriptionIDEQ.
 func OrganizationSubscriptionID(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldOrganizationSubscriptionID, v))
@@ -478,6 +483,56 @@ func GroupIDIsNil() predicate.APIKey {
 // GroupIDNotNil applies the NotNil predicate on the "group_id" field.
 func GroupIDNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldGroupID))
+}
+
+// UserSubscriptionIDEQ applies the EQ predicate on the "user_subscription_id" field.
+func UserSubscriptionIDEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldUserSubscriptionID, v))
+}
+
+// UserSubscriptionIDNEQ applies the NEQ predicate on the "user_subscription_id" field.
+func UserSubscriptionIDNEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldUserSubscriptionID, v))
+}
+
+// UserSubscriptionIDIn applies the In predicate on the "user_subscription_id" field.
+func UserSubscriptionIDIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldUserSubscriptionID, vs...))
+}
+
+// UserSubscriptionIDNotIn applies the NotIn predicate on the "user_subscription_id" field.
+func UserSubscriptionIDNotIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldUserSubscriptionID, vs...))
+}
+
+// UserSubscriptionIDGT applies the GT predicate on the "user_subscription_id" field.
+func UserSubscriptionIDGT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldUserSubscriptionID, v))
+}
+
+// UserSubscriptionIDGTE applies the GTE predicate on the "user_subscription_id" field.
+func UserSubscriptionIDGTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldUserSubscriptionID, v))
+}
+
+// UserSubscriptionIDLT applies the LT predicate on the "user_subscription_id" field.
+func UserSubscriptionIDLT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldUserSubscriptionID, v))
+}
+
+// UserSubscriptionIDLTE applies the LTE predicate on the "user_subscription_id" field.
+func UserSubscriptionIDLTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldUserSubscriptionID, v))
+}
+
+// UserSubscriptionIDIsNil applies the IsNil predicate on the "user_subscription_id" field.
+func UserSubscriptionIDIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldUserSubscriptionID))
+}
+
+// UserSubscriptionIDNotNil applies the NotNil predicate on the "user_subscription_id" field.
+func UserSubscriptionIDNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldUserSubscriptionID))
 }
 
 // OrganizationSubscriptionIDEQ applies the EQ predicate on the "organization_subscription_id" field.

@@ -14,6 +14,9 @@ type APIKeyAuthSnapshot struct {
 	GroupID                    *int64                   `json:"group_id,omitempty"`
 	FallbackGroupIDs           []int64                  `json:"fallback_group_ids,omitempty"`
 	OrganizationSubscriptionID *int64                   `json:"organization_subscription_id,omitempty"`
+	// UserSubscriptionID 必须进快照：绑定订阅的 Key 靠它解析额度池与可路由分组，
+	// 漏掉会让缓存命中的请求退化成按分组绑定，从而扣错额度池。
+	UserSubscriptionID *int64 `json:"user_subscription_id,omitempty"`
 	PreferCompanyBalance       bool                     `json:"prefer_company_balance"`
 	Name                       string                   `json:"name"`
 	Status                     string                   `json:"status"`

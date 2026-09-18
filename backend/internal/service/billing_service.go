@@ -67,10 +67,12 @@ type BillingCache interface {
 	InvalidateUserBalance(ctx context.Context, userID int64) error
 
 	// Subscription operations
-	GetSubscriptionCache(ctx context.Context, userID, groupID int64) (*SubscriptionCacheData, error)
-	SetSubscriptionCache(ctx context.Context, userID, groupID int64, data *SubscriptionCacheData) error
-	UpdateSubscriptionUsage(ctx context.Context, userID, groupID int64, cost float64) error
-	InvalidateSubscriptionCache(ctx context.Context, userID, groupID int64) error
+	// 订阅额度池缓存按 subscriptionID 建键，而不是 groupID：一条订阅可覆盖多个
+	// 分组，它们共用这一份用量计数器。按分组建键会把共享额度拆成每组一份。
+	GetSubscriptionCache(ctx context.Context, userID, subscriptionID int64) (*SubscriptionCacheData, error)
+	SetSubscriptionCache(ctx context.Context, userID, subscriptionID int64, data *SubscriptionCacheData) error
+	UpdateSubscriptionUsage(ctx context.Context, userID, subscriptionID int64, cost float64) error
+	InvalidateSubscriptionCache(ctx context.Context, userID, subscriptionID int64) error
 
 	// API Key rate limit operations
 	GetAPIKeyRateLimit(ctx context.Context, keyID int64) (*APIKeyRateLimitCacheData, error)

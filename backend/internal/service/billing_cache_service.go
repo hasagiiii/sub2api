@@ -82,9 +82,10 @@ const (
 
 // cacheWriteTask 缓存写入任务
 type cacheWriteTask struct {
-	kind             cacheWriteKind
+	kind cacheWriteKind
+	// 订阅类任务用 subscriptionID 寻址额度池；其余任务用 userID/apiKeyID。
 	userID           int64
-	groupID          int64
+	subscriptionID   int64
 	apiKeyID         int64
 	balance          float64
 	amount           float64
@@ -237,11 +238,11 @@ func (s *BillingCacheService) cacheWriteWorker(ch <-chan cacheWriteTask) {
 		case cacheWriteSetBalance:
 			s.setBalanceCache(ctx, task.userID, task.balance)
 		case cacheWriteSetSubscription:
-			s.setSubscriptionCache(ctx, task.userID, task.groupID, task.subscriptionData)
+			s.setSubscriptionCache(ctx, task.userID, task.subscriptionID, task.subscriptionData)
 		case cacheWriteUpdateSubscriptionUsage:
 			if s.cache != nil {
-				if err := s.cache.UpdateSubscriptionUsage(ctx, task.userID, task.groupID, task.amount); err != nil {
-					logger.LegacyPrintf("service.billing_cache", "Warning: update subscription cache failed for user %d group %d: %v", task.userID, task.groupID, err)
+				if err := s.cache.UpdateSubscriptionUsage(ctx, task.userID, task.subscriptionID, task.amount); err != nil {
+					logger.LegacyPrintf("service.billing_cache", "Warning: update subscription cache failed for user %d subscription %d: %v", task.userID, task.subscriptionID, err)
 				}
 			}
 		case cacheWriteDeductBalance:
@@ -315,7 +316,7 @@ func (s *BillingCacheService) logCacheWriteDrop(task cacheWriteTask, reason stri
 		cacheWriteDropLogInterval,
 		cacheWriteKindName(task.kind),
 		task.userID,
-		task.groupID,
+		task.subscriptionID,
 	)
 }
 
@@ -427,20 +428,21 @@ func (s *BillingCacheService) InvalidateUserBalance(ctx context.Context, userID 
 // 订阅缓存方法
 // ============================================
 
-// GetSubscriptionStatus 获取订阅状态（优先从缓存读取）
-func (s *BillingCacheService) GetSubscriptionStatus(ctx context.Context, userID, groupID int64) (*subscriptionCacheData, error) {
+// GetSubscriptionStatus 获取订阅额度池状态（优先从缓存读取）。
+// 按 subscriptionID 寻址：一条订阅覆盖的多个分组共用同一份用量计数器。
+func (s *BillingCacheService) GetSubscriptionStatus(ctx context.Context, userID, subscriptionID int64) (*subscriptionCacheData, error) {
 	if s.cache == nil {
-		return s.getSubscriptionFromDB(ctx, userID, groupID)
+		return s.getSubscriptionFromDB(ctx, subscriptionID)
 	}
 
 	// 尝试从缓存读取
-	cacheData, err := s.cache.GetSubscriptionCache(ctx, userID, groupID)
+	cacheData, err := s.cache.GetSubscriptionCache(ctx, userID, subscriptionID)
 	if err == nil && cacheData != nil {
 		return s.convertFromPortsData(cacheData), nil
 	}
 
 	// 缓存未命中，从数据库读取
-	data, err := s.getSubscriptionFromDB(ctx, userID, groupID)
+	data, err := s.getSubscriptionFromDB(ctx, subscriptionID)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +451,7 @@ func (s *BillingCacheService) GetSubscriptionStatus(ctx context.Context, userID,
 	_ = s.enqueueCacheWrite(cacheWriteTask{
 		kind:             cacheWriteSetSubscription,
 		userID:           userID,
-		groupID:          groupID,
+		subscriptionID:   subscriptionID,
 		subscriptionData: data,
 	})
 
@@ -478,9 +480,11 @@ func (s *BillingCacheService) convertToPortsData(data *subscriptionCacheData) *S
 	}
 }
 
-// getSubscriptionFromDB 从数据库获取订阅数据
-func (s *BillingCacheService) getSubscriptionFromDB(ctx context.Context, userID, groupID int64) (*subscriptionCacheData, error) {
-	sub, err := s.subRepo.GetActiveByUserIDAndGroupID(ctx, userID, groupID)
+// getSubscriptionFromDB 按订阅 ID 读取额度池数据。
+// 不能按 (user, group) 读：允许两个套餐覆盖同一分组后，(user, group) 可能对应
+// 多条订阅，只有订阅 ID 才能唯一确定本次该扣哪个池。
+func (s *BillingCacheService) getSubscriptionFromDB(ctx context.Context, subscriptionID int64) (*subscriptionCacheData, error) {
+	sub, err := s.subRepo.GetByID(ctx, subscriptionID)
 	if err != nil {
 		return nil, fmt.Errorf("get subscription: %w", err)
 	}
@@ -495,52 +499,52 @@ func (s *BillingCacheService) getSubscriptionFromDB(ctx context.Context, userID,
 	}, nil
 }
 
-// setSubscriptionCache 设置订阅缓存
-func (s *BillingCacheService) setSubscriptionCache(ctx context.Context, userID, groupID int64, data *subscriptionCacheData) {
+// setSubscriptionCache 设置订阅额度池缓存
+func (s *BillingCacheService) setSubscriptionCache(ctx context.Context, userID, subscriptionID int64, data *subscriptionCacheData) {
 	if s.cache == nil || data == nil {
 		return
 	}
-	if err := s.cache.SetSubscriptionCache(ctx, userID, groupID, s.convertToPortsData(data)); err != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: set subscription cache failed for user %d group %d: %v", userID, groupID, err)
+	if err := s.cache.SetSubscriptionCache(ctx, userID, subscriptionID, s.convertToPortsData(data)); err != nil {
+		logger.LegacyPrintf("service.billing_cache", "Warning: set subscription cache failed for user %d subscription %d: %v", userID, subscriptionID, err)
 	}
 }
 
-// UpdateSubscriptionUsage 更新订阅用量缓存（同步调用）
-func (s *BillingCacheService) UpdateSubscriptionUsage(ctx context.Context, userID, groupID int64, costUSD float64) error {
+// UpdateSubscriptionUsage 更新订阅额度池用量缓存（同步调用）
+func (s *BillingCacheService) UpdateSubscriptionUsage(ctx context.Context, userID, subscriptionID int64, costUSD float64) error {
 	if s.cache == nil {
 		return nil
 	}
-	return s.cache.UpdateSubscriptionUsage(ctx, userID, groupID, costUSD)
+	return s.cache.UpdateSubscriptionUsage(ctx, userID, subscriptionID, costUSD)
 }
 
-// QueueUpdateSubscriptionUsage 异步更新订阅用量缓存
-func (s *BillingCacheService) QueueUpdateSubscriptionUsage(userID, groupID int64, costUSD float64) {
+// QueueUpdateSubscriptionUsage 异步更新订阅额度池用量缓存
+func (s *BillingCacheService) QueueUpdateSubscriptionUsage(userID, subscriptionID int64, costUSD float64) {
 	if s.cache == nil {
 		return
 	}
 	// 队列满时同步回退，确保订阅用量及时更新。
 	if s.enqueueCacheWrite(cacheWriteTask{
-		kind:    cacheWriteUpdateSubscriptionUsage,
-		userID:  userID,
-		groupID: groupID,
-		amount:  costUSD,
+		kind:           cacheWriteUpdateSubscriptionUsage,
+		userID:         userID,
+		subscriptionID: subscriptionID,
+		amount:         costUSD,
 	}) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cacheWriteTimeout)
 	defer cancel()
-	if err := s.UpdateSubscriptionUsage(ctx, userID, groupID, costUSD); err != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: update subscription cache fallback failed for user %d group %d: %v", userID, groupID, err)
+	if err := s.UpdateSubscriptionUsage(ctx, userID, subscriptionID, costUSD); err != nil {
+		logger.LegacyPrintf("service.billing_cache", "Warning: update subscription cache fallback failed for user %d subscription %d: %v", userID, subscriptionID, err)
 	}
 }
 
-// InvalidateSubscription 失效指定订阅缓存
-func (s *BillingCacheService) InvalidateSubscription(ctx context.Context, userID, groupID int64) error {
+// InvalidateSubscription 失效指定订阅的额度池缓存
+func (s *BillingCacheService) InvalidateSubscription(ctx context.Context, userID, subscriptionID int64) error {
 	if s.cache == nil {
 		return nil
 	}
-	if err := s.cache.InvalidateSubscriptionCache(ctx, userID, groupID); err != nil {
-		logger.LegacyPrintf("service.billing_cache", "Warning: invalidate subscription cache failed for user %d group %d: %v", userID, groupID, err)
+	if err := s.cache.InvalidateSubscriptionCache(ctx, userID, subscriptionID); err != nil {
+		logger.LegacyPrintf("service.billing_cache", "Warning: invalidate subscription cache failed for user %d subscription %d: %v", userID, subscriptionID, err)
 		return err
 	}
 	return nil
@@ -1075,13 +1079,17 @@ func (s *BillingCacheService) checkOrganizationBalanceEligibility(ctx context.Co
 
 // checkSubscriptionEligibility 检查订阅模式资格
 func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, userID int64, group *Group, subscription *UserSubscription) error {
-	// 获取订阅缓存数据
-	subData, err := s.GetSubscriptionStatus(ctx, userID, group.ID)
+	if subscription == nil {
+		return ErrSubscriptionInvalid
+	}
+	// 按订阅 ID 取额度池：该订阅覆盖的所有分组共用这一份计数器。若按 group.ID
+	// 取，多分组套餐会被拆成每组一个计数器，共享额度就被放大成 N 份。
+	subData, err := s.GetSubscriptionStatus(ctx, userID, subscription.ID)
 	if err != nil {
 		if s.circuitBreaker != nil {
 			s.circuitBreaker.OnFailure(err)
 		}
-		logger.LegacyPrintf("service.billing_cache", "ALERT: billing subscription check failed for user %d group %d: %v", userID, group.ID, err)
+		logger.LegacyPrintf("service.billing_cache", "ALERT: billing subscription check failed for user %d subscription %d group %d: %v", userID, subscription.ID, group.ID, err)
 		return ErrBillingServiceUnavailable.WithCause(err)
 	}
 	if s.circuitBreaker != nil {
@@ -1098,16 +1106,21 @@ func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, 
 		return ErrSubscriptionInvalid
 	}
 
-	// 检查限额（使用传入的Group限额配置）
-	if group.HasDailyLimit() && subData.DailyUsage >= *group.DailyLimitUSD {
+	// 检查限额。必须与中间件侧 ValidateAndCheckLimits 读到的是同一组限额：
+	// 套餐限额优先、未设的窗口回退分组限额。若这里继续直接读 group，绑定了共
+	// 享额度套餐的订阅就会在两道闸门间判定不一致——中间件按套餐放行，这里却按
+	// 分组拦截（或相反）。
+	limits := subscription.EffectiveLimits(group)
+
+	if limits.HasDailyLimit() && subData.DailyUsage >= *limits.DailyLimitUSD {
 		return ErrDailyLimitExceeded
 	}
 
-	if group.HasWeeklyLimit() && subData.WeeklyUsage >= *group.WeeklyLimitUSD {
+	if limits.HasWeeklyLimit() && subData.WeeklyUsage >= *limits.WeeklyLimitUSD {
 		return ErrWeeklyLimitExceeded
 	}
 
-	if group.HasMonthlyLimit() && subData.MonthlyUsage >= *group.MonthlyLimitUSD {
+	if limits.HasMonthlyLimit() && subData.MonthlyUsage >= *limits.MonthlyLimitUSD {
 		return ErrMonthlyLimitExceeded
 	}
 

@@ -36,13 +36,16 @@ type CreateAPIKeyRequest struct {
 	GroupID          *int64  `json:"group_id"` // nullable
 	FallbackGroupIDs []int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID 绑定公司订阅，创建企业 API Key（消费走公司订阅）
-	OrganizationSubscriptionID *int64   `json:"organization_subscription_id"`
-	PreferCompanyBalance       bool     `json:"prefer_company_balance"`
-	CustomKey                  *string  `json:"custom_key"`      // 可选的自定义key
-	IPWhitelist                []string `json:"ip_whitelist"`    // IP 白名单
-	IPBlacklist                []string `json:"ip_blacklist"`    // IP 黑名单
-	Quota                      *float64 `json:"quota"`           // 配额限制 (USD)
-	ExpiresInDays              *int     `json:"expires_in_days"` // 过期天数
+	OrganizationSubscriptionID *int64 `json:"organization_subscription_id"`
+	// UserSubscriptionID 绑定个人订阅（套餐）：可路由分组取自该订阅覆盖的分组，
+	// 消费统一扣它那一份共享额度池。
+	UserSubscriptionID   *int64   `json:"user_subscription_id"`
+	PreferCompanyBalance bool     `json:"prefer_company_balance"`
+	CustomKey            *string  `json:"custom_key"`      // 可选的自定义key
+	IPWhitelist          []string `json:"ip_whitelist"`    // IP 白名单
+	IPBlacklist          []string `json:"ip_blacklist"`    // IP 黑名单
+	Quota                *float64 `json:"quota"`           // 配额限制 (USD)
+	ExpiresInDays        *int     `json:"expires_in_days"` // 过期天数
 
 	// Rate limit fields (0 = unlimited)
 	RateLimit5h *float64 `json:"rate_limit_5h"`
@@ -56,14 +59,16 @@ type UpdateAPIKeyRequest struct {
 	GroupID          *int64   `json:"group_id"`
 	FallbackGroupIDs *[]int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID 重新绑定公司订阅（企业 API Key）
-	OrganizationSubscriptionID *int64    `json:"organization_subscription_id"`
-	PreferCompanyBalance       *bool     `json:"prefer_company_balance"`
-	Status                     string    `json:"status" binding:"omitempty,oneof=active inactive"`
-	IPWhitelist                *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
-	IPBlacklist                *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
-	Quota                      *float64  `json:"quota"`        // 配额限制 (USD), 0=无限制
-	ExpiresAt                  *string   `json:"expires_at"`   // 过期时间 (ISO 8601)
-	ResetQuota                 *bool     `json:"reset_quota"`  // 重置已用配额
+	OrganizationSubscriptionID *int64 `json:"organization_subscription_id"`
+	// UserSubscriptionID 重新绑定个人订阅（套餐）；改选普通分组会清除该绑定。
+	UserSubscriptionID   *int64    `json:"user_subscription_id"`
+	PreferCompanyBalance *bool     `json:"prefer_company_balance"`
+	Status               string    `json:"status" binding:"omitempty,oneof=active inactive"`
+	IPWhitelist          *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
+	IPBlacklist          *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
+	Quota                *float64  `json:"quota"`        // 配额限制 (USD), 0=无限制
+	ExpiresAt            *string   `json:"expires_at"`   // 过期时间 (ISO 8601)
+	ResetQuota           *bool     `json:"reset_quota"`  // 重置已用配额
 
 	// Rate limit fields (nil = no change, 0 = unlimited)
 	RateLimit5h         *float64 `json:"rate_limit_5h"`
@@ -209,6 +214,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 		GroupID:                    req.GroupID,
 		FallbackGroupIDs:           req.FallbackGroupIDs,
 		OrganizationSubscriptionID: req.OrganizationSubscriptionID,
+		UserSubscriptionID:         req.UserSubscriptionID,
 		PreferCompanyBalance:       req.PreferCompanyBalance,
 		CustomKey:                  req.CustomKey,
 		IPWhitelist:                req.IPWhitelist,
@@ -278,6 +284,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	}
 	svcReq.GroupID = req.GroupID
 	svcReq.OrganizationSubscriptionID = req.OrganizationSubscriptionID
+	svcReq.UserSubscriptionID = req.UserSubscriptionID
 	svcReq.PreferCompanyBalance = req.PreferCompanyBalance
 	if req.Status != "" {
 		svcReq.Status = &req.Status
@@ -370,6 +377,50 @@ func (h *APIKeyHandler) GetBindableOrganizationSubscriptions(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"subscriptions": subs})
+}
+
+// BindableUserSubscription 是"可绑定个人订阅"选择器所需的最小信息。
+//
+// 只返回 ID 与分组集合，不返回分组名：前端创建 Key 的页面本就加载了分组列表，
+// 由它自行映射名称，避免这里为展示再做一次联表查询。
+type BindableUserSubscription struct {
+	ID int64 `json:"id"`
+	// PlanID 为 nil 表示后台手动分配、不属于任何套餐的订阅。
+	PlanID *int64 `json:"plan_id,omitempty"`
+	// GroupID 是主分组；GroupIDs 是共享这份额度的全部分组。
+	GroupID   int64     `json:"group_id"`
+	GroupIDs  []int64   `json:"group_ids"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+// GetBindableUserSubscriptions 获取当前用户可绑定到 API Key 的活跃个人订阅。
+// 前端据此让用户"选套餐"而不是"选分组"。
+// GET /api/v1/api-keys/user-subscriptions
+func (h *APIKeyHandler) GetBindableUserSubscriptions(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	subs, err := h.apiKeyService.ListBindableUserSubscriptions(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	out := make([]BindableUserSubscription, 0, len(subs))
+	for i := range subs {
+		sub := &subs[i]
+		out = append(out, BindableUserSubscription{
+			ID:        sub.ID,
+			PlanID:    sub.PlanID,
+			GroupID:   sub.GroupID,
+			GroupIDs:  sub.CoveredGroupIDs(),
+			ExpiresAt: sub.ExpiresAt,
+		})
+	}
+	response.Success(c, gin.H{"subscriptions": out})
 }
 
 // GetUserGroupRates 获取当前用户的专属分组倍率配置

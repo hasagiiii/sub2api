@@ -16,7 +16,7 @@ import (
 
 const (
 	billingBalanceKeyPrefix   = "billing:balance:"
-	billingSubKeyPrefix       = "billing:sub:"
+	billingSubKeyPrefix       = "billing:subpool:"
 	billingRateLimitKeyPrefix = "apikey:rate:"
 	subCacheInvalidateChannel = "subscription:cache:invalidate"
 	billingCacheTTL           = 5 * time.Minute
@@ -44,9 +44,18 @@ func billingBalanceKey(userID int64) string {
 	return fmt.Sprintf("%s%d", billingBalanceKeyPrefix, userID)
 }
 
-// billingSubKey generates the Redis key for subscription cache.
-func billingSubKey(userID, groupID int64) string {
-	return fmt.Sprintf("%s%d:%d", billingSubKeyPrefix, userID, groupID)
+// billingSubKey generates the Redis key for a subscription's quota-pool cache.
+//
+// Keyed by subscription id, not group id: one subscription can cover several
+// groups and they all share its single usage counter. Keying by group would
+// split that pool into one counter per group, so a shared plan quota would
+// effectively be multiplied by the number of groups.
+//
+// The prefix deliberately differs from the old group-keyed one. Both encode two
+// int64s, so reusing it would let entries written before the upgrade be read
+// back as if the group id were a subscription id. Stale entries simply expire.
+func billingSubKey(userID, subscriptionID int64) string {
+	return fmt.Sprintf("%s%d:%d", billingSubKeyPrefix, userID, subscriptionID)
 }
 
 const (
@@ -173,8 +182,8 @@ func (c *billingCache) InvalidateUserBalance(ctx context.Context, userID int64) 
 	return c.rdb.Del(ctx, key).Err()
 }
 
-func (c *billingCache) GetSubscriptionCache(ctx context.Context, userID, groupID int64) (*service.SubscriptionCacheData, error) {
-	key := billingSubKey(userID, groupID)
+func (c *billingCache) GetSubscriptionCache(ctx context.Context, userID, subscriptionID int64) (*service.SubscriptionCacheData, error) {
+	key := billingSubKey(userID, subscriptionID)
 	result, err := c.rdb.HGetAll(ctx, key).Result()
 	if err != nil {
 		return nil, err
@@ -219,12 +228,12 @@ func (c *billingCache) parseSubscriptionCache(data map[string]string) (*service.
 	return result, nil
 }
 
-func (c *billingCache) SetSubscriptionCache(ctx context.Context, userID, groupID int64, data *service.SubscriptionCacheData) error {
+func (c *billingCache) SetSubscriptionCache(ctx context.Context, userID, subscriptionID int64, data *service.SubscriptionCacheData) error {
 	if data == nil {
 		return nil
 	}
 
-	key := billingSubKey(userID, groupID)
+	key := billingSubKey(userID, subscriptionID)
 
 	fields := map[string]any{
 		subFieldStatus:       data.Status,
@@ -242,18 +251,18 @@ func (c *billingCache) SetSubscriptionCache(ctx context.Context, userID, groupID
 	return err
 }
 
-func (c *billingCache) UpdateSubscriptionUsage(ctx context.Context, userID, groupID int64, cost float64) error {
-	key := billingSubKey(userID, groupID)
+func (c *billingCache) UpdateSubscriptionUsage(ctx context.Context, userID, subscriptionID int64, cost float64) error {
+	key := billingSubKey(userID, subscriptionID)
 	_, err := updateSubUsageScript.Run(ctx, c.rdb, []string{key}, cost, int(jitteredTTL().Seconds())).Result()
 	if err != nil && !errors.Is(err, redis.Nil) {
-		log.Printf("Warning: update subscription usage cache failed for user %d group %d: %v", userID, groupID, err)
+		log.Printf("Warning: update subscription usage cache failed for user %d subscription %d: %v", userID, subscriptionID, err)
 		return err
 	}
 	return nil
 }
 
-func (c *billingCache) InvalidateSubscriptionCache(ctx context.Context, userID, groupID int64) error {
-	key := billingSubKey(userID, groupID)
+func (c *billingCache) InvalidateSubscriptionCache(ctx context.Context, userID, subscriptionID int64) error {
+	key := billingSubKey(userID, subscriptionID)
 	return c.rdb.Del(ctx, key).Err()
 }
 

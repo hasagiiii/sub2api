@@ -309,23 +309,30 @@ type AdminSubscriptionPlanResult struct {
 	GroupPlatform   string                 `json:"group_platform,omitempty"`
 	GroupName       string                 `json:"group_name,omitempty"`
 	RateMultiplier  float64                `json:"rate_multiplier,omitempty"`
+	// DailyLimitUSD 等三项是【主分组】的限额，保留给既有展示。
 	DailyLimitUSD   *float64               `json:"daily_limit_usd,omitempty"`
 	WeeklyLimitUSD  *float64               `json:"weekly_limit_usd,omitempty"`
 	MonthlyLimitUSD *float64               `json:"monthly_limit_usd,omitempty"`
-	ModelScopes     []string               `json:"supported_model_scopes,omitempty"`
-	Name            string                 `json:"name"`
-	Description     string                 `json:"description"`
-	Price           float64                `json:"price"`
-	OriginalPrice   *float64               `json:"original_price,omitempty"`
-	Currency        string                 `json:"currency,omitempty"`
-	ValidityDays    int                    `json:"validity_days"`
-	ValidityUnit    string                 `json:"validity_unit"`
-	Features        string                 `json:"features"`
-	ProductName     string                 `json:"product_name"`
-	ForSale         bool                   `json:"for_sale"`
-	SortOrder       int                    `json:"sort_order"`
-	CreatedAt       time.Time              `json:"created_at,omitempty"`
-	UpdatedAt       time.Time              `json:"updated_at,omitempty"`
+	// PlanDailyLimitUSD 等三项是【套餐自身】的共享限额：套餐绑定的所有分组共用
+	// 这一份额度。与上面的分组限额刻意分开命名，避免两者在前端被混淆。
+	// nil 表示套餐未设该窗口限额，运行时逐窗口回退到分组限额。
+	PlanDailyLimitUSD   *float64               `json:"plan_daily_limit_usd,omitempty"`
+	PlanWeeklyLimitUSD  *float64               `json:"plan_weekly_limit_usd,omitempty"`
+	PlanMonthlyLimitUSD *float64               `json:"plan_monthly_limit_usd,omitempty"`
+	ModelScopes         []string               `json:"supported_model_scopes,omitempty"`
+	Name                string                 `json:"name"`
+	Description         string                 `json:"description"`
+	Price               float64                `json:"price"`
+	OriginalPrice       *float64               `json:"original_price,omitempty"`
+	Currency            string                 `json:"currency,omitempty"`
+	ValidityDays        int                    `json:"validity_days"`
+	ValidityUnit        string                 `json:"validity_unit"`
+	Features            string                 `json:"features"`
+	ProductName         string                 `json:"product_name"`
+	ForSale             bool                   `json:"for_sale"`
+	SortOrder           int                    `json:"sort_order"`
+	CreatedAt           time.Time              `json:"created_at,omitempty"`
+	UpdatedAt           time.Time              `json:"updated_at,omitempty"`
 }
 
 func adminSubscriptionPlansForResponse(plans []*dbent.SubscriptionPlan, groupInfo map[int64]service.PlanGroupInfo) []AdminSubscriptionPlanResult {
@@ -362,7 +369,11 @@ func adminSubscriptionPlansForResponse(plans []*dbent.SubscriptionPlan, groupInf
 			DailyLimitUSD:   gi.DailyLimitUSD,
 			WeeklyLimitUSD:  gi.WeeklyLimitUSD,
 			MonthlyLimitUSD: gi.MonthlyLimitUSD,
-			ModelScopes:     gi.ModelScopes,
+			// 套餐自身的共享限额，与上面的分组限额互不覆盖。
+			PlanDailyLimitUSD:   p.DailyLimitUsd,
+			PlanWeeklyLimitUSD:  p.WeeklyLimitUsd,
+			PlanMonthlyLimitUSD: p.MonthlyLimitUsd,
+			ModelScopes:         gi.ModelScopes,
 			Name:            p.Name,
 			Description:     p.Description,
 			Price:           p.Price,

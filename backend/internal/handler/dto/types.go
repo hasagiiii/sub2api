@@ -71,13 +71,16 @@ type APIKey struct {
 	FallbackGroupIDs []int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID is set for enterprise API keys bound to a
 	// company subscription.
-	OrganizationSubscriptionID *int64     `json:"organization_subscription_id,omitempty"`
-	PreferCompanyBalance       bool       `json:"prefer_company_balance"`
-	Status                     string     `json:"status"`
-	IPWhitelist                []string   `json:"ip_whitelist"`
-	IPBlacklist                []string   `json:"ip_blacklist"`
-	LastUsedAt                 *time.Time `json:"last_used_at"`
-	LastUsedIP                 *string    `json:"last_used_ip"`
+	OrganizationSubscriptionID *int64 `json:"organization_subscription_id,omitempty"`
+	// UserSubscriptionID is set for keys bound to one of the owner's personal
+	// subscriptions; the key draws from that subscription's shared quota pool.
+	UserSubscriptionID   *int64     `json:"user_subscription_id,omitempty"`
+	PreferCompanyBalance bool       `json:"prefer_company_balance"`
+	Status               string     `json:"status"`
+	IPWhitelist          []string   `json:"ip_whitelist"`
+	IPBlacklist          []string   `json:"ip_blacklist"`
+	LastUsedAt           *time.Time `json:"last_used_at"`
+	LastUsedIP           *string    `json:"last_used_ip"`
 	Quota                      float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
 	QuotaUsed                  float64    `json:"quota_used"` // Used quota amount in USD
 	ExpiresAt                  *time.Time `json:"expires_at"` // Expiration time (nil = never expires)

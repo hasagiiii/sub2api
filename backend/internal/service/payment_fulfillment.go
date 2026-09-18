@@ -697,26 +697,28 @@ func (s *PaymentService) doSub(ctx context.Context, o *dbent.PaymentOrder, lease
 	// 必须固定在下单那一刻。
 	groupIDs := OrderSubscriptionGroupIDs(o)
 	days := *o.SubscriptionDays
-	// 先整体校验再逐个发放：避免"前几个分组已发放、后面某个分组失效"导致的部分
-	// 履约。逐组发放本身是幂等且可续跑的，重试只补未完成的分组。
+	// 先整体校验：任一分组失效就整单不发放，避免用户付了全款只拿到部分权益。
 	for _, gid := range groupIDs {
 		g, err := s.groupRepo.GetByID(ctx, gid)
 		if err != nil || g.Status != payment.EntityStatusActive {
 			return fmt.Errorf("group %d no longer exists or inactive", gid)
 		}
 	}
-	for _, gid := range groupIDs {
-		// Enterprise subscription order: fulfill onto the company subject
-		// (organization_subscriptions) instead of the buyer's personal
-		// subscription. Payment itself already went through the standard personal
-		// gateway pipeline; only the provisioning target differs.
-		if o.OrganizationID != nil {
+
+	// 个人订阅：一笔订单只发【一条】覆盖全部分组的订阅，这些分组共享它的那一
+	// 份额度池。绝不能按分组各发一条——限额是套餐级的，每组一条会让用户用一份
+	// 钱拿到分组数倍的额度。
+	//
+	// 企业订阅是另一套模型（organization_subscriptions 的限额仍取自各自分组），
+	// 保持按分组逐条发放不变。
+	if o.OrganizationID != nil {
+		for _, gid := range groupIDs {
 			if err := s.ensurePaymentOrganizationSubscriptionAssigned(ctx, o, *o.OrganizationID, gid, days); err != nil {
 				return err
 			}
-		} else if err := s.ensurePaymentSubscriptionAssigned(ctx, o, gid, days); err != nil {
-			return err
 		}
+	} else if err := s.ensurePaymentSubscriptionAssigned(ctx, o, groupIDs, days); err != nil {
+		return err
 	}
 	// 订阅成功后结算邀请返利。
 	// 返利按订单 ID + 金额做审计去重，重复调用是安全的。
@@ -768,10 +770,20 @@ func (s *PaymentService) ensurePaymentOrganizationSubscriptionAssigned(ctx conte
 	return nil
 }
 
-func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, o *dbent.PaymentOrder, groupID int64, days int) error {
+// ensurePaymentSubscriptionAssigned 为一笔已付款订单发放【一条】覆盖全部分组的
+// 个人订阅。
+//
+// 这些分组共享该订阅的同一份额度池，所以这里绝不按分组循环发放：套餐限额是整
+// 体的一份，每组一条订阅会让用户用一份钱拿到分组数倍的额度。
+func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, o *dbent.PaymentOrder, groupIDs []int64, days int) error {
 	if s.subscriptionSvc == nil {
 		return errors.New("subscription service is unavailable")
 	}
+	if len(groupIDs) == 0 {
+		return errors.New("subscription order has no groups to fulfill")
+	}
+	// 主分组取快照首元素，与套餐的主分组语义一致（展示用代表分组）。
+	primaryGroupID := groupIDs[0]
 
 	tx, err := s.entClient.Tx(ctx)
 	if err != nil {
@@ -781,54 +793,64 @@ func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, 
 
 	txCtx := dbent.NewTxContext(ctx, tx)
 	txClient := tx.Client()
-	alreadyAssigned, err := hasPaymentSubscriptionAssignmentAudit(txCtx, txClient, o.ID, groupID)
+	alreadyAssigned, err := hasPaymentSubscriptionAssignmentAudit(txCtx, txClient, o.ID, primaryGroupID)
 	if err != nil {
 		return fmt.Errorf("check subscription assignment audit: %w", err)
 	}
 
+	var assigned *UserSubscription
 	recoveredFromNote := false
 	if !alreadyAssigned {
 		orderNote := paymentSubscriptionOrderNote(o.ID)
-		existing, lookupErr := s.subscriptionSvc.userSubRepo.GetByUserIDAndGroupID(txCtx, o.UserID, groupID)
+		existing, lookupErr := s.subscriptionSvc.userSubRepo.GetByUserIDAndGroupID(txCtx, o.UserID, primaryGroupID)
 		switch {
 		case lookupErr == nil && existing != nil && hasPaymentSubscriptionOrderNote(existing.Notes, orderNote):
 			recoveredFromNote = true
+			assigned = existing
 		case lookupErr != nil && !errors.Is(lookupErr, ErrSubscriptionNotFound):
 			return fmt.Errorf("check existing subscription assignment: %w", lookupErr)
 		default:
-			if _, _, err := s.subscriptionSvc.assignOrExtendSubscription(txCtx, &AssignSubscriptionInput{
+			sub, _, err := s.subscriptionSvc.assignOrExtendSubscription(txCtx, &AssignSubscriptionInput{
 				UserID:       o.UserID,
-				GroupID:      groupID,
+				GroupID:      primaryGroupID,
+				GroupIDs:     groupIDs,
+				PlanID:       o.PlanID,
 				ValidityDays: days,
 				AssignedBy:   0,
 				Notes:        orderNote,
-			}, true); err != nil {
+			}, true)
+			if err != nil {
 				return fmt.Errorf("assign subscription: %w", err)
 			}
+			assigned = sub
 		}
 
 		detail, _ := json.Marshal(map[string]any{
-			"groupID":           groupID,
+			"groupID":           primaryGroupID,
+			"groupIDs":          groupIDs,
 			"validityDays":      days,
 			"recoveredFromNote": recoveredFromNote,
 		})
 		if _, err := txClient.PaymentAuditLog.Create().
 			SetOrderID(strconv.FormatInt(o.ID, 10)).
-			SetAction(paymentSubscriptionAssignedAction(groupID)).
+			SetAction(paymentSubscriptionAssignedAction(primaryGroupID)).
 			SetDetail(string(detail)).
 			SetOperator("system").
 			Save(txCtx); err != nil {
 			if dbent.IsConstraintError(err) {
 				_ = tx.Rollback()
-				claimed, checkErr := hasPaymentSubscriptionAssignmentAudit(ctx, s.entClient, o.ID, groupID)
+				claimed, checkErr := hasPaymentSubscriptionAssignmentAudit(ctx, s.entClient, o.ID, primaryGroupID)
 				if checkErr == nil && claimed {
-					return s.subscriptionSvc.invalidateSubscriptionCaches(o.UserID, groupID)
+					// 另一个执行者已抢到发放，它会自行完成失效；这里只补清本
+					// 进程的 L1 索引入口，不必再查库。
+					s.subscriptionSvc.invalidateCoveredGroupLookups(o.UserID, groupIDs)
+					return nil
 				}
 			}
 			return fmt.Errorf("record subscription assignment audit: %w", err)
 		}
 	} else {
-		slog.Info("subscription already assigned for order, skipping", "orderID", o.ID, "groupID", groupID)
+		slog.Info("subscription already assigned for order, skipping", "orderID", o.ID, "groupIDs", groupIDs)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -836,9 +858,17 @@ func (s *PaymentService) ensurePaymentSubscriptionAssigned(ctx context.Context, 
 	}
 	// Assignment cache invalidation is deferred while this transaction is open,
 	// then performed synchronously against the committed subscription.
-	if err := s.subscriptionSvc.invalidateSubscriptionCaches(o.UserID, groupID); err != nil {
-		return fmt.Errorf("invalidate subscription cache after fulfillment: %w", err)
+	//
+	// 必须按订阅失效：它覆盖的每个分组都有一个 L1 查找入口，漏掉任何一个都会让
+	// 该分组继续命中旧的（或不存在的）订阅。
+	if assigned != nil {
+		if err := s.subscriptionSvc.invalidateSubscriptionCaches(assigned); err != nil {
+			return fmt.Errorf("invalidate subscription cache after fulfillment: %w", err)
+		}
+		return nil
 	}
+	// 跳过分支：本单此前已发放并在当时完成过失效，这里只补清 L1 索引入口。
+	s.subscriptionSvc.invalidateCoveredGroupLookups(o.UserID, groupIDs)
 	return nil
 }
 

@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from './client'
-import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
+import type { ApiKey, BindableUserSubscription, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
 import type { OrganizationSubscription } from '@/types/organization'
 
 /**
@@ -58,6 +58,10 @@ export async function getById(id: number): Promise<ApiKey> {
  * @param rateLimitData - Optional rate limit fields
  * @param organizationSubscriptionId - Optional company subscription to bind (enterprise API key)
  * @param fallbackGroupIds - Ordered fallback group IDs
+ * @param preferCompanyBalance - Prefer company balance for enterprise keys
+ * @param options.userSubscriptionId - Optional personal subscription (plan) to bind. When set,
+ *   the key's routable groups come from that subscription's covered groups and all consumption
+ *   draws from its single shared quota pool, so `groupId` and fallback groups are ignored.
  * @returns Created API key
  */
 export async function create(
@@ -71,12 +75,19 @@ export async function create(
   rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
   organizationSubscriptionId?: number | null,
   fallbackGroupIds?: number[],
-  preferCompanyBalance = false
+  preferCompanyBalance = false,
+  options?: { userSubscriptionId?: number | null }
 ): Promise<ApiKey> {
   const payload: CreateApiKeyRequest = { name }
+  const userSubscriptionId = options?.userSubscriptionId
+  // 优先级与后端及编辑表单保持一致：企业订阅 > 个人订阅（套餐）> 单个分组。
   if (organizationSubscriptionId !== undefined && organizationSubscriptionId !== null) {
     payload.organization_subscription_id = organizationSubscriptionId
     payload.fallback_group_ids = fallbackGroupIds ?? []
+  } else if (userSubscriptionId !== undefined && userSubscriptionId !== null) {
+    // 绑定订阅时不再发送 group_id / fallback：候选分组完全由订阅的覆盖集合决定，
+    // 同时发送会产生两套来源。
+    payload.user_subscription_id = userSubscriptionId
   } else if (groupId !== undefined) {
     payload.group_id = groupId
     payload.fallback_group_ids = fallbackGroupIds ?? []
@@ -155,6 +166,20 @@ export async function listOrganizationSubscriptions(): Promise<OrganizationSubsc
   return data.subscriptions ?? []
 }
 
+/**
+ * List the current user's personal subscriptions (plans) that can be bound to an API key.
+ *
+ * A subscription is the quota pool: `group_ids` are the groups sharing it, and binding a key
+ * to it removes the ambiguity of which pool to charge when two plans cover the same group.
+ * @returns Bindable personal subscriptions
+ */
+export async function listUserSubscriptions(): Promise<BindableUserSubscription[]> {
+  const { data } = await apiClient.get<{ subscriptions: BindableUserSubscription[] }>(
+    '/keys/user-subscriptions'
+  )
+  return data.subscriptions ?? []
+}
+
 export const keysAPI = {
   list,
   getById,
@@ -162,7 +187,8 @@ export const keysAPI = {
   update,
   delete: deleteKey,
   toggleStatus,
-  listOrganizationSubscriptions
+  listOrganizationSubscriptions,
+  listUserSubscriptions
 }
 
 export default keysAPI

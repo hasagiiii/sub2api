@@ -185,6 +185,12 @@ type CreatePlanRequest struct {
 	ProductName   string   `json:"product_name"`
 	ForSale       bool     `json:"for_sale"`
 	SortOrder     int      `json:"sort_order"`
+	// 套餐级限额：由 GroupIDs 里的全部分组【共享】这一份额度。
+	// nil 表示不设置，判定时逐窗口回退到分组自身限额。
+	// 键名带 plan_ 前缀以区别于分组自身的 *_limit_usd。
+	DailyLimitUSD   *float64 `json:"plan_daily_limit_usd"`
+	WeeklyLimitUSD  *float64 `json:"plan_weekly_limit_usd"`
+	MonthlyLimitUSD *float64 `json:"plan_monthly_limit_usd"`
 }
 
 // ResolvedGroupIDs 归一化本次创建请求的分组列表（GroupIDs 优先，回退单值 GroupID）。
@@ -210,6 +216,11 @@ type UpdatePlanRequest struct {
 	ProductName   *string  `json:"product_name"`
 	ForSale       *bool    `json:"for_sale"`
 	SortOrder     *int     `json:"sort_order"`
+	// 套餐级共享限额。nil 表示本次补丁不修改该窗口；传 <= 0 表示清除限额
+	// （与 Group 的 *_limit_usd 一致：<= 0 即"无限额"），不引入第三种语义。
+	DailyLimitUSD   *float64 `json:"plan_daily_limit_usd"`
+	WeeklyLimitUSD  *float64 `json:"plan_weekly_limit_usd"`
+	MonthlyLimitUSD *float64 `json:"plan_monthly_limit_usd"`
 }
 
 // ResolvedGroupIDs 归一化本次补丁的分组列表。

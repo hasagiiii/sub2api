@@ -82,6 +82,29 @@
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.admin.currencyHint') }}</p>
         </div>
       </div>
+
+      <!--
+        套餐级共享限额：所选的全部分组共用这一份额度，而不是每个分组各给一份。
+        留空表示该窗口不限额，运行时回退到分组自身的限额。
+      -->
+      <div>
+        <label class="input-label">{{ t('payment.admin.planLimits') }}</label>
+        <div class="grid grid-cols-3 gap-4">
+          <div>
+            <label class="input-label text-xs">{{ t('payment.admin.dailyLimit') }}</label>
+            <input v-model.number="planForm.plan_daily_limit_usd" type="number" step="0.01" min="0" class="input" :placeholder="t('payment.admin.unlimited')" />
+          </div>
+          <div>
+            <label class="input-label text-xs">{{ t('payment.admin.weeklyLimit') }}</label>
+            <input v-model.number="planForm.plan_weekly_limit_usd" type="number" step="0.01" min="0" class="input" :placeholder="t('payment.admin.unlimited')" />
+          </div>
+          <div>
+            <label class="input-label text-xs">{{ t('payment.admin.monthlyLimit') }}</label>
+            <input v-model.number="planForm.plan_monthly_limit_usd" type="number" step="0.01" min="0" class="input" :placeholder="t('payment.admin.unlimited')" />
+          </div>
+        </div>
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('payment.admin.planLimitsHint') }}</p>
+      </div>
       <div>
         <label class="input-label">{{ t('payment.admin.features') }}</label>
         <textarea v-model="planFeaturesText" rows="3" class="input" :placeholder="t('payment.admin.featuresPlaceholder')"></textarea>
@@ -146,7 +169,7 @@ const appStore = useAppStore()
 const saving = ref(false)
 // group_ids 按勾选顺序保存：首个是主分组，后端会把它写回单值 group_id，
 // 决定结账页与广场卡片展示哪个分组的平台与倍率。
-const planForm = reactive({ name: '', group_ids: [] as number[], description: '', price: 0, original_price: 0, currency: '', validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true })
+const planForm = reactive({ name: '', group_ids: [] as number[], description: '', price: 0, original_price: 0, currency: '', validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true, plan_daily_limit_usd: 0, plan_weekly_limit_usd: 0, plan_monthly_limit_usd: 0 })
 const planFeaturesText = ref('')
 
 const validityUnitOptions = computed(() => [
@@ -204,10 +227,10 @@ watch(() => props.show, (visible) => {
   if (props.plan) {
     // 兼容尚未回填 group_ids 的存量套餐：回退到单值 group_id。
     const groupIDs = props.plan.group_ids?.length ? [...props.plan.group_ids] : (props.plan.group_id ? [props.plan.group_id] : [])
-    Object.assign(planForm, { name: props.plan.name, group_ids: groupIDs, description: props.plan.description, price: props.plan.price, original_price: props.plan.original_price || 0, currency: props.plan.currency || '', validity_days: props.plan.validity_days, validity_unit: props.plan.validity_unit || 'days', sort_order: props.plan.sort_order || 0, for_sale: props.plan.for_sale })
+    Object.assign(planForm, { name: props.plan.name, group_ids: groupIDs, description: props.plan.description, price: props.plan.price, original_price: props.plan.original_price || 0, currency: props.plan.currency || '', validity_days: props.plan.validity_days, validity_unit: props.plan.validity_unit || 'days', sort_order: props.plan.sort_order || 0, for_sale: props.plan.for_sale, plan_daily_limit_usd: props.plan.plan_daily_limit_usd ?? 0, plan_weekly_limit_usd: props.plan.plan_weekly_limit_usd ?? 0, plan_monthly_limit_usd: props.plan.plan_monthly_limit_usd ?? 0 })
     planFeaturesText.value = (props.plan.features || []).join('\n')
   } else {
-    Object.assign(planForm, { name: '', group_ids: [], description: '', price: 0, original_price: 0, currency: '', validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true })
+    Object.assign(planForm, { name: '', group_ids: [], description: '', price: 0, original_price: 0, currency: '', validity_days: 30, validity_unit: 'days', sort_order: 0, for_sale: true, plan_daily_limit_usd: 0, plan_weekly_limit_usd: 0, plan_monthly_limit_usd: 0 })
     planFeaturesText.value = ''
   }
 })
@@ -228,6 +251,11 @@ function buildPlanPayload() {
     validity_unit: planForm.validity_unit,
     sort_order: planForm.sort_order,
     for_sale: planForm.for_sale,
+    // 套餐级共享限额。始终发送：0 在后端表示"不限额"（新建时不写入，编辑时清除），
+    // 因此清空输入框能真正把限额去掉，而不是被当作"不修改"而残留。
+    plan_daily_limit_usd: planForm.plan_daily_limit_usd || 0,
+    plan_weekly_limit_usd: planForm.plan_weekly_limit_usd || 0,
+    plan_monthly_limit_usd: planForm.plan_monthly_limit_usd || 0,
     features,
   }
 }

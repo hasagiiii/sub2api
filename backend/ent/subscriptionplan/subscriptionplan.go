@@ -25,6 +25,12 @@ const (
 	FieldPrice = "price"
 	// FieldStandardQuotaTokens holds the string denoting the standard_quota_tokens field in the database.
 	FieldStandardQuotaTokens = "standard_quota_tokens"
+	// FieldDailyLimitUsd holds the string denoting the daily_limit_usd field in the database.
+	FieldDailyLimitUsd = "daily_limit_usd"
+	// FieldWeeklyLimitUsd holds the string denoting the weekly_limit_usd field in the database.
+	FieldWeeklyLimitUsd = "weekly_limit_usd"
+	// FieldMonthlyLimitUsd holds the string denoting the monthly_limit_usd field in the database.
+	FieldMonthlyLimitUsd = "monthly_limit_usd"
 	// FieldOriginalPrice holds the string denoting the original_price field in the database.
 	FieldOriginalPrice = "original_price"
 	// FieldCurrency holds the string denoting the currency field in the database.
@@ -58,6 +64,9 @@ var Columns = []string{
 	FieldDescription,
 	FieldPrice,
 	FieldStandardQuotaTokens,
+	FieldDailyLimitUsd,
+	FieldWeeklyLimitUsd,
+	FieldMonthlyLimitUsd,
 	FieldOriginalPrice,
 	FieldCurrency,
 	FieldValidityDays,
@@ -148,6 +157,21 @@ func ByPrice(opts ...sql.OrderTermOption) OrderOption {
 // ByStandardQuotaTokens orders the results by the standard_quota_tokens field.
 func ByStandardQuotaTokens(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldStandardQuotaTokens, opts...).ToFunc()
+}
+
+// ByDailyLimitUsd orders the results by the daily_limit_usd field.
+func ByDailyLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldDailyLimitUsd, opts...).ToFunc()
+}
+
+// ByWeeklyLimitUsd orders the results by the weekly_limit_usd field.
+func ByWeeklyLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldWeeklyLimitUsd, opts...).ToFunc()
+}
+
+// ByMonthlyLimitUsd orders the results by the monthly_limit_usd field.
+func ByMonthlyLimitUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMonthlyLimitUsd, opts...).ToFunc()
 }
 
 // ByOriginalPrice orders the results by the original_price field.

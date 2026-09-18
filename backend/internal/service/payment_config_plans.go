@@ -199,8 +199,22 @@ func (s *PaymentConfigService) CreatePlan(ctx context.Context, req CreatePlanReq
 	if req.OriginalPrice != nil {
 		b.SetOriginalPrice(*req.OriginalPrice)
 	}
+	// 套餐级共享限额：<= 0 视为未设置（与分组限额语义一致），不写入该列。
+	if positivePlanLimit(req.DailyLimitUSD) {
+		b.SetDailyLimitUsd(*req.DailyLimitUSD)
+	}
+	if positivePlanLimit(req.WeeklyLimitUSD) {
+		b.SetWeeklyLimitUsd(*req.WeeklyLimitUSD)
+	}
+	if positivePlanLimit(req.MonthlyLimitUSD) {
+		b.SetMonthlyLimitUsd(*req.MonthlyLimitUSD)
+	}
 	return b.Save(ctx)
 }
+
+// positivePlanLimit 报告该限额是否为"已设置"。
+// <= 0 与 nil 一样表示不限额，这与 Group.HasDailyLimit 的判定保持一致。
+func positivePlanLimit(v *float64) bool { return v != nil && *v > 0 }
 
 // UpdatePlan updates a subscription plan by ID (patch semantics).
 // NOTE: This function exceeds 30 lines due to per-field nil-check patch update boilerplate
@@ -252,6 +266,28 @@ func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req Upd
 	}
 	if req.SortOrder != nil {
 		u.SetSortOrder(*req.SortOrder)
+	}
+	// 限额补丁：nil 不修改；传 <= 0 表示清除（回退到分组限额）。
+	if req.DailyLimitUSD != nil {
+		if *req.DailyLimitUSD > 0 {
+			u.SetDailyLimitUsd(*req.DailyLimitUSD)
+		} else {
+			u.ClearDailyLimitUsd()
+		}
+	}
+	if req.WeeklyLimitUSD != nil {
+		if *req.WeeklyLimitUSD > 0 {
+			u.SetWeeklyLimitUsd(*req.WeeklyLimitUSD)
+		} else {
+			u.ClearWeeklyLimitUsd()
+		}
+	}
+	if req.MonthlyLimitUSD != nil {
+		if *req.MonthlyLimitUSD > 0 {
+			u.SetMonthlyLimitUsd(*req.MonthlyLimitUSD)
+		} else {
+			u.ClearMonthlyLimitUsd()
+		}
 	}
 	return u.Save(ctx)
 }

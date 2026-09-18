@@ -166,9 +166,20 @@ export interface SubscriptionPlan {
   peak_start?: string
   peak_end?: string
   peak_rate_multiplier?: number
+  /**
+   * 主分组的限额，仅用于展示。
+   * 实际生效的限额见 plan_*_limit_usd（套餐级，优先），未设置时才回退到这里。
+   */
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
+  /**
+   * 套餐级共享限额：套餐绑定的【所有分组共用】这一份额度，而不是每个分组各给
+   * 一份。null/未设置表示该窗口不限额，运行时逐窗口回退到分组自身限额。
+   */
+  plan_daily_limit_usd?: number | null
+  plan_weekly_limit_usd?: number | null
+  plan_monthly_limit_usd?: number | null
   supported_model_scopes?: string[]
   name: string
   description: string

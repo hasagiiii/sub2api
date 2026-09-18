@@ -26,6 +26,13 @@ func (r *lockingRenewalRepo) GetByUserIDAndGroupID(context.Context, int64, int64
 	return &copy, nil
 }
 
+// 本用例测的是手动分配（无来源套餐）续期，走的是 plan_id IS NULL 的查找路径。
+// 这里刻意返回过期的 stale 行，用于验证续期会在锁内重新读取当前行。
+func (r *lockingRenewalRepo) GetManualByUserIDAndGroupID(context.Context, int64, int64) (*UserSubscription, error) {
+	copy := r.stale
+	return &copy, nil
+}
+
 func (r *lockingRenewalRepo) GetByID(_ context.Context, _ int64) (*UserSubscription, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

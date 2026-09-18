@@ -36,6 +36,8 @@ type APIKey struct {
 	GroupID *int64 `json:"group_id,omitempty"`
 	// Ordered fallback group IDs for personal API keys
 	FallbackGroupIds []int64 `json:"fallback_group_ids,omitempty"`
+	// Bound personal subscription id for subscription-scoped API keys (user_subscriptions.id)
+	UserSubscriptionID *int64 `json:"user_subscription_id,omitempty"`
 	// Bound organization subscription id for enterprise API keys (organization_subscriptions.id)
 	OrganizationSubscriptionID *int64 `json:"organization_subscription_id,omitempty"`
 	// Prefer company balance after enterprise subscription is exhausted
@@ -133,7 +135,7 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case apikey.FieldQuota, apikey.FieldQuotaUsed, apikey.FieldRateLimit5h, apikey.FieldRateLimit1d, apikey.FieldRateLimit7d, apikey.FieldUsage5h, apikey.FieldUsage1d, apikey.FieldUsage7d:
 			values[i] = new(sql.NullFloat64)
-		case apikey.FieldID, apikey.FieldUserID, apikey.FieldGroupID, apikey.FieldOrganizationSubscriptionID:
+		case apikey.FieldID, apikey.FieldUserID, apikey.FieldGroupID, apikey.FieldUserSubscriptionID, apikey.FieldOrganizationSubscriptionID:
 			values[i] = new(sql.NullInt64)
 		case apikey.FieldKey, apikey.FieldName, apikey.FieldStatus:
 			values[i] = new(sql.NullString)
@@ -211,6 +213,13 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.FallbackGroupIds); err != nil {
 					return fmt.Errorf("unmarshal field fallback_group_ids: %w", err)
 				}
+			}
+		case apikey.FieldUserSubscriptionID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field user_subscription_id", values[i])
+			} else if value.Valid {
+				_m.UserSubscriptionID = new(int64)
+				*_m.UserSubscriptionID = value.Int64
 			}
 		case apikey.FieldOrganizationSubscriptionID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -408,6 +417,11 @@ func (_m *APIKey) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("fallback_group_ids=")
 	builder.WriteString(fmt.Sprintf("%v", _m.FallbackGroupIds))
+	builder.WriteString(", ")
+	if v := _m.UserSubscriptionID; v != nil {
+		builder.WriteString("user_subscription_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	if v := _m.OrganizationSubscriptionID; v != nil {
 		builder.WriteString("organization_subscription_id=")

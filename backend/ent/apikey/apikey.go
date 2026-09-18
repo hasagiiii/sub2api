@@ -31,6 +31,8 @@ const (
 	FieldGroupID = "group_id"
 	// FieldFallbackGroupIds holds the string denoting the fallback_group_ids field in the database.
 	FieldFallbackGroupIds = "fallback_group_ids"
+	// FieldUserSubscriptionID holds the string denoting the user_subscription_id field in the database.
+	FieldUserSubscriptionID = "user_subscription_id"
 	// FieldOrganizationSubscriptionID holds the string denoting the organization_subscription_id field in the database.
 	FieldOrganizationSubscriptionID = "organization_subscription_id"
 	// FieldPreferCompanyBalance holds the string denoting the prefer_company_balance field in the database.
@@ -109,6 +111,7 @@ var Columns = []string{
 	FieldName,
 	FieldGroupID,
 	FieldFallbackGroupIds,
+	FieldUserSubscriptionID,
 	FieldOrganizationSubscriptionID,
 	FieldPreferCompanyBalance,
 	FieldStatus,
@@ -224,6 +227,11 @@ func ByName(opts ...sql.OrderTermOption) OrderOption {
 // ByGroupID orders the results by the group_id field.
 func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
+}
+
+// ByUserSubscriptionID orders the results by the user_subscription_id field.
+func ByUserSubscriptionID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUserSubscriptionID, opts...).ToFunc()
 }
 
 // ByOrganizationSubscriptionID orders the results by the organization_subscription_id field.

@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 26 // v26: include fixed input-image pricing in group snapshots
+const apiKeyAuthSnapshotVersion = 27 // v27: carry user_subscription_id for subscription-bound keys
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -344,6 +344,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		GroupID:                    apiKey.GroupID,
 		FallbackGroupIDs:           append([]int64(nil), apiKey.FallbackGroupIDs...),
 		OrganizationSubscriptionID: apiKey.OrganizationSubscriptionID,
+		UserSubscriptionID:         apiKey.UserSubscriptionID,
 		PreferCompanyBalance:       apiKey.PreferCompanyBalance,
 		Name:                       apiKey.Name,
 		Status:                     apiKey.Status,
@@ -473,6 +474,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		GroupID:                    snapshot.GroupID,
 		FallbackGroupIDs:           append([]int64(nil), snapshot.FallbackGroupIDs...),
 		OrganizationSubscriptionID: snapshot.OrganizationSubscriptionID,
+		UserSubscriptionID:         snapshot.UserSubscriptionID,
 		PreferCompanyBalance:       snapshot.PreferCompanyBalance,
 		Key:                        key,
 		Name:                       snapshot.Name,

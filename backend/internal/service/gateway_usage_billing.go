@@ -478,9 +478,12 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	if p.IsSubscriptionBill {
 		// 企业 Key 消费公司订阅，直接落库（IncrementOrganizationSubscriptionUsage），
 		// 不走个人订阅用量缓存队列。
-		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.APIKey.GroupID != nil &&
+		//
+		// 计数器按订阅寻址而非按分组：一条订阅覆盖的多个分组共享同一份额度，
+		// 按分组累加会把一个池拆成多个，额度实际被放大成分组数倍。
+		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.Subscription != nil &&
 			p.APIKey.OrganizationSubscriptionID == nil {
-			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, *p.APIKey.GroupID, p.Cost.ActualCost)
+			deps.billingCacheService.QueueUpdateSubscriptionUsage(p.User.ID, p.Subscription.ID, p.Cost.ActualCost)
 		}
 	} else if p.Cost.ActualCost > 0 && p.User != nil {
 		syncBalanceCacheAfterDeduction(ctx, p, deps, result)

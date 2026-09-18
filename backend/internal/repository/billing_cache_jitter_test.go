@@ -70,8 +70,9 @@ func TestBillingKeyGeneration(t *testing.T) {
 	})
 
 	t.Run("sub_key", func(t *testing.T) {
+		// 第二段是订阅 ID：额度池按订阅寻址，不按分组。
 		key := billingSubKey(100, 200)
-		assert.Equal(t, "billing:sub:100:200", key)
+		assert.Equal(t, "billing:subpool:100:200", key)
 	})
 }
 

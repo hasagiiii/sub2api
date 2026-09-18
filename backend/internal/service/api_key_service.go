@@ -223,10 +223,14 @@ type CreateAPIKeyRequest struct {
 	// subscription's group and consumption is charged against the organization
 	// subscription instead of a personal subscription.
 	OrganizationSubscriptionID *int64   `json:"organization_subscription_id"`
-	PreferCompanyBalance       bool     `json:"prefer_company_balance"`
-	CustomKey                  *string  `json:"custom_key"`   // 可选的自定义key
-	IPWhitelist                []string `json:"ip_whitelist"` // IP 白名单
-	IPBlacklist                []string `json:"ip_blacklist"` // IP 黑名单
+	// UserSubscriptionID, when set, creates a subscription-bound API key. The
+	// key's routable groups come from that subscription's covered groups and all
+	// consumption is charged against its single shared quota pool.
+	UserSubscriptionID   *int64   `json:"user_subscription_id"`
+	PreferCompanyBalance bool     `json:"prefer_company_balance"`
+	CustomKey            *string  `json:"custom_key"`   // 可选的自定义key
+	IPWhitelist          []string `json:"ip_whitelist"` // IP 白名单
+	IPBlacklist          []string `json:"ip_blacklist"` // IP 黑名单
 
 	// Quota fields
 	Quota         float64 `json:"quota"`           // Quota limit in USD (0 = unlimited)
@@ -246,11 +250,14 @@ type UpdateAPIKeyRequest struct {
 	// OrganizationSubscriptionID, when set, re-binds this key to a company
 	// subscription (enterprise key). Selecting a normal GroupID clears the
 	// enterprise binding.
-	OrganizationSubscriptionID *int64    `json:"organization_subscription_id"`
-	PreferCompanyBalance       *bool     `json:"prefer_company_balance"`
-	Status                     *string   `json:"status"`
-	IPWhitelist                *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
-	IPBlacklist                *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
+	OrganizationSubscriptionID *int64 `json:"organization_subscription_id"`
+	// UserSubscriptionID, when set, re-binds this key to one of the owner's
+	// personal subscriptions. Selecting a normal GroupID clears the binding.
+	UserSubscriptionID   *int64    `json:"user_subscription_id"`
+	PreferCompanyBalance *bool     `json:"prefer_company_balance"`
+	Status               *string   `json:"status"`
+	IPWhitelist          *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
+	IPBlacklist          *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
 
 	// Quota fields
 	Quota           *float64   `json:"quota"`       // Quota limit in USD (nil = no change, 0 = unlimited)
@@ -543,6 +550,36 @@ func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group 
 	return user.CanBindGroup(group.ID, group.IsExclusive)
 }
 
+// resolveBindableUserSubscription 校验用户可绑定指定个人订阅并返回它。
+//
+// 归属校验是硬性的：订阅必须属于该用户，否则一把 Key 就能消费他人的额度池。
+// 同时要求订阅活跃未过期，避免绑定一条注定不可用的订阅。
+func (s *APIKeyService) resolveBindableUserSubscription(ctx context.Context, userID, subscriptionID int64) (*UserSubscription, error) {
+	if subscriptionID <= 0 {
+		return nil, ErrSubscriptionNotFound
+	}
+	sub, err := s.userSubRepo.GetByID(ctx, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+	if sub == nil || sub.UserID != userID {
+		return nil, ErrSubscriptionNotFound
+	}
+	if !sub.IsActive() {
+		return nil, ErrSubscriptionInvalid
+	}
+	return sub, nil
+}
+
+// ListBindableUserSubscriptions 返回当前用户可绑定到 API Key 的活跃个人订阅。
+func (s *APIKeyService) ListBindableUserSubscriptions(ctx context.Context, userID int64) ([]UserSubscription, error) {
+	subs, err := s.userSubRepo.ListActiveByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list bindable user subscriptions: %w", err)
+	}
+	return subs, nil
+}
+
 // resolveBindableOrganizationSubscription 校验用户可绑定指定公司订阅并返回它。
 // 用户必须是该订阅所属组织的活跃成员，且订阅处于活跃且未过期状态。
 func (s *APIKeyService) resolveBindableOrganizationSubscription(ctx context.Context, userID, subscriptionID int64) (*OrganizationSubscription, error) {
@@ -745,6 +782,18 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 		gid := orgSub.GroupID
 		req.GroupID = &gid
+	} else if req.UserSubscriptionID != nil {
+		// 订阅绑定 Key：可路由分组来自订阅的覆盖集合，主分组取其首元素。
+		// 与企业 Key 同理，这里由订阅反推分组，而不是让调用方自己传。
+		sub, err := s.resolveBindableUserSubscription(ctx, userID, *req.UserSubscriptionID)
+		if err != nil {
+			return nil, err
+		}
+		gid := sub.GroupID
+		req.GroupID = &gid
+		// 订阅已经给出了完整的候选分组，手动 fallback 会与之冲突（两套候选来源），
+		// 因此绑定订阅时不接受 fallback 分组。
+		req.FallbackGroupIDs = nil
 	} else if req.GroupID != nil {
 		// 验证分组权限（个人 Key）
 		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
@@ -804,6 +853,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		GroupID:                    req.GroupID,
 		FallbackGroupIDs:           append([]int64(nil), req.FallbackGroupIDs...),
 		OrganizationSubscriptionID: req.OrganizationSubscriptionID,
+		UserSubscriptionID:         req.UserSubscriptionID,
 		PreferCompanyBalance:       req.PreferCompanyBalance,
 		Status:                     StatusActive,
 		IPWhitelist:                req.IPWhitelist,
@@ -1075,7 +1125,22 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		gid := orgSub.GroupID
 		apiKey.GroupID = &gid
 		apiKey.OrganizationSubscriptionID = req.OrganizationSubscriptionID
+		apiKey.UserSubscriptionID = nil
 		fields.GroupID = true
+	} else if req.UserSubscriptionID != nil {
+		// 重新绑定为订阅 Key：分组由订阅的主分组决定，并清掉企业绑定与手动
+		// fallback，避免同时存在两套候选分组来源。
+		sub, err := s.resolveBindableUserSubscription(ctx, userID, *req.UserSubscriptionID)
+		if err != nil {
+			return nil, err
+		}
+		gid := sub.GroupID
+		apiKey.GroupID = &gid
+		apiKey.UserSubscriptionID = req.UserSubscriptionID
+		apiKey.OrganizationSubscriptionID = nil
+		apiKey.FallbackGroupIDs = nil
+		fields.GroupID = true
+		fields.FallbackGroupIDs = true
 	} else if req.GroupID != nil {
 		// 验证分组权限（个人 Key），并清除可能存在的企业绑定
 		user, err := s.userRepo.GetByID(ctx, userID)
@@ -1406,9 +1471,15 @@ func (s *APIKeyService) validateAPIKeyFallbackGroups(ctx context.Context, user *
 // ResolveAPIKeyRoutingCandidates returns the primary group followed by the
 // configured fallback groups. Runtime-invalid fallbacks remain in the result
 // with Unavailable set so routing can preserve order and diagnostics.
+//
+// For a subscription-bound key the candidates instead come from the bound
+// subscription's covered groups (see resolveSubscriptionBoundCandidates).
 func (s *APIKeyService) ResolveAPIKeyRoutingCandidates(ctx context.Context, apiKey *APIKey) []APIKeyRoutingCandidate {
 	if apiKey == nil {
 		return nil
+	}
+	if apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0 {
+		return s.resolveSubscriptionBoundCandidates(ctx, apiKey)
 	}
 	groupIDs := make([]int64, 0, 1+len(apiKey.FallbackGroupIDs))
 	if apiKey.GroupID != nil && *apiKey.GroupID > 0 {
@@ -1441,6 +1512,51 @@ func (s *APIKeyService) ResolveAPIKeyRoutingCandidates(ctx context.Context, apiK
 			candidate.Unavailable = ErrGroupNotAllowed
 		}
 		candidates = append(candidates, candidate)
+	}
+	return candidates
+}
+
+// resolveSubscriptionBoundCandidates 把"Key 绑定的订阅"展开成有序候选分组。
+//
+// 每个候选都携带【同一条】订阅，这正是绑定订阅的意义：套餐可覆盖多个分组、且两
+// 个套餐可能都覆盖同一分组，单看分组无法确定该扣哪个额度池；绑定后池子由 Key 唯
+// 一确定，无需"先扣哪个、扣完顺延"之类的规则。
+//
+// 顺序取自 user_subscription_groups.sort_order（主分组在首位），与手动 fallback
+// 的语义一致：从首个可用的候选开始，失败则依次后移。
+func (s *APIKeyService) resolveSubscriptionBoundCandidates(ctx context.Context, apiKey *APIKey) []APIKeyRoutingCandidate {
+	sub, err := s.userSubRepo.GetByID(ctx, *apiKey.UserSubscriptionID)
+	if err != nil || sub == nil {
+		// 订阅被删除/撤销：这把 Key 失去额度池依据，整体不可用。返回带原因的
+		// 单个候选，让上层给出明确错误而不是静默回退到某个分组。
+		return []APIKeyRoutingCandidate{{Unavailable: ErrSubscriptionNotFound}}
+	}
+	if sub.UserID != apiKey.UserID {
+		// 越权：Key 的持有者与订阅归属不一致，绝不能放行。
+		return []APIKeyRoutingCandidate{{Unavailable: ErrSubscriptionInvalid}}
+	}
+
+	groupIDs := sub.CoveredGroupIDs()
+	candidates := make([]APIKeyRoutingCandidate, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		group, groupErr := s.groupRepo.GetByID(ctx, groupID)
+		if groupErr != nil {
+			candidates = append(candidates, APIKeyRoutingCandidate{Unavailable: groupErr})
+			continue
+		}
+		candidate := APIKeyRoutingCandidate{Group: group}
+		switch {
+		case group == nil || !group.IsActive():
+			candidate.Unavailable = ErrGroupNotFound
+		default:
+			// 订阅本身就是授权凭据：用户已为这些分组付费，无需再过
+			// canUserBindGroup。额度池统一挂在这条订阅上。
+			candidate.Subscription = sub
+		}
+		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		return []APIKeyRoutingCandidate{{Unavailable: ErrGroupNotFound}}
 	}
 	return candidates
 }

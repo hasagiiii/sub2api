@@ -14,7 +14,13 @@ func prepareAPIKeyRoutingState(
 	apiKey *service.APIKey,
 	skipBilling bool,
 ) (*service.APIKeyRoutingState, error) {
-	if apiKey == nil || len(apiKey.FallbackGroupIDs) == 0 {
+	if apiKey == nil {
+		return nil, nil
+	}
+	// 绑定订阅的 Key 一定要走路由状态：它的可路由分组来自订阅的覆盖集合，没有
+	// 路由状态就无法展开，请求会退化到单个 group_id。
+	subscriptionBound := apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0
+	if !subscriptionBound && len(apiKey.FallbackGroupIDs) == 0 {
 		return nil, nil
 	}
 	candidates := apiKeyService.ResolveAPIKeyRoutingCandidates(ctx, apiKey)
@@ -32,14 +38,21 @@ func prepareAPIKeyRoutingState(
 		if subscriptionService == nil {
 			continue
 		}
-		subscription, err := subscriptionService.GetActiveSubscription(ctx, apiKey.UserID, candidate.Group.ID)
-		if err != nil {
-			if errors.Is(err, service.ErrSubscriptionNotFound) {
-				candidate.Unavailable = err
-				continue
+		subscription := candidate.Subscription
+		if subscription == nil {
+			// 按分组绑定的 Key：由 (用户, 分组) 反查订阅。
+			resolved, err := subscriptionService.GetActiveSubscription(ctx, apiKey.UserID, candidate.Group.ID)
+			if err != nil {
+				if errors.Is(err, service.ErrSubscriptionNotFound) {
+					candidate.Unavailable = err
+					continue
+				}
+				return nil, err
 			}
-			return nil, err
+			subscription = resolved
 		}
+		// 绑定订阅的 Key 已在解析候选时带上了订阅本体（所有候选共用同一条），
+		// 这里直接沿用，避免按分组反查时命中另一个覆盖同分组的额度池。
 		needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, candidate.Group)
 		if needsMaintenance {
 			refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(ctx, subscription)

@@ -12,6 +12,15 @@ type UserSubscription struct {
 	ID      int64
 	UserID  int64
 	GroupID int64
+	// PlanID 是来源套餐；nil 表示后台手动分配、不属于任何套餐的订阅。
+	PlanID *int64
+	// GroupIDs 是这条订阅覆盖的全部分组（含 GroupID，且 GroupID 为首元素）。
+	// 这些分组【共享】本条订阅的同一份用量计数器与限额，这正是"买一份套餐拿
+	// 一份额度"的实现方式。空切片表示尚未加载，读取方应回退到 GroupID。
+	GroupIDs []int64
+	// PlanLimits 是来源套餐的限额，加载订阅时实时读入。未设置的窗口在
+	// EffectiveLimits 里逐个回退到分组限额。
+	PlanLimits SubscriptionLimits
 
 	StartsAt  time.Time
 	ExpiresAt time.Time
@@ -204,25 +213,63 @@ func (s *UserSubscription) MonthlyResetTime() *time.Time {
 	return &t
 }
 
+// CheckDailyLimit 等三个方法判定的是【这条订阅】的额度池，而不是某个分组各自
+// 的额度：订阅覆盖的所有分组共用 s.DailyUsageUSD 这一个计数器。group 参数仍然
+// 保留，因为套餐未设置的窗口要回退到分组自身的限额。
 func (s *UserSubscription) CheckDailyLimit(group *Group, additionalCost float64) bool {
-	if !group.HasDailyLimit() {
+	limits := s.EffectiveLimits(group)
+	if !limits.HasDailyLimit() {
 		return true
 	}
-	return s.DailyUsageUSD+additionalCost <= *group.DailyLimitUSD
+	return s.DailyUsageUSD+additionalCost <= *limits.DailyLimitUSD
 }
 
 func (s *UserSubscription) CheckWeeklyLimit(group *Group, additionalCost float64) bool {
-	if !group.HasWeeklyLimit() {
+	limits := s.EffectiveLimits(group)
+	if !limits.HasWeeklyLimit() {
 		return true
 	}
-	return s.WeeklyUsageUSD+additionalCost <= *group.WeeklyLimitUSD
+	return s.WeeklyUsageUSD+additionalCost <= *limits.WeeklyLimitUSD
 }
 
 func (s *UserSubscription) CheckMonthlyLimit(group *Group, additionalCost float64) bool {
-	if !group.HasMonthlyLimit() {
+	limits := s.EffectiveLimits(group)
+	if !limits.HasMonthlyLimit() {
 		return true
 	}
-	return s.MonthlyUsageUSD+additionalCost <= *group.MonthlyLimitUSD
+	return s.MonthlyUsageUSD+additionalCost <= *limits.MonthlyLimitUSD
+}
+
+// CoveredGroupIDs 返回这条订阅覆盖的全部分组，主分组在首位。
+// GroupIDs 未加载时回退到单个主分组，保证调用方永远拿得到非空集合。
+func (s *UserSubscription) CoveredGroupIDs() []int64 {
+	if s == nil {
+		return nil
+	}
+	if len(s.GroupIDs) == 0 {
+		if s.GroupID <= 0 {
+			return nil
+		}
+		return []int64{s.GroupID}
+	}
+	return s.GroupIDs
+}
+
+// CoversGroup 报告这条订阅的额度池是否覆盖指定分组。
+// GroupIDs 为空表示未加载覆盖集合，此时回退比较主分组，保证存量调用不受影响。
+func (s *UserSubscription) CoversGroup(groupID int64) bool {
+	if s == nil || groupID <= 0 {
+		return false
+	}
+	if len(s.GroupIDs) == 0 {
+		return s.GroupID == groupID
+	}
+	for _, id := range s.GroupIDs {
+		if id == groupID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *UserSubscription) CheckAllLimits(group *Group, additionalCost float64) (daily, weekly, monthly bool) {

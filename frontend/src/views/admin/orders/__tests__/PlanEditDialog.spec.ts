@@ -223,8 +223,40 @@ describe('PlanEditDialog', () => {
     expect(payload.group_id).toBe(11)
   })
 
-  it('refuses to save when no group is selected', async () => {
+  // 套餐限额是"共享一份"的载体：必须随 payload 提交，且清空时要发 0 让后端清除，
+  // 否则管理员取消限额后旧值会残留。
+  it('submits the shared plan limits and sends 0 to clear them', async () => {
     const createPlan = vi.mocked(adminPaymentAPI.createPlan)
+    createPlan.mockClear()
+    createPlan.mockResolvedValue({ data: {} } as never)
+
+    const wrapper = mountDialog({
+      groups: [groupFixture({ id: 10, name: 'Alpha', platform: 'openai', subscription_type: 'subscription' })],
+    })
+
+    await wrapper.findAll('input[type="checkbox"]')[0].setValue(true)
+    const numberInputs = wrapper.findAll('input[type="number"]')
+    await numberInputs[0].setValue('9.99')
+    // 三个限额输入紧随价格/原价/有效期/排序之后，按 placeholder 定位更稳。
+    const limitInputs = wrapper.findAll('input[placeholder="payment.admin.unlimited"]')
+    expect(limitInputs).toHaveLength(3)
+    await limitInputs[0].setValue('5')
+    await limitInputs[1].setValue('')
+    await limitInputs[2].setValue('100')
+    await wrapper.find('form').trigger('submit')
+
+    expect(createPlan).toHaveBeenCalledTimes(1)
+    const payload = createPlan.mock.calls[0][0] as {
+      plan_daily_limit_usd: number
+      plan_weekly_limit_usd: number
+      plan_monthly_limit_usd: number
+    }
+    expect(payload.plan_daily_limit_usd).toBe(5)
+    expect(payload.plan_weekly_limit_usd).toBe(0)
+    expect(payload.plan_monthly_limit_usd).toBe(100)
+  })
+
+  it('refuses to save when no group is selected', async () => {    const createPlan = vi.mocked(adminPaymentAPI.createPlan)
     createPlan.mockClear()
 
     const wrapper = mountDialog({

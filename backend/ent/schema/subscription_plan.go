@@ -51,6 +51,22 @@ func (SubscriptionPlan) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,2)"}),
 		field.Int64("standard_quota_tokens").
 			Default(0),
+		// 套餐级限额：由 group_ids 里的全部分组【共享】这一份额度，而不是每个
+		// 分组各给一份。NULL 表示套餐未设限额，判定时回退到分组自身的
+		// *_limit_usd，因此存量套餐与后台手动分配的订阅行为不变。
+		// 判定时实时回查（不在购买时快照），管理员调整后立即对已购订阅生效。
+		field.Float("daily_limit_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Optional().
+			Nillable(),
+		field.Float("weekly_limit_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Optional().
+			Nillable(),
+		field.Float("monthly_limit_usd").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Optional().
+			Nillable(),
 		field.Float("original_price").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,2)"}).
 			Optional().

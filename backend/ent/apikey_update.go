@@ -132,6 +132,33 @@ func (_u *APIKeyUpdate) AppendFallbackGroupIds(v []int64) *APIKeyUpdate {
 	return _u
 }
 
+// SetUserSubscriptionID sets the "user_subscription_id" field.
+func (_u *APIKeyUpdate) SetUserSubscriptionID(v int64) *APIKeyUpdate {
+	_u.mutation.ResetUserSubscriptionID()
+	_u.mutation.SetUserSubscriptionID(v)
+	return _u
+}
+
+// SetNillableUserSubscriptionID sets the "user_subscription_id" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableUserSubscriptionID(v *int64) *APIKeyUpdate {
+	if v != nil {
+		_u.SetUserSubscriptionID(*v)
+	}
+	return _u
+}
+
+// AddUserSubscriptionID adds value to the "user_subscription_id" field.
+func (_u *APIKeyUpdate) AddUserSubscriptionID(v int64) *APIKeyUpdate {
+	_u.mutation.AddUserSubscriptionID(v)
+	return _u
+}
+
+// ClearUserSubscriptionID clears the value of the "user_subscription_id" field.
+func (_u *APIKeyUpdate) ClearUserSubscriptionID() *APIKeyUpdate {
+	_u.mutation.ClearUserSubscriptionID()
+	return _u
+}
+
 // SetOrganizationSubscriptionID sets the "organization_subscription_id" field.
 func (_u *APIKeyUpdate) SetOrganizationSubscriptionID(v int64) *APIKeyUpdate {
 	_u.mutation.ResetOrganizationSubscriptionID()
@@ -654,6 +681,15 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			sqljson.Append(u, apikey.FieldFallbackGroupIds, value)
 		})
 	}
+	if value, ok := _u.mutation.UserSubscriptionID(); ok {
+		_spec.SetField(apikey.FieldUserSubscriptionID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUserSubscriptionID(); ok {
+		_spec.AddField(apikey.FieldUserSubscriptionID, field.TypeInt64, value)
+	}
+	if _u.mutation.UserSubscriptionIDCleared() {
+		_spec.ClearField(apikey.FieldUserSubscriptionID, field.TypeInt64)
+	}
 	if value, ok := _u.mutation.OrganizationSubscriptionID(); ok {
 		_spec.SetField(apikey.FieldOrganizationSubscriptionID, field.TypeInt64, value)
 	}
@@ -989,6 +1025,33 @@ func (_u *APIKeyUpdateOne) SetFallbackGroupIds(v []int64) *APIKeyUpdateOne {
 // AppendFallbackGroupIds appends value to the "fallback_group_ids" field.
 func (_u *APIKeyUpdateOne) AppendFallbackGroupIds(v []int64) *APIKeyUpdateOne {
 	_u.mutation.AppendFallbackGroupIds(v)
+	return _u
+}
+
+// SetUserSubscriptionID sets the "user_subscription_id" field.
+func (_u *APIKeyUpdateOne) SetUserSubscriptionID(v int64) *APIKeyUpdateOne {
+	_u.mutation.ResetUserSubscriptionID()
+	_u.mutation.SetUserSubscriptionID(v)
+	return _u
+}
+
+// SetNillableUserSubscriptionID sets the "user_subscription_id" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableUserSubscriptionID(v *int64) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetUserSubscriptionID(*v)
+	}
+	return _u
+}
+
+// AddUserSubscriptionID adds value to the "user_subscription_id" field.
+func (_u *APIKeyUpdateOne) AddUserSubscriptionID(v int64) *APIKeyUpdateOne {
+	_u.mutation.AddUserSubscriptionID(v)
+	return _u
+}
+
+// ClearUserSubscriptionID clears the value of the "user_subscription_id" field.
+func (_u *APIKeyUpdateOne) ClearUserSubscriptionID() *APIKeyUpdateOne {
+	_u.mutation.ClearUserSubscriptionID()
 	return _u
 }
 
@@ -1543,6 +1606,15 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 		_spec.AddModifier(func(u *sql.UpdateBuilder) {
 			sqljson.Append(u, apikey.FieldFallbackGroupIds, value)
 		})
+	}
+	if value, ok := _u.mutation.UserSubscriptionID(); ok {
+		_spec.SetField(apikey.FieldUserSubscriptionID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedUserSubscriptionID(); ok {
+		_spec.AddField(apikey.FieldUserSubscriptionID, field.TypeInt64, value)
+	}
+	if _u.mutation.UserSubscriptionIDCleared() {
+		_spec.ClearField(apikey.FieldUserSubscriptionID, field.TypeInt64)
 	}
 	if value, ok := _u.mutation.OrganizationSubscriptionID(); ok {
 		_spec.SetField(apikey.FieldOrganizationSubscriptionID, field.TypeInt64, value)

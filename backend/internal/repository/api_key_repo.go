@@ -51,6 +51,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 		SetNillableGroupID(key.GroupID).
 		SetFallbackGroupIds(key.FallbackGroupIDs).
 		SetNillableOrganizationSubscriptionID(key.OrganizationSubscriptionID).
+		SetNillableUserSubscriptionID(key.UserSubscriptionID).
 		SetPreferCompanyBalance(key.PreferCompanyBalance).
 		SetNillableLastUsedAt(key.LastUsedAt).
 		SetQuota(key.Quota).
@@ -139,6 +140,9 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 			apikey.FieldGroupID,
 			apikey.FieldFallbackGroupIds,
 			apikey.FieldOrganizationSubscriptionID,
+			// 绑定订阅的 Key 靠这一列解析额度池与可路由分组，漏掉会让它退化成
+			// 按分组绑定的传统 Key。
+			apikey.FieldUserSubscriptionID,
 			apikey.FieldPreferCompanyBalance,
 			apikey.FieldName,
 			apikey.FieldStatus,
@@ -329,6 +333,11 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 		builder.SetOrganizationSubscriptionID(*key.OrganizationSubscriptionID)
 	} else {
 		builder.ClearOrganizationSubscriptionID()
+	}
+	if key.UserSubscriptionID != nil {
+		builder.SetUserSubscriptionID(*key.UserSubscriptionID)
+	} else {
+		builder.ClearUserSubscriptionID()
 	}
 
 	// Expiration time
@@ -910,6 +919,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		GroupID:                    m.GroupID,
 		FallbackGroupIDs:           append([]int64(nil), m.FallbackGroupIds...),
 		OrganizationSubscriptionID: m.OrganizationSubscriptionID,
+		UserSubscriptionID:         m.UserSubscriptionID,
 		PreferCompanyBalance:       m.PreferCompanyBalance,
 		Quota:                      m.Quota,
 		QuotaUsed:                  m.QuotaUsed,

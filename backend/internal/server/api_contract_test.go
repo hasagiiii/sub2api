@@ -2455,6 +2455,17 @@ func (stubUserSubscriptionRepo) GetByIDIncludeDeleted(ctx context.Context, id in
 func (stubUserSubscriptionRepo) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	return nil, errors.New("not implemented")
 }
+
+// 共享额度池新增的三个方法：契约测试只覆盖按分组的读取路径，这些不会被调用。
+func (stubUserSubscriptionRepo) GetByUserIDAndPlanID(context.Context, int64, int64) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) GetManualByUserIDAndGroupID(context.Context, int64, int64) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
+}
+func (stubUserSubscriptionRepo) ReplaceCoveredGroups(context.Context, int64, []int64) error {
+	return errors.New("not implemented")
+}
 func (r *stubUserSubscriptionRepo) GetActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	for i := range r.activeByUser[userID] {
 		if r.activeByUser[userID][i].GroupID == groupID {

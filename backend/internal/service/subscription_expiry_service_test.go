@@ -13,6 +13,7 @@ import (
 )
 
 type subscriptionExpiryRepoStub struct {
+	sharedQuotaRepoDefaults
 	listCalls int
 }
 

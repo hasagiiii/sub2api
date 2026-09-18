@@ -14,6 +14,14 @@ type UserSubscriptionRepository interface {
 	GetByIDIncludeDeleted(ctx context.Context, id int64) (*UserSubscription, error)
 	GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*UserSubscription, error)
 	GetActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*UserSubscription, error)
+	// GetByUserIDAndPlanID 按来源套餐定位订阅。重复购买同一套餐必须落到同一条
+	// 订阅上（续期），而不是再开一个额度池。
+	GetByUserIDAndPlanID(ctx context.Context, userID, planID int64) (*UserSubscription, error)
+	// GetManualByUserIDAndGroupID 只查后台手动分配的订阅（plan_id IS NULL）。
+	// 手动分配沿用"一个用户一个分组一条"的语义，不能误命中套餐订阅。
+	GetManualByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*UserSubscription, error)
+	// ReplaceCoveredGroups 全量重写订阅覆盖的分组集合（套餐改配、续期时同步）。
+	ReplaceCoveredGroups(ctx context.Context, subscriptionID int64, groupIDs []int64) error
 	Update(ctx context.Context, sub *UserSubscription) error
 	Delete(ctx context.Context, id int64) error
 	Restore(ctx context.Context, subscriptionID int64, restoredStatus string) (*UserSubscription, error)

@@ -36,18 +36,42 @@ func TestMaybeInvalidateAssignmentCaches_DefersForOuterTransactionOwner(t *testi
 	t.Cleanup(cache.Close)
 
 	svc := &SubscriptionService{subCacheL1: cache}
+	sub := &UserSubscription{ID: 42, UserID: 7, GroupID: 9}
 	key := subCacheKey(7, 9)
-	require.True(t, cache.Set(key, &UserSubscription{ID: 42}, 1))
+	require.True(t, cache.Set(key, sub, 1))
 	cache.Wait()
 
-	svc.maybeInvalidateAssignmentCaches(7, 9, true)
+	svc.maybeInvalidateAssignmentCaches(sub, true)
 	_, cachedBeforeCommit := cache.Get(key)
 	require.True(t, cachedBeforeCommit, "outer transaction must retain caches until its owner commits")
 
-	svc.maybeInvalidateAssignmentCaches(7, 9, false)
+	svc.maybeInvalidateAssignmentCaches(sub, false)
 	cache.Wait()
 	_, cachedAfterCommit := cache.Get(key)
 	require.False(t, cachedAfterCommit, "post-commit invalidation must remove the cached subscription")
+}
+
+// 一条订阅覆盖多个分组时，每个分组都有一个 L1 查找入口。漏掉任何一个，该分组
+// 的后续请求会继续命中旧订阅快照。
+func TestMaybeInvalidateAssignmentCaches_ClearsEveryCoveredGroupEntry(t *testing.T) {
+	cache, err := ristretto.NewCache(&ristretto.Config{NumCounters: 1_000, MaxCost: 100, BufferItems: 64})
+	require.NoError(t, err)
+	t.Cleanup(cache.Close)
+
+	svc := &SubscriptionService{subCacheL1: cache}
+	sub := &UserSubscription{ID: 42, UserID: 7, GroupID: 9, GroupIDs: []int64{9, 10, 11}}
+	for _, groupID := range sub.GroupIDs {
+		require.True(t, cache.Set(subCacheKey(sub.UserID, groupID), sub, 1))
+	}
+	cache.Wait()
+
+	svc.maybeInvalidateAssignmentCaches(sub, false)
+	cache.Wait()
+
+	for _, groupID := range sub.GroupIDs {
+		_, cached := cache.Get(subCacheKey(sub.UserID, groupID))
+		require.Falsef(t, cached, "covered group %d must be invalidated too", groupID)
+	}
 }
 
 type groupRepoNoop struct{}
@@ -104,7 +128,11 @@ func (s *subscriptionGroupRepoStub) GetByID(context.Context, int64) (*Group, err
 	return s.group, nil
 }
 
-type userSubRepoNoop struct{}
+type userSubRepoNoop struct {
+	// 共享额度池新增的仓储方法统一由此嵌入提供，未实现即 panic，
+	// 需要的桩自行覆盖。
+	sharedQuotaRepoDefaults
+}
 
 func (userSubRepoNoop) Create(context.Context, *UserSubscription) error {
 	panic("unexpected Create call")
@@ -186,6 +214,9 @@ type subscriptionUserSubRepoStub struct {
 	nextID      int64
 	byID        map[int64]*UserSubscription
 	byUserGroup map[string]*UserSubscription
+	// byUserPlan 复刻 (user_id, plan_id) 部分唯一索引：套餐订阅按来源套餐定位，
+	// 这样重复购买同一套餐会命中续期，而另一个覆盖同分组的套餐能各自建池。
+	byUserPlan  map[string]*UserSubscription
 	createCalls int
 }
 
@@ -194,11 +225,22 @@ func newSubscriptionUserSubRepoStub() *subscriptionUserSubRepoStub {
 		nextID:      1,
 		byID:        make(map[int64]*UserSubscription),
 		byUserGroup: make(map[string]*UserSubscription),
+		byUserPlan:  make(map[string]*UserSubscription),
 	}
 }
 
 func (s *subscriptionUserSubRepoStub) key(userID, groupID int64) string {
 	return strconvFormatInt(userID) + ":" + strconvFormatInt(groupID)
+}
+
+// index 按覆盖的每个分组建立查找入口，复刻 user_subscription_groups 关联表。
+func (s *subscriptionUserSubRepoStub) index(sub *UserSubscription) {
+	for _, groupID := range sub.CoveredGroupIDs() {
+		s.byUserGroup[s.key(sub.UserID, groupID)] = sub
+	}
+	if sub.PlanID != nil {
+		s.byUserPlan[s.key(sub.UserID, *sub.PlanID)] = sub
+	}
 }
 
 func (s *subscriptionUserSubRepoStub) seed(sub *UserSubscription) {
@@ -211,7 +253,7 @@ func (s *subscriptionUserSubRepoStub) seed(sub *UserSubscription) {
 		s.nextID++
 	}
 	s.byID[cp.ID] = &cp
-	s.byUserGroup[s.key(cp.UserID, cp.GroupID)] = &cp
+	s.index(&cp)
 }
 
 func (s *subscriptionUserSubRepoStub) ExistsByUserIDAndGroupID(_ context.Context, userID, groupID int64) (bool, error) {
@@ -228,6 +270,39 @@ func (s *subscriptionUserSubRepoStub) GetByUserIDAndGroupID(_ context.Context, u
 	return &cp, nil
 }
 
+func (s *subscriptionUserSubRepoStub) GetByUserIDAndPlanID(_ context.Context, userID, planID int64) (*UserSubscription, error) {
+	sub := s.byUserPlan[s.key(userID, planID)]
+	if sub == nil {
+		return nil, ErrSubscriptionNotFound
+	}
+	cp := *sub
+	return &cp, nil
+}
+
+func (s *subscriptionUserSubRepoStub) GetManualByUserIDAndGroupID(_ context.Context, userID, groupID int64) (*UserSubscription, error) {
+	sub := s.byUserGroup[s.key(userID, groupID)]
+	if sub == nil || sub.PlanID != nil {
+		return nil, ErrSubscriptionNotFound
+	}
+	cp := *sub
+	return &cp, nil
+}
+
+func (s *subscriptionUserSubRepoStub) ReplaceCoveredGroups(_ context.Context, subscriptionID int64, groupIDs []int64) error {
+	sub := s.byID[subscriptionID]
+	if sub == nil {
+		return ErrSubscriptionNotFound
+	}
+	for key, indexed := range s.byUserGroup {
+		if indexed.ID == subscriptionID {
+			delete(s.byUserGroup, key)
+		}
+	}
+	sub.GroupIDs = append([]int64(nil), groupIDs...)
+	s.index(sub)
+	return nil
+}
+
 func (s *subscriptionUserSubRepoStub) Create(_ context.Context, sub *UserSubscription) error {
 	if sub == nil {
 		return nil
@@ -240,7 +315,7 @@ func (s *subscriptionUserSubRepoStub) Create(_ context.Context, sub *UserSubscri
 	}
 	sub.ID = cp.ID
 	s.byID[cp.ID] = &cp
-	s.byUserGroup[s.key(cp.UserID, cp.GroupID)] = &cp
+	s.index(&cp)
 	return nil
 }
 
@@ -265,13 +340,14 @@ func (s *subscriptionUserSubRepoStub) Update(_ context.Context, sub *UserSubscri
 	if existing == nil {
 		return ErrSubscriptionNotFound
 	}
-	oldKey := s.key(existing.UserID, existing.GroupID)
+	for key, indexed := range s.byUserGroup {
+		if indexed.ID == sub.ID {
+			delete(s.byUserGroup, key)
+		}
+	}
 	cp := *sub
 	s.byID[cp.ID] = &cp
-	if oldKey != s.key(cp.UserID, cp.GroupID) {
-		delete(s.byUserGroup, oldKey)
-	}
-	s.byUserGroup[s.key(cp.UserID, cp.GroupID)] = &cp
+	s.index(&cp)
 	return nil
 }
 

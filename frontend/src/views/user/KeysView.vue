@@ -718,7 +718,23 @@
           </div>
         </div>
 
-        <div v-if="!formData.organization_subscription_id">
+        <!--
+          绑定订阅（套餐）：一条订阅就是一份共享额度池，它覆盖的分组都能用这把
+          Key。选了套餐就不再单独选分组/回退分组，避免出现两套候选来源。
+        -->
+        <div v-if="!formData.organization_subscription_id && userSubscriptionOptions.length > 0">
+          <label class="input-label">{{ t('keys.subscriptionLabel') }}</label>
+          <Select
+            v-model="formData.user_subscription_id"
+            :options="userSubscriptionOptions"
+            :placeholder="t('keys.selectSubscription')"
+            clearable
+            data-test="key-form-subscription"
+          />
+          <p class="input-hint mt-0.5">{{ t('keys.subscriptionHint') }}</p>
+        </div>
+
+        <div v-if="!formData.organization_subscription_id && !formData.user_subscription_id">
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
             v-model="formData.group_id"
@@ -762,7 +778,8 @@
 
         </div>
 
-        <div class="mt-4 space-y-2" data-test="fallback-groups-editor">
+        <!-- 绑定订阅时候选分组由订阅决定，手动回退分组不再适用 -->
+        <div v-if="!formData.user_subscription_id" class="mt-4 space-y-2" data-test="fallback-groups-editor">
             <div class="flex items-center justify-between gap-3">
               <div>
                 <label class="input-label mb-0">{{ t('keys.fallbackGroupsLabel') }}</label>
@@ -1535,7 +1552,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 	import Toggle from '@/components/common/Toggle.vue'
 	import HelpTooltip from '@/components/common/HelpTooltip.vue'
-	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
+	import type { ApiKey, BindableUserSubscription, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 	import type { OrganizationSubscription } from '@/types/organization'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
@@ -1669,6 +1686,8 @@ const apiKeys = ref<ApiKey[]>([])
 const groups = ref<Group[]>([])
 // 当前用户（作为组织成员）可绑定的活跃企业订阅，用于创建企业 API Key
 const orgSubscriptions = ref<OrganizationSubscription[]>([])
+// 当前用户可绑定的个人订阅（套餐）：一条订阅 = 一份共享额度池
+const userSubscriptions = ref<BindableUserSubscription[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 const now = ref(new Date())
@@ -1730,6 +1749,9 @@ const formData = ref({
   group_id: null as number | null,
   fallback_group_ids: [] as number[],
   organization_subscription_id: null as number | null,
+  // 绑定个人订阅（套餐）：非空时可路由分组来自该订阅覆盖的分组，消费扣它那一份
+  // 共享额度池，此时不再单独选分组与回退分组。
+  user_subscription_id: null as number | null,
   prefer_company_balance: true,
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
@@ -1871,8 +1893,25 @@ const fallbackGroupOptions = computed(() => eligibleFallbackGroups.value.map(gro
   platform: group.platform
 })))
 
-const normalizeFallbackGroups = (primaryGroupId: number | null, fallbackGroupIds: number[], primaryPlatform?: string) => {
-  if (primaryGroupId === null) return []
+/**
+ * 可绑定的订阅（套餐）下拉项。
+ *
+ * 标签由该订阅覆盖的分组名拼成，让用户直观看到"这一份额度能用在哪些分组"。
+ * 分组名取自已加载的分组列表，缺失时退化为 #id，不额外请求接口。
+ */
+const userSubscriptionOptions = computed(() =>
+  userSubscriptions.value.map(sub => {
+    const names = (sub.group_ids?.length ? sub.group_ids : [sub.group_id])
+      .map(gid => groupById(gid)?.name ?? `#${gid}`)
+    return {
+      value: sub.id,
+      label: names.join(' + '),
+      description: t('keys.subscriptionOptionDesc', { count: names.length })
+    }
+  })
+)
+
+const normalizeFallbackGroups = (primaryGroupId: number | null, fallbackGroupIds: number[], primaryPlatform?: string) => {  if (primaryGroupId === null) return []
   const primary = groupById(primaryGroupId)
   const platform = primary?.platform ?? primaryPlatform
   if (!platform) return []
@@ -2193,6 +2232,17 @@ const loadOrgSubscriptions = async () => {
   }
 }
 
+// 加载当前用户可绑定的个人订阅（套餐）。失败时静默降级为空列表：此时选择器
+// 不出现，用户仍可按分组创建 Key。
+const loadUserSubscriptions = async () => {
+  try {
+    userSubscriptions.value = await keysAPI.listUserSubscriptions()
+  } catch (error) {
+    console.error('Failed to load user subscriptions:', error)
+    userSubscriptions.value = []
+  }
+}
+
 const loadUserGroupRates = async () => {
   try {
     userGroupRates.value = await userGroupsAPI.getUserGroupRates()
@@ -2246,6 +2296,7 @@ const editKey = (key: ApiKey) => {
     group_id: key.group_id,
     fallback_group_ids: [...(key.fallback_group_ids ?? [])],
     organization_subscription_id: key.organization_subscription_id ?? null,
+    user_subscription_id: key.user_subscription_id ?? null,
     prefer_company_balance: key.prefer_company_balance ?? false,
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
@@ -2423,7 +2474,9 @@ const handleSubmit = async () => {
     if (showEditModal.value && selectedKey.value) {
       const updates: UpdateApiKeyRequest = {
         name: formData.value.name,
-        // 绑定企业订阅时由后端强制关联订阅分组；否则更新个人分组并清除企业订阅绑定。
+        // 三种绑定互斥，按优先级取一种：
+        //   企业订阅 > 个人订阅（套餐）> 单个分组
+        // 绑定订阅时不发送 group_id / fallback：候选分组由订阅的覆盖集合决定。
         ...(orgSubscriptionId
           ? {
               organization_subscription_id: orgSubscriptionId,
@@ -2433,11 +2486,17 @@ const handleSubmit = async () => {
                 fallbackPrimaryGroup.value?.platform,
               ),
             }
-          : {
-              group_id: formData.value.group_id,
-              organization_subscription_id: null,
-              fallback_group_ids: normalizeFallbackGroups(formData.value.group_id, formData.value.fallback_group_ids)
-            }),
+          : formData.value.user_subscription_id
+            ? {
+                user_subscription_id: formData.value.user_subscription_id,
+                organization_subscription_id: null,
+              }
+            : {
+                group_id: formData.value.group_id,
+                organization_subscription_id: null,
+                user_subscription_id: null,
+                fallback_group_ids: normalizeFallbackGroups(formData.value.group_id, formData.value.fallback_group_ids)
+              }),
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
         quota: quota,
@@ -2454,6 +2513,8 @@ const handleSubmit = async () => {
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
+      // 绑定个人订阅时不传分组与回退分组：候选分组由订阅的覆盖集合决定。
+      const boundSubscriptionId = orgSubscriptionId ? null : formData.value.user_subscription_id
       const createArgs = [
         formData.value.name,
         formData.value.group_id,
@@ -2472,11 +2533,8 @@ const handleSubmit = async () => {
             )
           : normalizeFallbackGroups(formData.value.group_id, formData.value.fallback_group_ids)
       ] as const
-      if (formData.value.prefer_company_balance) {
-        await keysAPI.create(...createArgs, true)
-      } else {
-        await keysAPI.create(...createArgs)
-      }
+      const createOptions = boundSubscriptionId ? { userSubscriptionId: boundSubscriptionId } : undefined
+      await keysAPI.create(...createArgs, formData.value.prefer_company_balance, createOptions)
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded
       if (onboardingStore.isCurrentStep('[data-tour="key-form-submit"]')) {
@@ -2523,6 +2581,7 @@ const closeModals = () => {
     group_id: null,
     fallback_group_ids: [],
     organization_subscription_id: null,
+    user_subscription_id: null,
     prefer_company_balance: true,
     status: 'active',
     use_custom_key: false,
@@ -2695,6 +2754,7 @@ onMounted(() => {
   // logic onto it so the resolved `groupOptions` are available.
   loadGroups().then(() => maybeAutoOpenCreateFromQuery())
   loadOrgSubscriptions()
+  loadUserSubscriptions()
   loadUserGroupRates()
   loadPublicSettings()
   document.addEventListener('click', closeGroupSelector)

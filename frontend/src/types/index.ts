@@ -810,6 +810,8 @@ export interface ApiKey {
   group_id: number | null
   fallback_group_ids: number[]
   organization_subscription_id: number | null
+  /** 绑定的个人订阅（套餐）；非空表示该 Key 消费这条订阅的共享额度池。 */
+  user_subscription_id?: number | null
   prefer_company_balance: boolean
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
@@ -837,11 +839,33 @@ export interface ApiKey {
   reset_7d_at: string | null
 }
 
+/**
+ * 可绑定到 API Key 的个人订阅（套餐）。
+ *
+ * 一条订阅就是一份额度池：group_ids 是共享这份额度的全部分组。后端只返回 ID
+ * 与分组集合，分组名由前端已加载的分组列表映射。
+ */
+export interface BindableUserSubscription {
+  id: number
+  /** 为空表示后台手动分配、不属于任何套餐的订阅。 */
+  plan_id?: number | null
+  /** 主分组（展示用代表分组）。 */
+  group_id: number
+  /** 共享该额度池的全部分组。 */
+  group_ids: number[]
+  expires_at: string
+}
+
 export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
   fallback_group_ids?: number[]
   organization_subscription_id?: number | null
+  /**
+   * 绑定个人订阅（套餐）。设置后可路由分组取自该订阅覆盖的分组，消费统一扣它
+   * 那一份共享额度池，因此不应同时发送 group_id / fallback_group_ids。
+   */
+  user_subscription_id?: number | null
   prefer_company_balance?: boolean
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
@@ -858,6 +882,8 @@ export interface UpdateApiKeyRequest {
   group_id?: number | null
   fallback_group_ids?: number[]
   organization_subscription_id?: number | null
+  /** 重新绑定个人订阅（套餐）；改选普通分组会清除该绑定。 */
+  user_subscription_id?: number | null
   prefer_company_balance?: boolean
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]

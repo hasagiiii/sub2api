@@ -196,6 +196,17 @@ func (f fakeGoogleSubscriptionRepo) GetByIDIncludeDeleted(ctx context.Context, i
 func (f fakeGoogleSubscriptionRepo) GetByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	return nil, errors.New("not implemented")
 }
+
+// 共享额度池新增的三个方法：该桩只测按分组的认证路径，这些不会被调用。
+func (f fakeGoogleSubscriptionRepo) GetByUserIDAndPlanID(context.Context, int64, int64) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
+}
+func (f fakeGoogleSubscriptionRepo) GetManualByUserIDAndGroupID(context.Context, int64, int64) (*service.UserSubscription, error) {
+	return nil, errors.New("not implemented")
+}
+func (f fakeGoogleSubscriptionRepo) ReplaceCoveredGroups(context.Context, int64, []int64) error {
+	return errors.New("not implemented")
+}
 func (f fakeGoogleSubscriptionRepo) GetActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (*service.UserSubscription, error) {
 	if f.getActive != nil {
 		return f.getActive(ctx, userID, groupID)
