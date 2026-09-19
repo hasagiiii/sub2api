@@ -736,7 +736,7 @@
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
             v-model="formData.group_id"
-            :options="groupOptions"
+            :options="formGroupOptions"
             :placeholder="t('keys.selectGroup')"
             :searchable="true"
             :search-placeholder="t('keys.searchGroup')"
@@ -1927,6 +1927,22 @@ const poolPlanLabel = (sub: BindableUserSubscription): string => {
   const planName = sub.plan_name?.trim()
   return planName ? t('keys.poolPlanLabel', { name: planName }) : t('keys.poolSubscription')
 }
+
+const formGroupOptions = computed(() => groupOptions.value.map(option => {
+  const planNames = userSubscriptions.value
+    .filter(sub => sub.plan_id != null && subscriptionGroupIds(sub).includes(Number(option.value)))
+    .map(sub => sub.plan_name?.trim())
+    .filter((name): name is string => Boolean(name))
+    .filter((name, index, names) => names.indexOf(name) === index)
+
+  if (planNames.length === 0) return option
+  return {
+    ...option,
+    description: [option.description, t('keys.poolPlanLabel', { name: planNames.join('、') })]
+      .filter(Boolean)
+      .join(' · ')
+  }
+}))
 
 const poolPlanLabelForKey = (key: Pick<ApiKey, 'user_subscription_id'>): string => {
   const subscriptionID = key.user_subscription_id

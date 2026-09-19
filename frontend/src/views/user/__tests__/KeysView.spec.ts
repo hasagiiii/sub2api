@@ -1027,13 +1027,19 @@ describe('user KeysView column settings', () => {
       createGroup({ id: 2, name: 'Beta' }),
     ])
     listUserSubscriptions.mockResolvedValue([
-      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
-      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+      { id: 55, plan_id: 100, plan_name: '图像套餐', group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+      { id: 56, plan_id: 101, plan_name: '备用套餐', group_id: 1, group_ids: [1], status: 'active', expires_at: null },
     ])
 
     const wrapper = await mountView()
     await getButtonByText(wrapper, 'Create API Key').trigger('click')
     await nextTick()
+
+    const groupSelect = wrapper.findComponent('[data-tour="key-form-group"]')
+    const groupOptions = groupSelect.props('options') as Array<{ value: number; description?: string }>
+    expect(groupOptions.find(option => option.value === 1)?.description)
+      .toContain('Subscription: 图像套餐、备用套餐')
+
     await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
     await nextTick()
     await wrapper.findComponent('[data-test="key-form-subscription"]').vm.$emit('update:modelValue', 56)
