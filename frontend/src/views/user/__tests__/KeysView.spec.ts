@@ -75,6 +75,7 @@ const messages: Record<string, string> = {
   'keys.poolBadge': 'Subscription plan',
   'keys.poolSubscription': 'Subscription quota',
   'keys.poolPlanLabel': 'Subscription: {name}',
+  'keys.poolPlanDescription': 'This group belongs to {name} subscription plan and is charged against the subscription plan.',
   'keys.poolHint': 'Charge-to-plan hint',
   'keys.poolRequired': 'Please select a subscription plan',
   'keys.groupRequired': 'Please select a group',
@@ -552,9 +553,9 @@ describe('user KeysView column settings', () => {
     expect(options[3].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
     expect(options[4].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
     expect(options[5].find('group-option-item-stub').attributes('name')).toBe('Ordinary Group')
-    expect(options[1].attributes('title')).toContain('Subscription: 图像套餐')
-    expect(options[2].attributes('title')).toContain('Subscription: 图像套餐')
-    expect(options[3].attributes('title')).toContain('Subscription: 备用套餐')
+    expect(options[1].attributes('title')).toContain('This group belongs to 图像套餐 subscription plan')
+    expect(options[2].attributes('title')).toContain('This group belongs to 图像套餐 subscription plan')
+    expect(options[3].attributes('title')).toContain('This group belongs to 备用套餐 subscription plan')
     expect(listOrganizationSubscriptions).toHaveBeenCalledTimes(2)
     expect(listUserSubscriptions).toHaveBeenCalledTimes(2)
 
@@ -1041,7 +1042,7 @@ describe('user KeysView column settings', () => {
     expect(groupOptions.filter(option => option.kind === 'group').map(option => option.label))
       .toEqual(['Subscription plan', 'Regular groups'])
     expect(groupOptions.find(option => option.value === 1)?.description)
-      .toContain('Subscription: 图像套餐、备用套餐')
+      .toContain('This group belongs to 图像套餐、备用套餐 subscription plan')
 
     await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
     await nextTick()

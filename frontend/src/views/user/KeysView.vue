@@ -1951,6 +1951,11 @@ const poolPlanLabel = (sub: BindableUserSubscription): string => {
   return planName ? t('keys.poolPlanLabel', { name: planName }) : t('keys.poolSubscription')
 }
 
+const poolPlanDescription = (sub: BindableUserSubscription): string => {
+  const planName = sub.plan_name?.trim()
+  return planName ? t('keys.poolPlanDescription', { name: planName }) : t('keys.poolSubscription')
+}
+
 const formGroupOptions = computed(() => {
   const planGroupIds = new Set(
     userSubscriptions.value
@@ -1970,7 +1975,7 @@ const formGroupOptions = computed(() => {
       // Select reserves kind="group" for non-selectable section headers.
       kind: undefined,
       description: planNames.length > 0
-        ? [option.description, t('keys.poolPlanLabel', { name: planNames.join('、') })]
+        ? [option.description, t('keys.poolPlanDescription', { name: planNames.join('、') })]
           .filter(Boolean)
           .join(' · ')
         : option.description,
@@ -2289,7 +2294,7 @@ const quickGroupOptions = computed(() => [
   ...quickPoolCandidates.value.map(({ sub, group }) => ({
     value: `plan:${sub.id}:group:${group.id}`,
     label: group.name,
-    description: [poolPlanLabel(sub), poolDescription(sub), group.description].filter(Boolean).join(' · '),
+    description: [poolPlanDescription(sub), poolDescription(sub), group.description].filter(Boolean).join(' · '),
     platform: group.platform,
     rate: group.rate_multiplier,
     userRate: userGroupRates.value[group.id] ?? null,
