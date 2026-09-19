@@ -70,11 +70,11 @@ const messages: Record<string, string> = {
   'keys.fallbackGroupsSelectPrimary': 'Select a primary group first',
   'keys.fallbackGroupsEmpty': 'No same-platform fallback groups',
   'keys.orgSubscriptionLabel': 'Enterprise Subscription',
-  'keys.poolLabel': 'Charge to plan',
-  'keys.poolBadge': 'Charged: {plan}',
+  'keys.poolLabel': 'Subscription plan',
+  'keys.poolBadge': 'Subscription plan: {plan}',
   'keys.poolSubscription': 'Subscription #{id}',
   'keys.poolHint': 'Charge-to-plan hint',
-  'keys.poolRequired': 'Please select the plan to charge',
+  'keys.poolRequired': 'Please select a subscription plan',
   'keys.groupRequired': 'Please select a group',
   'keys.orgSubscriptionNone': 'None (use personal group)',
   'keys.orgSubscriptionHint': 'Enterprise subscription hint',
@@ -514,7 +514,7 @@ describe('user KeysView column settings', () => {
       rate_multiplier: 0.2,
       status: 'active',
     }])
-    // 套餐覆盖的每个分组都会在“扣费套餐”分类中单独列出。
+    // 套餐覆盖的每个分组都会在“订阅套餐”分类中单独列出。
     listUserSubscriptions.mockResolvedValue([
       { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
       { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
@@ -524,12 +524,12 @@ describe('user KeysView column settings', () => {
     await wrapper.get('[data-test="group-selector-trigger"]').trigger('click')
     await flushPromises()
 
-    // 三类的计费口径不同，必须各自成节并带可区分的徽标。
+    // 三类的计费口径不同，必须各自成节并用标题颜色区分。
     expect(wrapper.get('[data-test="org-group-section"]').text()).toBe('Enterprise Subscription')
-    expect(wrapper.get('[data-test="plan-group-section"]').text()).toBe('Charge to plan')
+    expect(wrapper.get('[data-test="plan-group-section"]').text()).toBe('Subscription plan')
     expect(wrapper.get('[data-test="group-group-section"]').text()).toBe('Group')
-    expect(wrapper.get('[data-test="org-group-option-badge"]').text()).toBe('Enterprise Subscription')
-    expect(wrapper.get('[data-test="plan-group-option-badge"]').text()).toBe('Charge to plan')
+    expect(wrapper.find('[data-test="org-group-option-badge"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="plan-group-option-badge"]').exists()).toBe(false)
 
     const options = wrapper.findAll('[data-test="group-selector-option"]')
     expect(options.map(option => option.attributes('data-binding-kind'))).toEqual([
@@ -576,7 +576,7 @@ describe('user KeysView column settings', () => {
     await wrapper.get('[data-test="group-selector-trigger"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-test="plan-group-section"]').text()).toBe('Charge to plan')
+    expect(wrapper.get('[data-test="plan-group-section"]').text()).toBe('Subscription plan')
     expect(wrapper.findAll('[data-test="group-selector-option"]')
       .map(option => option.attributes('data-binding-kind'))).toEqual(['plan', 'group'])
   })
@@ -615,7 +615,7 @@ describe('user KeysView column settings', () => {
     })
   })
 
-  // 指定了扣费套餐要在列表里标出来：同一分组可能被多个套餐覆盖，不标就无法知道
+  // 指定了订阅套餐要在列表里标出来：同一分组可能被多个套餐覆盖，不标就无法知道
   // 这把 Key 扣的是哪一份额度。徽标必须带"扣费"字样，否则会和左边的路由分组混成
   // 一片，读起来像这把 Key 还能用在别的分组上。
   it('marks which quota pool a key charges', async () => {
@@ -638,7 +638,7 @@ describe('user KeysView column settings', () => {
     const groupCell = wrapper.get('[data-test="group-cell"]')
     // 路由分组照常展示，额度池另用一个带说明的徽标标注。
     expect(groupCell.findAll('group-badge-stub').map(badge => badge.attributes('name'))).toEqual(['Alpha'])
-    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Charged: Subscription #55')
+    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Subscription plan: Subscription #55')
   })
 
   // 套餐覆盖的分组不一定都在"用户可绑定的分组"列表里（例如某个专属分组并未授予
@@ -660,7 +660,7 @@ describe('user KeysView column settings', () => {
     const wrapper = await mountView()
 
     expect(wrapper.get('[data-test="plan-binding-badge"]').text())
-      .toBe('Charged: Subscription #55')
+      .toBe('Subscription plan: Subscription #55')
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {
@@ -996,7 +996,7 @@ describe('user KeysView column settings', () => {
     // 还没选分组，无从判断有无歧义。
     expect(wrapper.find('[data-test="key-form-pool-choice"]').exists()).toBe(false)
 
-    // 选中同时被两个套餐覆盖的分组 1 → 出现扣费套餐选择。
+    // 选中同时被两个套餐覆盖的分组 1 → 出现订阅套餐选择。
     await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
     await nextTick()
     expect(wrapper.find('[data-test="key-form-pool-choice"]').exists()).toBe(true)

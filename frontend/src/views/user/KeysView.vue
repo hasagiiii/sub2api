@@ -159,7 +159,7 @@
                   t('keys.noGroup')
                 }}</span>
                 <!--
-                  指定了扣费套餐时标出来：同一个分组可能被多个套餐覆盖，不标的话
+                  指定了订阅套餐时标出来：同一个分组可能被多个套餐覆盖，不标的话
                   无法知道这把 Key 扣的是哪一份额度。
                   徽标必须带"扣费"字样：只写分组名会和左边的路由分组混成一片，
                   读起来像是这把 Key 还能用在别的分组上。
@@ -777,7 +777,7 @@
         </div>
 
         <!--
-          扣费套餐的选择只在"有歧义"时出现：用户有多个套餐都覆盖了所选分组，
+          订阅套餐的选择只在"有歧义"时出现：用户有多个套餐都覆盖了所选分组，
           此时单看分组无法确定该扣哪一份额度。只有一个套餐覆盖时没有可选项，
           多问一句反而是噪音。
           注意它不决定路由——分组始终由上面的选择器决定，因为同一套餐里的两个
@@ -794,7 +794,7 @@
           <p class="input-hint mt-0.5">{{ t('keys.poolHint') }}</p>
         </div>
 
-        <!-- 回退分组与扣费套餐互不影响：路由始终由分组决定 -->
+        <!-- 回退分组与订阅套餐互不影响：路由始终由分组决定 -->
         <div class="mt-4 space-y-2" data-test="fallback-groups-editor">
             <div class="flex items-center justify-between gap-3">
               <div>
@@ -1484,7 +1484,12 @@
             -->
             <div
               v-if="index === 0 || option.kind !== filteredGroupOptions[index - 1]?.kind"
-              class="px-3 pb-1 pt-2 text-xs font-semibold text-gray-500 dark:text-gray-400"
+              class="mx-1 mt-1 flex items-center rounded-md border px-3 py-2 text-xs font-semibold"
+              :class="option.kind === 'org'
+                ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300'
+                : option.kind === 'plan'
+                  ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
+                  : 'border-gray-200 bg-gray-100 text-gray-700 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200'"
               :data-test="`${option.kind}-group-section`"
             >
               {{ bindingKindLabel(option.kind) }}
@@ -1503,16 +1508,6 @@
               :data-enterprise="option.kind === 'org' ? 'true' : 'false'"
               :title="option.description || undefined"
             >
-              <!-- 三类各自一种配色的徽标，便于在长列表里快速扫读 -->
-              <span
-                v-if="option.kind !== 'group'"
-                class="badge shrink-0 whitespace-nowrap text-xs"
-                :class="option.kind === 'org' ? 'badge-info' : 'badge-purple'"
-                :data-test="`${option.kind}-group-option-badge`"
-                :title="option.kind === 'org' ? t('keys.orgSubscriptionHint') : t('keys.poolHint')"
-              >
-                {{ bindingKindLabel(option.kind) }}
-              </span>
               <GroupOptionItem
                 :name="option.label"
                 :platform="option.platform"
@@ -2201,7 +2196,7 @@ const quickGroupOptions = computed(() => [
     kind: 'org' as KeyBindingKind,
     isEnterprise: true,
   })),
-  // 扣费套餐按“套餐 + 覆盖分组”展开：同一个套餐覆盖多个分组时，用户可以逐个
+  // 订阅套餐按“套餐 + 覆盖分组”展开：同一个套餐覆盖多个分组时，用户可以逐个
   // 选择实际路由的分组，套餐只决定这次请求从哪一份额度池扣费。
   ...quickPoolCandidates.value.map(({ sub, group }) => ({
     value: `plan:${sub.id}:group:${group.id}`,
@@ -2643,7 +2638,7 @@ const handleSubmit = async () => {
       const updates: UpdateApiKeyRequest = {
         name: formData.value.name,
         // 企业订阅仍与个人绑定互斥（分组由公司订阅决定）。个人侧则是分组 +
-        // 可选的扣费套餐一同提交：两者各自回答"路由到哪"和"扣哪份额度"。
+        // 可选的订阅套餐一同提交：两者各自回答"路由到哪"和"使用哪份额度"。
         ...(orgSubscriptionId
           ? {
               organization_subscription_id: orgSubscriptionId,
@@ -2675,7 +2670,7 @@ const handleSubmit = async () => {
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
-      // 分组始终发送（路由依据）；扣费套餐仅在有歧义时由用户指定后一同发送。
+      // 分组始终发送（路由依据）；订阅套餐仅在有歧义时由用户指定后一同发送。
       // 企业 Key 的额度池来自公司订阅，个人套餐的指定在那里没有意义。
       const pinnedSubscriptionId = orgSubscriptionId ? null : formData.value.user_subscription_id
       const createArgs = [
