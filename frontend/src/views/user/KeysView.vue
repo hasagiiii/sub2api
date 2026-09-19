@@ -637,6 +637,7 @@
             :placeholder="t('keys.orgSubscriptionNone')"
             :searchable="true"
             :clearable="true"
+            :borderless-options="true"
           >
             <template #selected="{ option }">
               <GroupBadge
@@ -740,6 +741,7 @@
             :placeholder="t('keys.selectGroup')"
             :searchable="true"
             :search-placeholder="t('keys.searchGroup')"
+            :borderless-options="true"
             data-tour="key-form-group"
           >
             <template #selected="{ option }">
@@ -758,7 +760,18 @@
               <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
             </template>
             <template #option="{ option, selected }">
+              <template v-if="(option as unknown as FormGroupHeaderOption).kind === 'group'">
+                <span
+                  class="block w-full text-xs font-semibold leading-5"
+                  :class="(option as unknown as FormGroupHeaderOption).section === 'plan'
+                    ? 'text-violet-700 dark:text-violet-300'
+                    : 'text-gray-700 dark:text-gray-200'"
+                >
+                  {{ (option as unknown as FormGroupHeaderOption).label }}
+                </span>
+              </template>
               <GroupOptionItem
+                v-else
                 :name="(option as unknown as GroupOption).label"
                 :platform="(option as unknown as GroupOption).platform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
@@ -789,6 +802,7 @@
             v-model="formData.user_subscription_id"
             :options="poolOptions"
             :placeholder="t('keys.selectPool')"
+            :borderless-options="true"
             data-test="key-form-subscription"
           />
           <p class="input-hint mt-0.5">{{ t('keys.poolHint') }}</p>
@@ -869,6 +883,7 @@
                 :placeholder="t('keys.selectFallbackGroup')"
                 :searchable="true"
                 :search-placeholder="t('keys.searchGroup')"
+                :borderless-options="true"
                 data-test="fallback-group-select"
               />
               <button
@@ -1594,6 +1609,14 @@ interface GroupOption {
   platform: GroupPlatform
 }
 
+interface FormGroupHeaderOption {
+  value: string
+  label: string
+  kind: 'group'
+  section: 'plan' | 'group'
+  disabled: true
+}
+
 const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
@@ -1928,21 +1951,62 @@ const poolPlanLabel = (sub: BindableUserSubscription): string => {
   return planName ? t('keys.poolPlanLabel', { name: planName }) : t('keys.poolSubscription')
 }
 
-const formGroupOptions = computed(() => groupOptions.value.map(option => {
-  const planNames = userSubscriptions.value
-    .filter(sub => sub.plan_id != null && subscriptionGroupIds(sub).includes(Number(option.value)))
-    .map(sub => sub.plan_name?.trim())
-    .filter((name): name is string => Boolean(name))
-    .filter((name, index, names) => names.indexOf(name) === index)
+const formGroupOptions = computed(() => {
+  const planGroupIds = new Set(
+    userSubscriptions.value
+      .filter(sub => sub.plan_id != null)
+      .flatMap(sub => subscriptionGroupIds(sub))
+  )
 
-  if (planNames.length === 0) return option
-  return {
-    ...option,
-    description: [option.description, t('keys.poolPlanLabel', { name: planNames.join('、') })]
-      .filter(Boolean)
-      .join(' · ')
+  const decorateGroupOption = (option: (typeof groupOptions.value)[number]) => {
+    const planNames = userSubscriptions.value
+      .filter(sub => sub.plan_id != null && subscriptionGroupIds(sub).includes(Number(option.value)))
+      .map(sub => sub.plan_name?.trim())
+      .filter((name): name is string => Boolean(name))
+      .filter((name, index, names) => names.indexOf(name) === index)
+
+    return {
+      ...option,
+      // Select reserves kind="group" for non-selectable section headers.
+      kind: undefined,
+      description: planNames.length > 0
+        ? [option.description, t('keys.poolPlanLabel', { name: planNames.join('、') })]
+          .filter(Boolean)
+          .join(' · ')
+        : option.description,
+    }
   }
-}))
+
+  const planOptions = groupOptions.value
+    .filter(option => planGroupIds.has(option.value))
+    .map(decorateGroupOption)
+  const regularOptions = groupOptions.value
+    .filter(option => !planGroupIds.has(option.value))
+    .map(decorateGroupOption)
+  const options: Array<Record<string, unknown>> = []
+
+  if (planOptions.length > 0) {
+    options.push({
+      value: '__subscription_plans__',
+      label: t('keys.poolLabel'),
+      kind: 'group',
+      section: 'plan',
+      disabled: true,
+    } satisfies FormGroupHeaderOption)
+    options.push(...planOptions)
+  }
+  if (regularOptions.length > 0) {
+    options.push({
+      value: '__regular_groups__',
+      label: t('keys.normalGroupLabel'),
+      kind: 'group',
+      section: 'group',
+      disabled: true,
+    } satisfies FormGroupHeaderOption)
+    options.push(...regularOptions)
+  }
+  return options
+})
 
 const poolPlanLabelForKey = (key: Pick<ApiKey, 'user_subscription_id'>): string => {
   const subscriptionID = key.user_subscription_id

@@ -87,6 +87,9 @@
               :class="[
                 'select-option',
                 isGroupHeaderOption(option) && 'select-option-group',
+                option.section === 'plan' && 'select-option-group-plan',
+                option.section === 'group' && 'select-option-group-regular',
+                props.borderlessOptions && 'select-option-borderless',
                 isSelected(option) && 'select-option-selected',
                 isOptionDisabled(option) && !isGroupHeaderOption(option) && 'select-option-disabled',
                 focusedIndex === index && !isGroupHeaderOption(option) && 'select-option-focused'
@@ -160,6 +163,8 @@ interface Props {
   remote?: boolean
   /** 远程搜索模式下的加载态：options 为空时下拉显示 loading 文案 */
   loading?: boolean
+  /** Remove option borders and focus outlines for dense, badge-based option content. */
+  borderlessOptions?: boolean
 }
 
 interface Emits {
@@ -179,7 +184,8 @@ const props = withDefaults(defineProps<Props>(), {
   labelKey: 'label',
   size: 'md',
   remote: false,
-  loading: false
+  loading: false,
+  borderlessOptions: false
 })
 
 const emit = defineEmits<Emits>()
@@ -592,6 +598,14 @@ onUnmounted(() => {
   @apply text-primary-700 dark:text-primary-300;
 }
 
+.select-dropdown-portal .select-option-borderless,
+.select-dropdown-portal .select-option-borderless:hover,
+.select-dropdown-portal .select-option-borderless:focus {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+
 .select-dropdown-portal .select-option-focused {
   @apply bg-gray-100 dark:bg-dark-700;
 }
@@ -609,6 +623,16 @@ onUnmounted(() => {
 
 .select-dropdown-portal .select-option-group:hover {
   @apply bg-gray-50 dark:bg-dark-900;
+}
+
+.select-dropdown-portal .select-option-group-plan,
+.select-dropdown-portal .select-option-group-plan:hover {
+  @apply bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300;
+}
+
+.select-dropdown-portal .select-option-group-regular,
+.select-dropdown-portal .select-option-group-regular:hover {
+  @apply bg-gray-100 text-gray-700 dark:bg-dark-700 dark:text-gray-200;
 }
 
 .select-dropdown-portal .select-option-label {

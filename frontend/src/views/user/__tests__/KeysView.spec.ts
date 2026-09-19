@@ -1025,6 +1025,7 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([
       createGroup({ id: 1, name: 'Alpha' }),
       createGroup({ id: 2, name: 'Beta' }),
+      createGroup({ id: 3, name: 'Metered' }),
     ])
     listUserSubscriptions.mockResolvedValue([
       { id: 55, plan_id: 100, plan_name: '图像套餐', group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
@@ -1036,7 +1037,9 @@ describe('user KeysView column settings', () => {
     await nextTick()
 
     const groupSelect = wrapper.findComponent('[data-tour="key-form-group"]')
-    const groupOptions = groupSelect.props('options') as Array<{ value: number; description?: string }>
+    const groupOptions = groupSelect.props('options') as Array<{ value: number | string; label: string; kind?: string; description?: string }>
+    expect(groupOptions.filter(option => option.kind === 'group').map(option => option.label))
+      .toEqual(['Subscription plan', 'Regular groups'])
     expect(groupOptions.find(option => option.value === 1)?.description)
       .toContain('Subscription: 图像套餐、备用套餐')
 
