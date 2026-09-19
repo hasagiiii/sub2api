@@ -72,6 +72,7 @@ const messages: Record<string, string> = {
   'keys.orgSubscriptionLabel': 'Enterprise Subscription',
   'keys.poolLabel': 'Charge to plan',
   'keys.poolBadge': 'Charged: {plan}',
+  'keys.poolSubscription': 'Subscription #{id}',
   'keys.poolHint': 'Charge-to-plan hint',
   'keys.poolRequired': 'Please select the plan to charge',
   'keys.groupRequired': 'Please select a group',
@@ -637,7 +638,7 @@ describe('user KeysView column settings', () => {
     const groupCell = wrapper.get('[data-test="group-cell"]')
     // 路由分组照常展示，额度池另用一个带说明的徽标标注。
     expect(groupCell.findAll('group-badge-stub').map(badge => badge.attributes('name'))).toEqual(['Alpha'])
-    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Charged: Alpha + Beta')
+    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Charged: Subscription #55')
   })
 
   // 套餐覆盖的分组不一定都在"用户可绑定的分组"列表里（例如某个专属分组并未授予
@@ -659,7 +660,7 @@ describe('user KeysView column settings', () => {
     const wrapper = await mountView()
 
     expect(wrapper.get('[data-test="plan-binding-badge"]').text())
-      .toBe('Charged: 订阅测试分组 + 专属分组')
+      .toBe('Charged: Subscription #55')
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {

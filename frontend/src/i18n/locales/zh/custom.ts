@@ -840,6 +840,7 @@ export default {
     selectGroup: '选择分组',
     poolLabel: '扣费套餐',
     poolBadge: '扣费：{plan}',
+    poolSubscription: '订阅 #{id}',
     selectPool: '请选择扣费套餐',
     poolHint: '你有多个套餐都包含该分组，请选择本密钥消耗哪一份额度。分组仍由上方选择，套餐只决定扣费来源。',
     poolRequired: '请选择扣费套餐',

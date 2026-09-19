@@ -846,6 +846,7 @@ export default {
     selectGroup: 'Select a group',
     poolLabel: 'Charge to plan',
     poolBadge: 'Charged: {plan}',
+    poolSubscription: 'Subscription #{id}',
     selectPool: 'Select the plan to charge',
     poolHint: 'Several of your plans include this group. Pick which quota this key spends. The group above still decides routing; the plan only decides what gets charged.',
     poolRequired: 'Please select the plan to charge',

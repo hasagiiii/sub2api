@@ -1883,16 +1883,8 @@ const subscriptionGroupIds = (sub: Pick<BindableUserSubscription, 'group_id' | '
   return sub.group_id ? [sub.group_id] : []
 }
 
-/**
- * 该 Key 所扣额度池的标签。
- *
- * 用套餐覆盖的分组名拼成——同分组下的多个套餐往往只在"还覆盖了哪些别的分组"上
- * 有区别。订阅列表里查不到（已过期/不再可绑定）时退回 #id，不让这一项变空白。
- */
 const keyPoolLabel = (key: ApiKey): string => {
-  const sub = userSubscriptions.value.find(item => item.id === key.user_subscription_id)
-  if (!sub) return `#${key.user_subscription_id}`
-  return poolLabel(sub)
+  return t('keys.poolSubscription', { id: key.user_subscription_id })
 }
 
 const fallbackPrimaryGroup = computed(() => {
@@ -1936,23 +1928,6 @@ const fallbackGroupOptions = computed(() => eligibleFallbackGroups.value.map(gro
   platform: group.platform
 })))
 
-/**
- * 额度池（套餐）的展示标签：由它覆盖的分组名拼成。
- *
- * 同一分组下的多个套餐往往只在"还覆盖了哪些别的分组"上有区别，这是最能让用户
- * 区分它们的信息。
- *
- * 名称优先取接口随订阅返回的 group_names：订阅覆盖的分组不一定都在"用户可绑定的
- * 分组"列表里（例如某个专属分组并未授予该用户），只靠本地映射会显示成 #id。
- */
-const poolLabel = (sub: BindableUserSubscription): string => {
-  const ids = subscriptionGroupIds(sub)
-  const names = ids.map((gid, index) =>
-    sub.group_names?.[index]?.trim() || groupById(gid)?.name || `#${gid}`
-  )
-  return names.length > 0 ? names.join(' + ') : `#${sub.id}`
-}
-
 /** 额度池的辅助说明：到期时间最能帮用户判断先用哪一份。 */
 const poolDescription = (sub: BindableUserSubscription): string | undefined =>
   sub.expires_at ? t('keys.poolExpiresAt', { date: formatDateTime(sub.expires_at) }) : undefined
@@ -1986,7 +1961,7 @@ const showPoolChoice = computed(() =>
 const poolOptions = computed(() =>
   poolCandidates.value.map(sub => ({
     value: sub.id,
-    label: poolLabel(sub),
+    label: t('keys.poolSubscription', { id: sub.id }),
     description: poolDescription(sub)
   }))
 )
@@ -2231,7 +2206,7 @@ const quickGroupOptions = computed(() => [
   ...quickPoolCandidates.value.map(({ sub, group }) => ({
     value: `plan:${sub.id}:group:${group.id}`,
     label: group.name,
-    description: [poolLabel(sub), poolDescription(sub), group.description].filter(Boolean).join(' · '),
+    description: [t('keys.poolSubscription', { id: sub.id }), poolDescription(sub), group.description].filter(Boolean).join(' · '),
     platform: group.platform,
     rate: group.rate_multiplier,
     userRate: userGroupRates.value[group.id] ?? null,
