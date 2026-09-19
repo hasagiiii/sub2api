@@ -170,7 +170,7 @@
                   data-test="plan-binding-badge"
                   :title="t('keys.poolHint')"
                 >
-                  {{ t('keys.poolBadge', { plan: keyPoolLabel(row) }) }}
+                  {{ t('keys.poolBadge') }}
                 </span>
                 <template v-if="row.organization_subscription_id">
                   <!--
@@ -1878,10 +1878,6 @@ const subscriptionGroupIds = (sub: Pick<BindableUserSubscription, 'group_id' | '
   return sub.group_id ? [sub.group_id] : []
 }
 
-const keyPoolLabel = (key: ApiKey): string => {
-  return t('keys.poolSubscription', { id: key.user_subscription_id })
-}
-
 const fallbackPrimaryGroup = computed(() => {
   if (formData.value.organization_subscription_id) {
     const subscription = orgSubscriptions.value.find(item => item.id === formData.value.organization_subscription_id)
@@ -1956,7 +1952,7 @@ const showPoolChoice = computed(() =>
 const poolOptions = computed(() =>
   poolCandidates.value.map(sub => ({
     value: sub.id,
-    label: t('keys.poolSubscription', { id: sub.id }),
+    label: t('keys.poolSubscription'),
     description: poolDescription(sub)
   }))
 )
@@ -2201,7 +2197,7 @@ const quickGroupOptions = computed(() => [
   ...quickPoolCandidates.value.map(({ sub, group }) => ({
     value: `plan:${sub.id}:group:${group.id}`,
     label: group.name,
-    description: [t('keys.poolSubscription', { id: sub.id }), poolDescription(sub), group.description].filter(Boolean).join(' · '),
+    description: [t('keys.poolSubscription'), poolDescription(sub), group.description].filter(Boolean).join(' · '),
     platform: group.platform,
     rate: group.rate_multiplier,
     userRate: userGroupRates.value[group.id] ?? null,

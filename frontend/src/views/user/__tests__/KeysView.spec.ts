@@ -72,8 +72,8 @@ const messages: Record<string, string> = {
   'keys.fallbackGroupsEmpty': 'No same-platform fallback groups',
   'keys.orgSubscriptionLabel': 'Enterprise Subscription',
   'keys.poolLabel': 'Subscription plan',
-  'keys.poolBadge': 'Subscription plan: {plan}',
-  'keys.poolSubscription': 'Subscription #{id}',
+  'keys.poolBadge': 'Subscription plan',
+  'keys.poolSubscription': 'Subscription quota',
   'keys.poolHint': 'Charge-to-plan hint',
   'keys.poolRequired': 'Please select a subscription plan',
   'keys.groupRequired': 'Please select a group',
@@ -645,7 +645,7 @@ describe('user KeysView column settings', () => {
     const groupCell = wrapper.get('[data-test="group-cell"]')
     // 路由分组照常展示，额度池另用一个带说明的徽标标注。
     expect(groupCell.findAll('group-badge-stub').map(badge => badge.attributes('name'))).toEqual(['Alpha'])
-    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Subscription plan: Subscription #55')
+    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Subscription plan')
   })
 
   // 套餐覆盖的分组不一定都在"用户可绑定的分组"列表里（例如某个专属分组并未授予
@@ -667,7 +667,7 @@ describe('user KeysView column settings', () => {
     const wrapper = await mountView()
 
     expect(wrapper.get('[data-test="plan-binding-badge"]').text())
-      .toBe('Subscription plan: Subscription #55')
+      .toBe('Subscription plan')
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {
