@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -648,6 +649,67 @@ func TestAdminCreateOrganizationSubscription(t *testing.T) {
 	require.Equal(t, organizationID, items[0].OrganizationID)
 	require.Equal(t, 0.2, items[0].RateMultiplier)
 	require.NotEmpty(t, items[0].OrganizationName)
+}
+
+// 过期的企业订阅必须能被重新分配。
+//
+// 唯一索引只看 deleted_at，过期行会一直占着 (organization_id, group_id)；若在冲突时
+// 直接报 409，企业订阅到期后就再也发不出新的，只能先撤销旧的。个人订阅遇到过期是
+// 原地续期，这里必须一致。
+func TestOrganizationSubscriptionReassignsExpired(t *testing.T) {
+	isolateOrganizationIntegrationTest(t)
+	ctx := context.Background()
+	repo := NewOrganizationRepository(integrationDB)
+	admin := createOrganizationRoot(t, integrationEntClient, 100, service.RoleAdmin)
+	owner := createOrganizationRoot(t, integrationEntClient, 100, service.RoleUser)
+	organizationID := createActiveOrganization(t, owner, 20)
+	var groupID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO groups(name,status,platform,subscription_type,default_validity_days,daily_limit_usd,rate_multiplier) VALUES($1,'active','codex','subscription',30,10,0.2) RETURNING id`,
+		"expired-orgsub-"+uuid.NewString()).Scan(&groupID))
+
+	created, err := repo.AdminCreateOrganizationSubscription(ctx, admin.ID, organizationID, groupID, 30, "first term")
+	require.NoError(t, err)
+
+	// 仍在有效期内时重复分配必须被拒，避免把一条还在用的订阅静默重置掉。
+	_, err = repo.AdminCreateOrganizationSubscription(ctx, admin.ID, organizationID, groupID, 30, "")
+	require.ErrorIs(t, err, service.ErrOrgSubscriptionExists)
+
+	// 让它过期，并留下上个周期的已用额度与窗口锚点。
+	_, err = integrationDB.ExecContext(ctx,
+		`UPDATE organization_subscriptions SET expires_at=NOW()-INTERVAL '1 day',status='expired',daily_usage_usd=7.5,daily_window_start=NOW()-INTERVAL '2 hour' WHERE id=$1`,
+		created.ID)
+	require.NoError(t, err)
+
+	renewed, err := repo.AdminCreateOrganizationSubscription(ctx, admin.ID, organizationID, groupID, 15, "second term")
+	require.NoError(t, err)
+
+	// 原地续期：沿用同一行（唯一索引不允许并存），但权益是全新的一期。
+	require.Equal(t, created.ID, renewed.ID)
+	require.Equal(t, service.SubscriptionStatusActive, renewed.Status)
+	require.True(t, renewed.ExpiresAt.After(time.Now()))
+	require.Equal(t, 15, int(renewed.ExpiresAt.Sub(renewed.StartsAt).Hours()/24+0.5))
+
+	// 用量必须清零、窗口锚点回到未激活，否则新周期会带着上个周期的已用额度。
+	var (
+		dailyUsage  string
+		dailyWindow sql.NullTime
+		notes       sql.NullString
+	)
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`SELECT daily_usage_usd::text, daily_window_start, notes FROM organization_subscriptions WHERE id=$1`, created.ID).
+		Scan(&dailyUsage, &dailyWindow, &notes))
+	require.Equal(t, 0.0, mustParseFloat(t, dailyUsage))
+	require.False(t, dailyWindow.Valid)
+	require.Contains(t, notes.String, "first term")
+	require.Contains(t, notes.String, "second term")
+}
+
+func mustParseFloat(t *testing.T, value string) float64 {
+	t.Helper()
+	parsed, err := strconv.ParseFloat(value, 64)
+	require.NoError(t, err)
+	return parsed
 }
 
 func TestOrganizationDomainAuditCoverageAndCorrelation(t *testing.T) {

@@ -1338,6 +1338,45 @@ func organizationNullStringPtr(value sql.NullString) *string {
 	return &v
 }
 
+// orgSubscriptionProvisionSQL 发放一条企业订阅，已过期的同分组订阅原地续期。
+//
+// 唯一索引 idx_org_subscriptions_org_group_active 只看 deleted_at，不看有效期，
+// 所以一条早已过期的订阅会一直占着 (organization_id, group_id) 这个位置。若在冲突
+// 时直接报 409，企业订阅到期后就再也发不出新的，只能先撤销旧的——而个人订阅遇到
+// 过期是原地续期，两边语义不该不一致。
+//
+// 冲突时的 DO UPDATE 带 WHERE：仅当既有订阅确实已过期才续期；仍然有效的订阅保持
+// 原样并返回零行，调用方据此仍然报 ErrOrgSubscriptionExists，避免把一条还在用的
+// 订阅静默重置掉。
+//
+// 续期按新周期处理：用量计数器清零、窗口锚点置 NULL 交给首次用量时惰性激活（与
+// INSERT 分支一致），否则新周期会带着上个周期的已用额度。
+//
+// $1=organization_id $2=group_id $3=validity_days $4=assigned_by $5=notes
+const orgSubscriptionProvisionSQL = `INSERT INTO organization_subscriptions(organization_id,group_id,starts_at,expires_at,status,assigned_by,assigned_at,notes)
+VALUES($1,$2,NOW(),NOW()+($3::int * INTERVAL '1 day'),'active',$4,NOW(),NULLIF($5,''))
+ON CONFLICT (organization_id,group_id) WHERE deleted_at IS NULL
+DO UPDATE SET
+    starts_at=NOW(),
+    expires_at=NOW()+($3::int * INTERVAL '1 day'),
+    status='active',
+    assigned_by=$4,
+    assigned_at=NOW(),
+    notes=CASE
+        WHEN NULLIF($5,'') IS NULL THEN organization_subscriptions.notes
+        WHEN COALESCE(organization_subscriptions.notes,'')='' THEN $5
+        ELSE organization_subscriptions.notes||E'\n'||$5 END,
+    daily_usage_usd=0,
+    weekly_usage_usd=0,
+    monthly_usage_usd=0,
+    daily_window_start=NULL,
+    weekly_window_start=NULL,
+    monthly_window_start=NULL,
+    updated_at=NOW()
+WHERE organization_subscriptions.status='expired' OR organization_subscriptions.expires_at<=NOW()
+RETURNING id,starts_at,expires_at,status,assigned_at,created_at`
+
+
 // CreateOrganizationSubscription provisions a subscription plan (group) for the
 // caller's company. Only the active owner of an active organization may do
 // this. When validityDays is 0 the group's default validity is used.
@@ -1377,9 +1416,12 @@ func (r *organizationRepository) CreateOrganizationSubscription(ctx context.Cont
 		startsAt, expiresAt, assignedAt, createdAt time.Time
 		status                                     string
 	)
-	insertErr := tx.QueryRowContext(ctx, `INSERT INTO organization_subscriptions(organization_id,group_id,starts_at,expires_at,status,assigned_by,assigned_at,notes) VALUES($1,$2,NOW(),NOW()+($3::int * INTERVAL '1 day'),'active',$4,NOW(),NULLIF($5,'')) RETURNING id,starts_at,expires_at,status,assigned_at,created_at`, orgID, groupID, validityDays, userID, notes).
+	insertErr := tx.QueryRowContext(ctx, orgSubscriptionProvisionSQL, orgID, groupID, validityDays, userID, notes).
 		Scan(&id, &startsAt, &expiresAt, &status, &assignedAt, &createdAt)
-	if isUniqueViolation(insertErr) {
+	if errors.Is(insertErr, sql.ErrNoRows) {
+		// 冲突行仍在有效期内，DO UPDATE 的 WHERE 未命中。
+		return nil, service.ErrOrgSubscriptionExists
+	} else if isUniqueViolation(insertErr) {
 		return nil, service.ErrOrgSubscriptionExists
 	} else if insertErr != nil {
 		return nil, insertErr
@@ -1452,9 +1494,12 @@ func (r *organizationRepository) AdminCreateOrganizationSubscription(ctx context
 		startsAt, expiresAt, assignedAt, createdAt time.Time
 		status                                     string
 	)
-	insertErr := tx.QueryRowContext(ctx, `INSERT INTO organization_subscriptions(organization_id,group_id,starts_at,expires_at,status,assigned_by,assigned_at,notes) VALUES($1,$2,NOW(),NOW()+($3::int * INTERVAL '1 day'),'active',$4,NOW(),NULLIF($5,'')) RETURNING id,starts_at,expires_at,status,assigned_at,created_at`, organizationID, groupID, validityDays, actorID, notes).
+	insertErr := tx.QueryRowContext(ctx, orgSubscriptionProvisionSQL, organizationID, groupID, validityDays, actorID, notes).
 		Scan(&id, &startsAt, &expiresAt, &status, &assignedAt, &createdAt)
-	if isUniqueViolation(insertErr) {
+	if errors.Is(insertErr, sql.ErrNoRows) {
+		// 冲突行仍在有效期内，DO UPDATE 的 WHERE 未命中。
+		return nil, service.ErrOrgSubscriptionExists
+	} else if isUniqueViolation(insertErr) {
 		return nil, service.ErrOrgSubscriptionExists
 	} else if insertErr != nil {
 		return nil, insertErr
