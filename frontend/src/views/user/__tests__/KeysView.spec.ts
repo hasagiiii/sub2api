@@ -74,6 +74,7 @@ const messages: Record<string, string> = {
   'keys.poolLabel': 'Subscription plan',
   'keys.poolBadge': 'Subscription plan',
   'keys.poolSubscription': 'Subscription quota',
+  'keys.poolPlanLabel': 'Subscription: {name}',
   'keys.poolHint': 'Charge-to-plan hint',
   'keys.poolRequired': 'Please select a subscription plan',
   'keys.groupRequired': 'Please select a group',
@@ -519,8 +520,8 @@ describe('user KeysView column settings', () => {
     // 套餐覆盖的每个分组都会在“订阅套餐”分类中单独列出；手动分配的重复分组
     // 仍保留在“普通分组”分类中。
     listUserSubscriptions.mockResolvedValue([
-      { id: 55, plan_id: 100, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
-      { id: 56, plan_id: 101, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+      { id: 55, plan_id: 100, plan_name: '图像套餐', group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+      { id: 56, plan_id: 101, plan_name: '备用套餐', group_id: 1, group_ids: [1], status: 'active', expires_at: null },
       { id: 57, plan_id: null, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
     ])
 
@@ -551,6 +552,9 @@ describe('user KeysView column settings', () => {
     expect(options[3].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
     expect(options[4].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
     expect(options[5].find('group-option-item-stub').attributes('name')).toBe('Ordinary Group')
+    expect(options[1].attributes('title')).toContain('Subscription: 图像套餐')
+    expect(options[2].attributes('title')).toContain('Subscription: 图像套餐')
+    expect(options[3].attributes('title')).toContain('Subscription: 备用套餐')
     expect(listOrganizationSubscriptions).toHaveBeenCalledTimes(2)
     expect(listUserSubscriptions).toHaveBeenCalledTimes(2)
 

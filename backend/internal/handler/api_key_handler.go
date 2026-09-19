@@ -384,6 +384,8 @@ type BindableUserSubscription struct {
 	ID int64 `json:"id"`
 	// PlanID 为 nil 表示后台手动分配、不属于任何套餐的订阅。
 	PlanID *int64 `json:"plan_id,omitempty"`
+	// PlanName 是来源套餐的展示名称；手动分配的订阅为空。
+	PlanName string `json:"plan_name,omitempty"`
 	// GroupID 是主分组；GroupIDs 是共享这份额度的全部分组。
 	GroupID  int64   `json:"group_id"`
 	GroupIDs []int64 `json:"group_ids"`
@@ -424,6 +426,7 @@ func (h *APIKeyHandler) GetBindableUserSubscriptions(c *gin.Context) {
 		out = append(out, BindableUserSubscription{
 			ID:         sub.ID,
 			PlanID:     sub.PlanID,
+			PlanName:   sub.PlanName,
 			GroupID:    sub.GroupID,
 			GroupIDs:   groupIDs,
 			GroupNames: names,

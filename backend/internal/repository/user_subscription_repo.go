@@ -896,7 +896,7 @@ func (r *userSubscriptionRepository) hydrateSubscriptions(ctx context.Context, s
 	if err != nil {
 		return err
 	}
-	limitsByPlan, err := loadPlanLimits(ctx, client, uniqueInt64s(planIDs))
+	planDetailsByID, err := loadPlanDetails(ctx, client, uniqueInt64s(planIDs))
 	if err != nil {
 		return err
 	}
@@ -913,7 +913,9 @@ func (r *userSubscriptionRepository) hydrateSubscriptions(ctx context.Context, s
 			sub.GroupIDs = []int64{sub.GroupID}
 		}
 		if sub.PlanID != nil {
-			sub.PlanLimits = limitsByPlan[*sub.PlanID]
+			plan := planDetailsByID[*sub.PlanID]
+			sub.PlanLimits = plan.limits
+			sub.PlanName = plan.name
 		}
 	}
 	return nil
@@ -943,8 +945,13 @@ func loadCoveredGroupsBySubscription(ctx context.Context, client *dbent.Client, 
 	return out, rows.Err()
 }
 
-func loadPlanLimits(ctx context.Context, client *dbent.Client, planIDs []int64) (map[int64]service.SubscriptionLimits, error) {
-	out := make(map[int64]service.SubscriptionLimits, len(planIDs))
+type subscriptionPlanDetails struct {
+	limits service.SubscriptionLimits
+	name   string
+}
+
+func loadPlanDetails(ctx context.Context, client *dbent.Client, planIDs []int64) (map[int64]subscriptionPlanDetails, error) {
+	out := make(map[int64]subscriptionPlanDetails, len(planIDs))
 	if len(planIDs) == 0 {
 		return out, nil
 	}
@@ -952,6 +959,7 @@ func loadPlanLimits(ctx context.Context, client *dbent.Client, planIDs []int64) 
 		Where(subscriptionplan.IDIn(planIDs...)).
 		Select(
 			subscriptionplan.FieldID,
+			subscriptionplan.FieldName,
 			subscriptionplan.FieldDailyLimitUsd,
 			subscriptionplan.FieldWeeklyLimitUsd,
 			subscriptionplan.FieldMonthlyLimitUsd,
@@ -961,10 +969,13 @@ func loadPlanLimits(ctx context.Context, client *dbent.Client, planIDs []int64) 
 		return nil, err
 	}
 	for _, plan := range plans {
-		out[plan.ID] = service.SubscriptionLimits{
-			DailyLimitUSD:   plan.DailyLimitUsd,
-			WeeklyLimitUSD:  plan.WeeklyLimitUsd,
-			MonthlyLimitUSD: plan.MonthlyLimitUsd,
+		out[plan.ID] = subscriptionPlanDetails{
+			name: plan.Name,
+			limits: service.SubscriptionLimits{
+				DailyLimitUSD:   plan.DailyLimitUsd,
+				WeeklyLimitUSD:  plan.WeeklyLimitUsd,
+				MonthlyLimitUSD: plan.MonthlyLimitUsd,
+			},
 		}
 	}
 	return out, nil

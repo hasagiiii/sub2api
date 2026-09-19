@@ -848,6 +848,8 @@ export interface BindableUserSubscription {
   id: number
   /** 为空表示后台手动分配、不属于任何套餐的订阅。 */
   plan_id?: number | null
+  /** 来源套餐的展示名称；手动分配的订阅为空。 */
+  plan_name?: string | null
   /** 主分组（展示用代表分组）。 */
   group_id: number
   /** 共享该额度池的全部分组。 */

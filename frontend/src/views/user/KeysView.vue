@@ -1923,6 +1923,11 @@ const fallbackGroupOptions = computed(() => eligibleFallbackGroups.value.map(gro
 const poolDescription = (sub: BindableUserSubscription): string | undefined =>
   sub.expires_at ? t('keys.poolExpiresAt', { date: formatDateTime(sub.expires_at) }) : undefined
 
+const poolPlanLabel = (sub: BindableUserSubscription): string => {
+  const planName = sub.plan_name?.trim()
+  return planName ? t('keys.poolPlanLabel', { name: planName }) : t('keys.poolSubscription')
+}
+
 /**
  * 覆盖了指定分组的订阅（额度池候选）。
  *
@@ -1952,7 +1957,7 @@ const showPoolChoice = computed(() =>
 const poolOptions = computed(() =>
   poolCandidates.value.map(sub => ({
     value: sub.id,
-    label: t('keys.poolSubscription'),
+    label: poolPlanLabel(sub),
     description: poolDescription(sub)
   }))
 )
@@ -2197,7 +2202,7 @@ const quickGroupOptions = computed(() => [
   ...quickPoolCandidates.value.map(({ sub, group }) => ({
     value: `plan:${sub.id}:group:${group.id}`,
     label: group.name,
-    description: [t('keys.poolSubscription'), poolDescription(sub), group.description].filter(Boolean).join(' · '),
+    description: [poolPlanLabel(sub), poolDescription(sub), group.description].filter(Boolean).join(' · '),
     platform: group.platform,
     rate: group.rate_multiplier,
     userRate: userGroupRates.value[group.id] ?? null,

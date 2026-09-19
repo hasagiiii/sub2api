@@ -848,6 +848,7 @@ export default {
     poolLabel: 'Subscription plan',
     poolBadge: 'Subscription plan',
     poolSubscription: 'Subscription quota',
+    poolPlanLabel: 'Subscription: {name}',
     selectPool: 'Select a subscription plan',
     poolHint: 'Several of your plans include this group. Pick which subscription quota this key uses. The group above still decides routing; the plan only decides the quota source.',
     poolRequired: 'Please select a subscription plan',

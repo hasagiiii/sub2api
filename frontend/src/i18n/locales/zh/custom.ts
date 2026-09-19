@@ -842,6 +842,7 @@ export default {
     poolLabel: '订阅套餐',
     poolBadge: '订阅套餐',
     poolSubscription: '订阅额度',
+    poolPlanLabel: '订阅：{name}',
     selectPool: '请选择订阅套餐',
     poolHint: '你有多个套餐都包含该分组，请选择本密钥使用哪一份订阅额度。分组仍由上方选择，套餐只决定额度来源。',
     poolRequired: '请选择订阅套餐',

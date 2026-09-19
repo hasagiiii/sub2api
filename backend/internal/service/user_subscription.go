@@ -14,6 +14,8 @@ type UserSubscription struct {
 	GroupID int64
 	// PlanID 是来源套餐；nil 表示后台手动分配、不属于任何套餐的订阅。
 	PlanID *int64
+	// PlanName 是来源套餐的展示名称；手动分配的订阅为空。
+	PlanName string
 	// GroupIDs 是这条订阅覆盖的全部分组（含 GroupID，且 GroupID 为首元素）。
 	// 这些分组【共享】本条订阅的同一份用量计数器与限额，这正是"买一份套餐拿
 	// 一份额度"的实现方式。空切片表示尚未加载，读取方应回退到 GroupID。
