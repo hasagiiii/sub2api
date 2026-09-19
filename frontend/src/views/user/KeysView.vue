@@ -1498,10 +1498,10 @@
               :key="option.value ?? 'null'"
               @click="changeGroup(selectedKeyForGroup!, option.value)"
               :class="[
-                'flex min-h-11 w-full items-center gap-2 px-3 py-2.5 text-left text-sm leading-5 transition-colors',
+                'flex min-h-11 w-full items-center gap-2 rounded-md border px-3 py-2.5 text-left text-sm leading-5 transition-colors',
                 isBindingOptionSelected(option.value)
-                  ? 'bg-primary-50 dark:bg-primary-900/20'
-                  : 'hover:bg-gray-50 dark:hover:bg-dark-700'
+                  ? 'border-primary-200 bg-primary-50 dark:border-primary-800 dark:bg-primary-900/20'
+                  : 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-dark-600 dark:hover:bg-dark-700'
               ]"
               data-test="group-selector-option"
               :data-binding-kind="option.kind"
