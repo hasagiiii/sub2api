@@ -1462,7 +1462,11 @@ func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([
 	// 构建订阅分组 ID 集合
 	subscribedGroupIDs := make(map[int64]bool)
 	for _, sub := range activeSubscriptions {
-		subscribedGroupIDs[sub.GroupID] = true
+		// 套餐订阅可能覆盖多个分组；不能只登记主分组，否则套餐内的
+		// 其它分组不会进入 API Key 的可选列表。
+		for _, groupID := range sub.CoveredGroupIDs() {
+			subscribedGroupIDs[groupID] = true
+		}
 	}
 
 	// 过滤出用户有权限的分组
@@ -1634,7 +1638,9 @@ func (s *APIKeyService) GetUserGroupVisibility(ctx context.Context, userID int64
 		return nil, false, fmt.Errorf("list active subscriptions: %w", err)
 	}
 	for _, sub := range subscriptions {
-		allowed[sub.GroupID] = struct{}{}
+		for _, groupID := range sub.CoveredGroupIDs() {
+			allowed[groupID] = struct{}{}
+		}
 	}
 	return allowed, user.RestrictPublicGroups, nil
 }

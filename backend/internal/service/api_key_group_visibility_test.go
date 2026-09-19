@@ -50,7 +50,7 @@ func TestGetUserGroupVisibilityIncludesActiveSubscriptions(t *testing.T) {
 		t.Run(map[bool]string{false: "unrestricted", true: "restricted"}[restricted], func(t *testing.T) {
 			now := time.Now()
 			subs := &visibilitySubRepo{subscriptions: []UserSubscription{
-				{UserID: 1, GroupID: 42, Status: SubscriptionStatusActive, ExpiresAt: now.Add(time.Hour)},
+				{UserID: 1, GroupID: 42, GroupIDs: []int64{42, 46}, Status: SubscriptionStatusActive, ExpiresAt: now.Add(time.Hour)},
 				{UserID: 1, GroupID: 43, Status: SubscriptionStatusActive, ExpiresAt: now.Add(-time.Hour)},
 				{UserID: 1, GroupID: 44, Status: "expired", ExpiresAt: now.Add(time.Hour)},
 				{UserID: 2, GroupID: 45, Status: SubscriptionStatusActive, ExpiresAt: now.Add(time.Hour)},
@@ -58,16 +58,20 @@ func TestGetUserGroupVisibilityIncludesActiveSubscriptions(t *testing.T) {
 			svc := &APIKeyService{
 				userRepo:    &visibilityUserRepo{user: &User{ID: 1, AllowedGroups: []int64{7}, RestrictPublicGroups: restricted}},
 				userSubRepo: subs,
-				groupRepo:   &visibilityGroupRepo{groups: []Group{{ID: 42, IsExclusive: true, SubscriptionType: "subscription"}}},
+				groupRepo:   &visibilityGroupRepo{groups: []Group{
+					{ID: 42, IsExclusive: true, SubscriptionType: "subscription"},
+					{ID: 46, IsExclusive: true, SubscriptionType: "subscription"},
+				}},
 			}
 			available, err := svc.GetAvailableGroups(context.Background(), 1)
 			require.NoError(t, err)
-			require.Len(t, available, 1)
+			require.Len(t, available, 2)
 			visible, restrict, err := svc.GetUserGroupVisibility(context.Background(), 1)
 			require.NoError(t, err)
 			require.Equal(t, restricted, restrict)
-			require.Equal(t, map[int64]struct{}{7: {}, 42: {}}, visible)
+			require.Equal(t, map[int64]struct{}{7: {}, 42: {}, 46: {}}, visible)
 			require.Contains(t, visible, available[0].ID, "a subscribed group that can be bound must be visible")
+			require.Contains(t, visible, available[1].ID, "all groups covered by a subscription must be visible")
 		})
 	}
 }
