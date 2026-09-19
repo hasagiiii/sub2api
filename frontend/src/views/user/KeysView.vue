@@ -1476,31 +1476,28 @@
           </div>
         </div>
         <!-- Group list -->
-        <div class="max-h-80 flex flex-col gap-1 overflow-y-auto p-1.5">
-          <template v-for="(option, index) in filteredGroupOptions" :key="option.value ?? 'null'">
-            <!--
-              按绑定类型分节。三类的计费口径完全不同（公司额度 / 套餐共享额度 /
-              分组自身限额），必须分开标注，否则用户无从判断这次消费扣哪一份。
-            -->
+        <div class="max-h-80 overflow-y-auto">
+          <section v-for="section in groupedQuickOptions" :key="section.kind">
             <div
-              v-if="index === 0 || option.kind !== filteredGroupOptions[index - 1]?.kind"
-              class="flex min-h-9 w-full items-center rounded-md border px-3 py-2 text-xs font-semibold leading-5"
-              :class="option.kind === 'org'
-                ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300'
-                : option.kind === 'plan'
-                  ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-900/30 dark:text-violet-300'
-                  : 'border-gray-200 bg-gray-100 text-gray-700 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200'"
-              :data-test="`${option.kind}-group-section`"
+              class="sticky top-0 z-10 flex h-8 items-center px-3 text-xs font-semibold"
+              :class="section.kind === 'org'
+                ? 'bg-sky-50 text-sky-800 dark:bg-sky-950 dark:text-sky-200'
+                : section.kind === 'plan'
+                  ? 'bg-violet-50 text-violet-800 dark:bg-violet-950 dark:text-violet-200'
+                  : 'bg-gray-50 text-gray-700 dark:bg-dark-700 dark:text-gray-200'"
+              :data-test="`${section.kind}-group-section`"
             >
-              {{ bindingKindLabel(option.kind) }}
+              {{ bindingKindLabel(section.kind) }}
             </div>
             <button
+              v-for="option in section.options"
+              :key="option.value ?? 'null'"
               @click="changeGroup(selectedKeyForGroup!, option.value)"
               :class="[
-                'flex min-h-11 w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-sm leading-5 transition-colors',
+                'flex w-full items-center px-3 py-2 text-left text-sm transition-colors',
                 isBindingOptionSelected(option.value)
-                  ? 'border-primary-200 bg-primary-50 dark:border-primary-800 dark:bg-primary-900/20'
-                  : 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-dark-600 dark:hover:bg-dark-700'
+                  ? 'bg-primary-50 dark:bg-primary-900/20'
+                  : 'hover:bg-gray-50 dark:hover:bg-dark-700'
               ]"
               data-test="group-selector-option"
               :data-binding-kind="option.kind"
@@ -1521,7 +1518,7 @@
                 :selected="isBindingOptionSelected(option.value)"
               />
             </button>
-          </template>
+          </section>
           <!-- Empty state when search has no results -->
           <div v-if="filteredGroupOptions.length === 0" class="py-4 text-center text-sm text-gray-400 dark:text-gray-500">
             {{ t('keys.noGroupFound') }}
@@ -2262,6 +2259,19 @@ const filteredGroupOptions = computed(() => {
     return opt.label.toLowerCase().includes(query) ||
       (opt.description && opt.description.toLowerCase().includes(query))
   })
+})
+
+const groupedQuickOptions = computed(() => {
+  const sections: Array<{ kind: KeyBindingKind; options: typeof filteredGroupOptions.value }> = []
+  for (const option of filteredGroupOptions.value) {
+    const last = sections[sections.length - 1]
+    if (!last || last.kind !== option.kind) {
+      sections.push({ kind: option.kind, options: [option] })
+    } else {
+      last.options.push(option)
+    }
+  }
+  return sections
 })
 
 const bindingKindLabel = (kind: KeyBindingKind) => {
