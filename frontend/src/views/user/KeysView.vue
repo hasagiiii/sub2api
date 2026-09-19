@@ -2227,9 +2227,8 @@ const quickGroupOptions = computed(() => [
     kind: 'org' as KeyBindingKind,
     isEnterprise: true,
   })),
-  // 扣费套餐：只列出覆盖该 Key 当前分组的套餐，且仅在有多个（存在歧义）时出现。
-  // 这里改的是"扣哪份额度"，不是路由——所以候选必须限定在当前分组之内，否则会
-  // 让人以为选它就能换分组。
+  // 扣费套餐：列出覆盖该 Key 当前分组的全部套餐。即使只有一个套餐也保留这一类，
+  // 让用户能明确看到并切换当前 Key 的扣费来源；这里改的是"扣哪份额度"，不是路由。
   ...quickPoolCandidates.value.map(sub => ({
     value: `plan:${sub.id}`,
     label: poolLabel(sub),
@@ -2248,12 +2247,11 @@ const quickGroupOptions = computed(() => [
   ...groupOptions.value,
 ])
 
-/** 当前操作的 Key 可选的额度池；唯一候选时不给选项（无歧义）。 */
+/** 当前操作的 Key 可选的额度池；套餐必须覆盖当前路由分组。 */
 const quickPoolCandidates = computed(() => {
   const key = selectedKeyForGroup.value
   if (!key || key.organization_subscription_id) return []
-  const candidates = subscriptionsCoveringGroup(key.group_id ?? null)
-  return candidates.length > 1 ? candidates : []
+  return subscriptionsCoveringGroup(key.group_id ?? null)
 })
 const filteredGroupOptions = computed(() => {
   const query = groupSearchQuery.value.trim().toLowerCase()

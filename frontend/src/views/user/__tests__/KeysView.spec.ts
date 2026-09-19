@@ -554,9 +554,8 @@ describe('user KeysView column settings', () => {
     })
   })
 
-  // 只有一个套餐覆盖该分组时答案唯一，后端按分组反查就能得到同一条；此时不该出现
-  // 套餐分节，问用户等于制造噪音。
-  it('omits the plan section when only one plan covers the group', async () => {
+  // 即使只有一个套餐覆盖该分组，也要保留订阅分类，让用户明确看到当前可用的扣费来源。
+  it('shows the plan section when one plan covers the group', async () => {
     const personalGroup = createGroup({ id: 1, name: 'Personal Group' })
     getAvailableGroups.mockResolvedValue([personalGroup])
     listKeys.mockResolvedValue({
@@ -574,9 +573,9 @@ describe('user KeysView column settings', () => {
     await wrapper.get('[data-test="group-selector-trigger"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.find('[data-test="plan-group-section"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="plan-group-section"]').text()).toBe('Charge to plan')
     expect(wrapper.findAll('[data-test="group-selector-option"]')
-      .map(option => option.attributes('data-binding-kind'))).toEqual(['group'])
+      .map(option => option.attributes('data-binding-kind'))).toEqual(['plan', 'group'])
   })
 
   // 选套餐只换额度池：分组与回退分组必须原样保留，否则用户会以为自己换了扣费来源，
