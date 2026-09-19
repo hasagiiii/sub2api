@@ -168,7 +168,7 @@
                   v-if="row.user_subscription_id"
                   class="badge badge-purple shrink-0 whitespace-nowrap text-xs"
                   data-test="plan-binding-badge"
-                  :title="t('keys.poolHint')"
+                  :title="poolPlanDescriptionForKey(row)"
                 >
                   {{ poolPlanLabelForKey(row) }}
                 </span>
@@ -1975,7 +1975,7 @@ const formGroupOptions = computed(() => {
       // Select reserves kind="group" for non-selectable section headers.
       kind: undefined,
       description: planNames.length > 0
-        ? [option.description, t('keys.poolPlanDescription', { name: planNames.join('、') })]
+        ? [option.description, t('keys.poolPlanLabel', { name: planNames.join('、') })]
           .filter(Boolean)
           .join(' · ')
         : option.description,
@@ -2018,6 +2018,13 @@ const poolPlanLabelForKey = (key: Pick<ApiKey, 'user_subscription_id'>): string 
   if (!subscriptionID) return t('keys.poolBadge')
   const subscription = userSubscriptions.value.find(item => item.id === subscriptionID)
   return subscription ? poolPlanLabel(subscription) : t('keys.poolBadge')
+}
+
+const poolPlanDescriptionForKey = (key: Pick<ApiKey, 'user_subscription_id'>): string => {
+  const subscriptionID = key.user_subscription_id
+  if (!subscriptionID) return t('keys.poolHint')
+  const subscription = userSubscriptions.value.find(item => item.id === subscriptionID)
+  return subscription ? poolPlanDescription(subscription) : t('keys.poolHint')
 }
 
 /**
@@ -2294,7 +2301,7 @@ const quickGroupOptions = computed(() => [
   ...quickPoolCandidates.value.map(({ sub, group }) => ({
     value: `plan:${sub.id}:group:${group.id}`,
     label: group.name,
-    description: [poolPlanDescription(sub), poolDescription(sub), group.description].filter(Boolean).join(' · '),
+    description: [poolPlanLabel(sub), poolDescription(sub), group.description].filter(Boolean).join(' · '),
     platform: group.platform,
     rate: group.rate_multiplier,
     userRate: userGroupRates.value[group.id] ?? null,

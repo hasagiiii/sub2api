@@ -553,9 +553,9 @@ describe('user KeysView column settings', () => {
     expect(options[3].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
     expect(options[4].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
     expect(options[5].find('group-option-item-stub').attributes('name')).toBe('Ordinary Group')
-    expect(options[1].attributes('title')).toContain('This group belongs to 图像套餐 subscription plan')
-    expect(options[2].attributes('title')).toContain('This group belongs to 图像套餐 subscription plan')
-    expect(options[3].attributes('title')).toContain('This group belongs to 备用套餐 subscription plan')
+    expect(options[1].attributes('title')).toContain('Subscription: 图像套餐')
+    expect(options[2].attributes('title')).toContain('Subscription: 图像套餐')
+    expect(options[3].attributes('title')).toContain('Subscription: 备用套餐')
     expect(listOrganizationSubscriptions).toHaveBeenCalledTimes(2)
     expect(listUserSubscriptions).toHaveBeenCalledTimes(2)
 
@@ -650,7 +650,9 @@ describe('user KeysView column settings', () => {
     const groupCell = wrapper.get('[data-test="group-cell"]')
     // 路由分组照常展示，额度池另用一个带说明的徽标标注。
     expect(groupCell.findAll('group-badge-stub').map(badge => badge.attributes('name'))).toEqual(['Alpha'])
-    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Subscription: 图像套餐')
+    const planBadge = groupCell.get('[data-test="plan-binding-badge"]')
+    expect(planBadge.text()).toBe('Subscription: 图像套餐')
+    expect(planBadge.attributes('title')).toContain('This group belongs to 图像套餐 subscription plan')
   })
 
   // 套餐覆盖的分组不一定都在"用户可绑定的分组"列表里（例如某个专属分组并未授予
@@ -673,6 +675,8 @@ describe('user KeysView column settings', () => {
 
     expect(wrapper.get('[data-test="plan-binding-badge"]').text())
       .toBe('Subscription: 图像套餐')
+    expect(wrapper.get('[data-test="plan-binding-badge"]').attributes('title'))
+      .toContain('This group belongs to 图像套餐 subscription plan')
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {
@@ -1042,7 +1046,7 @@ describe('user KeysView column settings', () => {
     expect(groupOptions.filter(option => option.kind === 'group').map(option => option.label))
       .toEqual(['Subscription plan', 'Regular groups'])
     expect(groupOptions.find(option => option.value === 1)?.description)
-      .toContain('This group belongs to 图像套餐、备用套餐 subscription plan')
+      .toContain('Subscription: 图像套餐、备用套餐')
 
     await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
     await nextTick()
