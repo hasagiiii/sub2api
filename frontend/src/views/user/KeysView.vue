@@ -1476,7 +1476,7 @@
           </div>
         </div>
         <!-- Group list -->
-        <div class="max-h-80 overflow-y-auto p-1.5">
+        <div class="max-h-80 space-y-1 overflow-y-auto p-1.5">
           <template v-for="(option, index) in filteredGroupOptions" :key="option.value ?? 'null'">
             <!--
               按绑定类型分节。三类的计费口径完全不同（公司额度 / 套餐共享额度 /
@@ -1484,7 +1484,7 @@
             -->
             <div
               v-if="index === 0 || option.kind !== filteredGroupOptions[index - 1]?.kind"
-              class="mx-1 mt-1 flex items-center rounded-md border px-3 py-2 text-xs font-semibold"
+              class="mx-1 flex items-center rounded-md border px-3 py-2 text-xs font-semibold"
               :class="option.kind === 'org'
                 ? 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-900/30 dark:text-sky-300'
                 : option.kind === 'plan'
@@ -1497,11 +1497,10 @@
             <button
               @click="changeGroup(selectedKeyForGroup!, option.value)"
               :class="[
-                'flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors',
-                'border-b border-gray-100 last:border-0 dark:border-dark-700',
+                'mx-1 flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors',
                 isBindingOptionSelected(option.value)
-                  ? 'bg-primary-50 dark:bg-primary-900/20'
-                  : 'hover:bg-gray-100 dark:hover:bg-dark-700'
+                  ? 'border-primary-200 bg-primary-50 dark:border-primary-800 dark:bg-primary-900/20'
+                  : 'border-transparent hover:border-gray-200 hover:bg-gray-50 dark:hover:border-dark-600 dark:hover:bg-dark-700'
               ]"
               data-test="group-selector-option"
               :data-binding-kind="option.kind"
