@@ -844,6 +844,7 @@ export default {
     namePlaceholder: 'My API Key',
     groupLabel: 'Group',
     selectGroup: 'Select a group',
+    normalGroupLabel: 'Regular groups',
     poolLabel: 'Subscription plan',
     poolBadge: 'Subscription plan: {plan}',
     poolSubscription: 'Subscription #{id}',

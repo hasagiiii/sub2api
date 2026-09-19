@@ -103,6 +103,7 @@ export default {
     namePlaceholder: 'My API Key',
     groupLabel: 'Group',
     selectGroup: 'Select a group',
+    normalGroupLabel: 'Regular groups',
     subscriptionLabel: 'Subscription plan',
     selectSubscription: 'None (bind a group instead)',
     subscriptionHint: 'When bound to a plan, this key can call every group the plan covers, all drawing from the same plan quota.',

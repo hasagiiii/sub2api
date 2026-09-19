@@ -103,6 +103,7 @@ export default {
     namePlaceholder: '我的 API 密钥',
     groupLabel: '分组',
     selectGroup: '选择分组',
+    normalGroupLabel: '普通分组',
     subscriptionLabel: '订阅套餐',
     selectSubscription: '不绑定（按分组创建）',
     subscriptionHint: '绑定套餐后，该套餐包含的分组都可用此密钥调用，并共用同一份套餐额度。',

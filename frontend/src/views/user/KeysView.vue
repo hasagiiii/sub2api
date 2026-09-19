@@ -2213,7 +2213,7 @@ const quickGroupOptions = computed(() => [
     kind: 'plan' as KeyBindingKind,
     isEnterprise: false,
   })),
-  ...groupOptions.value,
+  ...ordinaryGroupOptions.value,
 ])
 
 /** 当前操作的 Key 可选的套餐分组组合；只展示用户当前可绑定的分组。 */
@@ -2221,15 +2221,40 @@ const quickPoolCandidates = computed(() => {
   const key = selectedKeyForGroup.value
   if (!key || key.organization_subscription_id) return []
   const availableGroupIds = new Set(groups.value.map(group => group.id))
-  return userSubscriptions.value.flatMap(sub =>
-    subscriptionGroupIds(sub)
-      .filter(groupId => availableGroupIds.has(groupId))
-      .map(groupId => {
-        const group = groupById(groupId)
-        return group ? { sub, group } : null
-      })
-      .filter((candidate): candidate is { sub: BindableUserSubscription; group: Group } => candidate !== null)
+  return userSubscriptions.value
+    .filter(sub => sub.plan_id != null)
+    .flatMap(sub =>
+      subscriptionGroupIds(sub)
+        .filter(groupId => availableGroupIds.has(groupId))
+        .map(groupId => {
+          const group = groupById(groupId)
+          return group ? { sub, group } : null
+        })
+        .filter((candidate): candidate is { sub: BindableUserSubscription; group: Group } => candidate !== null)
+    )
+})
+
+/**
+ * 普通分组只排除真正来自订阅套餐的分组。
+ *
+ * 后台手动分配的订阅没有 plan_id，即使它和套餐覆盖了同一个分组，也要保留普通
+ * 分组选项；否则手动分配的额度来源会被套餐关系误伤。
+ */
+const ordinaryGroupOptions = computed(() => {
+  const planGroupIds = new Set(
+    userSubscriptions.value
+      .filter(sub => sub.plan_id != null)
+      .flatMap(sub => subscriptionGroupIds(sub))
   )
+  const manualGroupIds = new Set(
+    userSubscriptions.value
+      .filter(sub => sub.plan_id == null)
+      .flatMap(sub => subscriptionGroupIds(sub))
+  )
+  return groupOptions.value.filter(option => {
+    const groupId = Number(option.value)
+    return !planGroupIds.has(groupId) || manualGroupIds.has(groupId)
+  })
 })
 const filteredGroupOptions = computed(() => {
   const query = groupSearchQuery.value.trim().toLowerCase()
@@ -2243,7 +2268,7 @@ const filteredGroupOptions = computed(() => {
 const bindingKindLabel = (kind: KeyBindingKind) => {
   if (kind === 'org') return t('keys.orgSubscriptionLabel')
   if (kind === 'plan') return t('keys.poolLabel')
-  return t('keys.group')
+  return t('keys.normalGroupLabel')
 }
 
 /**

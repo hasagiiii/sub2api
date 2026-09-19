@@ -54,6 +54,7 @@ const messages: Record<string, string> = {
   'keys.created': 'Created',
   'keys.expiresAt': 'Expires',
   'keys.group': 'Group',
+  'keys.normalGroupLabel': 'Regular groups',
   'keys.id': 'ID',
   'keys.currentConcurrency': 'Current Concurrency',
   'keys.lastUsedAt': 'Last Used',
@@ -496,7 +497,8 @@ describe('user KeysView column settings', () => {
   it('groups the selector into enterprise, plan and group sections', async () => {
     const personalGroup = createGroup({ id: 1, name: 'Personal Group' })
     const bundledGroup = createGroup({ id: 2, name: 'Bundled Group' })
-    getAvailableGroups.mockResolvedValue([personalGroup, bundledGroup])
+    const ordinaryGroup = createGroup({ id: 3, name: 'Ordinary Group' })
+    getAvailableGroups.mockResolvedValue([personalGroup, bundledGroup, ordinaryGroup])
     listKeys.mockResolvedValue({
       items: [{ ...createApiKey(), group_id: personalGroup.id, group: personalGroup }],
       total: 1,
@@ -514,10 +516,12 @@ describe('user KeysView column settings', () => {
       rate_multiplier: 0.2,
       status: 'active',
     }])
-    // 套餐覆盖的每个分组都会在“订阅套餐”分类中单独列出。
+    // 套餐覆盖的每个分组都会在“订阅套餐”分类中单独列出；手动分配的重复分组
+    // 仍保留在“普通分组”分类中。
     listUserSubscriptions.mockResolvedValue([
-      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
-      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+      { id: 55, plan_id: 100, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+      { id: 56, plan_id: 101, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+      { id: 57, plan_id: null, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
     ])
 
     const wrapper = await mountView()
@@ -527,7 +531,7 @@ describe('user KeysView column settings', () => {
     // 三类的计费口径不同，必须各自成节并用标题颜色区分。
     expect(wrapper.get('[data-test="org-group-section"]').text()).toBe('Enterprise Subscription')
     expect(wrapper.get('[data-test="plan-group-section"]').text()).toBe('Subscription plan')
-    expect(wrapper.get('[data-test="group-group-section"]').text()).toBe('Group')
+    expect(wrapper.get('[data-test="group-group-section"]').text()).toBe('Regular groups')
     expect(wrapper.find('[data-test="org-group-option-badge"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="plan-group-option-badge"]').exists()).toBe(false)
 
@@ -545,6 +549,8 @@ describe('user KeysView column settings', () => {
       .toBe('Personal Group')
     expect(options[2].find('group-option-item-stub').attributes('name')).toBe('Bundled Group')
     expect(options[3].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
+    expect(options[4].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
+    expect(options[5].find('group-option-item-stub').attributes('name')).toBe('Ordinary Group')
     expect(listOrganizationSubscriptions).toHaveBeenCalledTimes(2)
     expect(listUserSubscriptions).toHaveBeenCalledTimes(2)
 
@@ -569,7 +575,7 @@ describe('user KeysView column settings', () => {
       pages: 1,
     })
     listUserSubscriptions.mockResolvedValue([
-      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+      { id: 55, plan_id: 100, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
     ])
 
     const wrapper = await mountView()
@@ -577,8 +583,9 @@ describe('user KeysView column settings', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-test="plan-group-section"]').text()).toBe('Subscription plan')
+    expect(wrapper.find('[data-test="group-group-section"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-test="group-selector-option"]')
-      .map(option => option.attributes('data-binding-kind'))).toEqual(['plan', 'group'])
+      .map(option => option.attributes('data-binding-kind'))).toEqual(['plan'])
   })
 
   // 套餐项同时选择额度池和路由分组，切换到套餐中的另一个分组时两者一起更新。
@@ -594,8 +601,8 @@ describe('user KeysView column settings', () => {
       pages: 1,
     })
     listUserSubscriptions.mockResolvedValue([
-      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
-      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+      { id: 55, plan_id: 100, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+      { id: 56, plan_id: 101, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
     ])
 
     const wrapper = await mountView()

@@ -838,6 +838,7 @@ export default {
     namePlaceholder: '我的 API 密钥',
     groupLabel: '分组',
     selectGroup: '选择分组',
+    normalGroupLabel: '普通分组',
     poolLabel: '订阅套餐',
     poolBadge: '订阅套餐：{plan}',
     poolSubscription: '订阅 #{id}',
