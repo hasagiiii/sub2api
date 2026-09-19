@@ -1764,8 +1764,7 @@ const formData = ref({
   group_id: null as number | null,
   fallback_group_ids: [] as number[],
   organization_subscription_id: null as number | null,
-  // 绑定个人订阅（套餐）：非空时可路由分组来自该订阅覆盖的分组，消费扣它那一份
-  // 共享额度池，此时不再单独选分组与回退分组。
+  // 绑定个人订阅（套餐）：指定扣费额度池，路由分组仍由 group_id 单独决定。
   user_subscription_id: null as number | null,
   prefer_company_balance: true,
   status: 'active' as 'active' | 'inactive',
@@ -2227,31 +2226,40 @@ const quickGroupOptions = computed(() => [
     kind: 'org' as KeyBindingKind,
     isEnterprise: true,
   })),
-  // 扣费套餐：列出覆盖该 Key 当前分组的全部套餐。即使只有一个套餐也保留这一类，
-  // 让用户能明确看到并切换当前 Key 的扣费来源；这里改的是"扣哪份额度"，不是路由。
-  ...quickPoolCandidates.value.map(sub => ({
-    value: `plan:${sub.id}`,
-    label: poolLabel(sub),
-    description: poolDescription(sub),
-    platform: 'composite' as const,
-    rate: undefined,
-    userRate: undefined,
-    peakRateEnabled: false,
-    peakStart: undefined,
-    peakEnd: undefined,
-    peakRateMultiplier: undefined,
-    subscriptionType: undefined,
+  // 扣费套餐按“套餐 + 覆盖分组”展开：同一个套餐覆盖多个分组时，用户可以逐个
+  // 选择实际路由的分组，套餐只决定这次请求从哪一份额度池扣费。
+  ...quickPoolCandidates.value.map(({ sub, group }) => ({
+    value: `plan:${sub.id}:group:${group.id}`,
+    label: group.name,
+    description: [poolLabel(sub), poolDescription(sub), group.description].filter(Boolean).join(' · '),
+    platform: group.platform,
+    rate: group.rate_multiplier,
+    userRate: userGroupRates.value[group.id] ?? null,
+    peakRateEnabled: group.peak_rate_enabled,
+    peakStart: group.peak_start,
+    peakEnd: group.peak_end,
+    peakRateMultiplier: group.peak_rate_multiplier,
+    subscriptionType: group.subscription_type,
     kind: 'plan' as KeyBindingKind,
     isEnterprise: false,
   })),
   ...groupOptions.value,
 ])
 
-/** 当前操作的 Key 可选的额度池；套餐必须覆盖当前路由分组。 */
+/** 当前操作的 Key 可选的套餐分组组合；只展示用户当前可绑定的分组。 */
 const quickPoolCandidates = computed(() => {
   const key = selectedKeyForGroup.value
   if (!key || key.organization_subscription_id) return []
-  return subscriptionsCoveringGroup(key.group_id ?? null)
+  const availableGroupIds = new Set(groups.value.map(group => group.id))
+  return userSubscriptions.value.flatMap(sub =>
+    subscriptionGroupIds(sub)
+      .filter(groupId => availableGroupIds.has(groupId))
+      .map(groupId => {
+        const group = groupById(groupId)
+        return group ? { sub, group } : null
+      })
+      .filter((candidate): candidate is { sub: BindableUserSubscription; group: Group } => candidate !== null)
+  )
 })
 const filteredGroupOptions = computed(() => {
   const query = groupSearchQuery.value.trim().toLowerCase()
@@ -2271,15 +2279,18 @@ const bindingKindLabel = (kind: KeyBindingKind) => {
 /**
  * 该选项是否为当前 Key 的绑定对象。
  *
- * 必须按类型各自比较：企业订阅与套餐都会把 Key 的 group_id 设成订阅的主分组，
- * 若只比 group_id，那个主分组会连带被高亮成"已选中"，看起来像同时绑了两样。
+ * 必须按类型各自比较：套餐项同时携带 user_subscription_id 与 group_id，只有两者都
+ * 对上时才高亮，避免同一套餐的其它覆盖分组也被误标成当前选中。
  */
 const isBindingOptionSelected = (value: number | string | null) => {
   const key = selectedKeyForGroup.value
   if (!key) return false
   if (typeof value === 'string') {
     if (value.startsWith('org:')) return key.organization_subscription_id === Number(value.slice(4))
-    if (value.startsWith('plan:')) return key.user_subscription_id === Number(value.slice(5))
+    const planMatch = value.match(/^plan:(\d+):group:(\d+)$/)
+    if (planMatch) {
+      return key.user_subscription_id === Number(planMatch[1]) && key.group_id === Number(planMatch[2])
+    }
     return false
   }
   // 直选分组仅在未绑定任何订阅时才算选中。
@@ -2524,18 +2535,21 @@ const changeGroup = async (key: ApiKey, selectedValue: number | string | null) =
   dropdownPosition.value = null
   const prefixed = typeof selectedValue === 'string' ? selectedValue : ''
   const organizationSubscriptionID = prefixed.startsWith('org:') ? Number(prefixed.slice(4)) : null
-  const pinnedSubscriptionID = prefixed.startsWith('plan:') ? Number(prefixed.slice(5)) : null
+  const planMatch = prefixed.match(/^plan:(\d+):group:(\d+)$/)
+  const pinnedSubscriptionID = planMatch ? Number(planMatch[1]) : null
+  const pinnedGroupID = planMatch ? Number(planMatch[2]) : null
 
   try {
-    // 选套餐只换额度池，分组与回退分组保持不动——它改的是"扣哪份额度"，不是路由。
+    // 套餐选项同时指定额度池和路由分组；同一套餐覆盖的每个分组都是独立选项。
     if (pinnedSubscriptionID) {
-      if (key.user_subscription_id === pinnedSubscriptionID) return
+      if (key.user_subscription_id === pinnedSubscriptionID && key.group_id === pinnedGroupID) return
       await keysAPI.update(key.id, {
-        group_id: key.group_id,
+        group_id: pinnedGroupID,
         organization_subscription_id: null,
         user_subscription_id: pinnedSubscriptionID,
+        fallback_group_ids: normalizeFallbackGroups(pinnedGroupID, key.fallback_group_ids ?? []),
       })
-      appStore.showSuccess(t('keys.poolChangedSuccess'))
+      appStore.showSuccess(key.group_id === pinnedGroupID ? t('keys.poolChangedSuccess') : t('keys.groupChangedSuccess'))
       loadApiKeys()
       return
     }

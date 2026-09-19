@@ -513,7 +513,7 @@ describe('user KeysView column settings', () => {
       rate_multiplier: 0.2,
       status: 'active',
     }])
-    // 两个套餐都覆盖该 Key 当前的分组 1 —— 只有这种有歧义的情况才会出现套餐分节。
+    // 套餐覆盖的每个分组都会在“扣费套餐”分类中单独列出。
     listUserSubscriptions.mockResolvedValue([
       { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
       { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
@@ -535,13 +535,15 @@ describe('user KeysView column settings', () => {
       'org',
       'plan',
       'plan',
+      'plan',
       'group',
       'group',
     ])
-    // 套餐项的标签列出它覆盖的分组：同分组下的多个套餐往往只在这一点上有区别。
+    // 套餐项按覆盖分组拆开，用户可直接选择套餐内的具体路由分组。
     expect(options[1].find('group-option-item-stub').attributes('name'))
-      .toBe('Personal Group + Bundled Group')
-    expect(options[2].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
+      .toBe('Personal Group')
+    expect(options[2].find('group-option-item-stub').attributes('name')).toBe('Bundled Group')
+    expect(options[3].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
     expect(listOrganizationSubscriptions).toHaveBeenCalledTimes(2)
     expect(listUserSubscriptions).toHaveBeenCalledTimes(2)
 
@@ -578,9 +580,8 @@ describe('user KeysView column settings', () => {
       .map(option => option.attributes('data-binding-kind'))).toEqual(['plan', 'group'])
   })
 
-  // 选套餐只换额度池：分组与回退分组必须原样保留，否则用户会以为自己换了扣费来源，
-  // 实际连路由也被改掉了。
-  it('repins the quota pool from the list selector without changing the group', async () => {
+  // 套餐项同时选择额度池和路由分组，切换到套餐中的另一个分组时两者一起更新。
+  it('selects a plan and one of its covered groups from the list selector', async () => {
     const personalGroup = createGroup({ id: 1, name: 'Personal Group' })
     const bundledGroup = createGroup({ id: 2, name: 'Bundled Group' })
     getAvailableGroups.mockResolvedValue([personalGroup, bundledGroup])
@@ -600,15 +601,16 @@ describe('user KeysView column settings', () => {
     await wrapper.get('[data-test="group-selector-trigger"]').trigger('click')
     await flushPromises()
 
-    const planOption = wrapper.findAll('[data-test="group-selector-option"]')
-      .find(option => option.attributes('data-binding-kind') === 'plan')
-    await planOption!.trigger('click')
+    const planGroupOption = wrapper.findAll('[data-test="group-selector-option"]')
+      .find(option => option.attributes('data-binding-kind') === 'plan' && option.find('group-option-item-stub').attributes('name') === 'Bundled Group')
+    await planGroupOption!.trigger('click')
     await flushPromises()
 
     expect(updateKey).toHaveBeenCalledWith(1, {
-      group_id: 1,
+      group_id: 2,
       organization_subscription_id: null,
       user_subscription_id: 55,
+      fallback_group_ids: [],
     })
   })
 

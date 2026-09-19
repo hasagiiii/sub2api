@@ -868,8 +868,8 @@ export interface CreateApiKeyRequest {
   fallback_group_ids?: number[]
   organization_subscription_id?: number | null
   /**
-   * 绑定个人订阅（套餐）。设置后可路由分组取自该订阅覆盖的分组，消费统一扣它
-   * 那一份共享额度池，因此不应同时发送 group_id / fallback_group_ids。
+   * 指定个人订阅（套餐）作为扣费额度池。路由仍由 group_id 决定，且该分组必须被
+   * 套餐覆盖，因此可同时发送 group_id / fallback_group_ids。
    */
   user_subscription_id?: number | null
   prefer_company_balance?: boolean
@@ -888,7 +888,7 @@ export interface UpdateApiKeyRequest {
   group_id?: number | null
   fallback_group_ids?: number[]
   organization_subscription_id?: number | null
-  /** 重新绑定个人订阅（套餐）；改选普通分组会清除该绑定。 */
+  /** 指定个人订阅（套餐）作为扣费额度池；改选普通分组时可同时更新该绑定。 */
   user_subscription_id?: number | null
   prefer_company_balance?: boolean
   status?: 'active' | 'inactive'
