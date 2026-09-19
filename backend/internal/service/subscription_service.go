@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
@@ -34,6 +35,9 @@ var (
 	ErrSubscriptionNotRevoked      = infraerrors.Conflict("SUBSCRIPTION_NOT_REVOKED", "subscription is not revoked")
 	ErrSubscriptionRestoreConflict = infraerrors.Conflict("SUBSCRIPTION_RESTORE_CONFLICT", "subscription already exists for this user and group")
 	ErrGroupNotSubscriptionType    = infraerrors.BadRequest("GROUP_NOT_SUBSCRIPTION_TYPE", "group is not a subscription type")
+	ErrSubscriptionGroupRequired   = infraerrors.BadRequest("SUBSCRIPTION_GROUP_REQUIRED", "subscription assignment requires at least one group")
+	ErrSubscriptionPlanNotFound    = infraerrors.NotFound("SUBSCRIPTION_PLAN_NOT_FOUND", "subscription plan not found")
+	ErrSubscriptionPlanNoGroup     = infraerrors.BadRequest("SUBSCRIPTION_PLAN_NO_GROUP", "subscription plan has no subscription group")
 	ErrInvalidInput                = infraerrors.BadRequest("INVALID_INPUT", "at least one of resetDaily, resetWeekly, or resetMonthly must be true")
 	ErrDailyLimitExceeded          = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
 	ErrWeeklyLimitExceeded         = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
@@ -256,8 +260,105 @@ func (in *AssignSubscriptionInput) coveredGroupIDs() []int64 {
 	return out
 }
 
-// AssignSubscription 分配订阅给用户（不允许重复分配）
+// resolvePlanAssignment 把"只指定了套餐"的分配输入补全为完整的分配参数。
+//
+// 管理员分配套餐时只选套餐，分组集合与有效期都从套餐读取：
+//   - 覆盖分组取套餐的分组列表（空数组的存量套餐回退主分组），它决定这份额度池
+//     可以用在哪些分组上；
+//   - 有效期未显式填写时取套餐自身时长，使"管理员分配套餐"与"用户自行购买"拿到
+//     一致的权益。
+//
+// 限额刻意不在此处快照，订阅只记 plan_id：判定时实时回查套餐，管理员之后调整套餐
+// 限额会立即对已分配的订阅生效。
+func (s *SubscriptionService) resolvePlanAssignment(ctx context.Context, input *AssignSubscriptionInput) error {
+	if input == nil || input.PlanID == nil || *input.PlanID <= 0 {
+		return nil
+	}
+	// 调用方已给出覆盖集合时不要覆写：支付履约按订单下单时的分组快照发放，套餐
+	// 之后被改绑不能改变已付款订单的履约范围。
+	if len(input.GroupIDs) > 0 {
+		return nil
+	}
+	if s.entClient == nil {
+		return ErrSubscriptionPlanNotFound
+	}
+	plan, err := s.entClient.SubscriptionPlan.Get(ctx, *input.PlanID)
+	if err != nil {
+		return ErrSubscriptionPlanNotFound
+	}
+	return applyPlanAssignment(input, plan)
+}
+
+// applyPlanAssignment 把套餐的分组与时长写入分配输入。
+func applyPlanAssignment(input *AssignSubscriptionInput, plan *dbent.SubscriptionPlan) error {
+	groupIDs := PlanGroupIDs(plan)
+	if len(groupIDs) == 0 {
+		return ErrSubscriptionPlanNoGroup
+	}
+	input.GroupID = groupIDs[0]
+	input.GroupIDs = groupIDs
+	if input.ValidityDays <= 0 {
+		input.ValidityDays = psComputeValidityDays(plan.ValidityDays, plan.ValidityUnit)
+	}
+	return nil
+}
+
+// validateAssignGroups 校验本次分配覆盖的每个分组都存在且为订阅型。
+//
+// 必须逐个校验而非只看主分组：套餐打包的分组里只要有一个不是订阅型，这条订阅就会
+// 在那个分组上放出没有限额依据的流量。
+func (s *SubscriptionService) validateAssignGroups(ctx context.Context, input *AssignSubscriptionInput) error {
+	groupIDs := input.coveredGroupIDs()
+	if len(groupIDs) == 0 {
+		return ErrSubscriptionGroupRequired
+	}
+	for _, groupID := range groupIDs {
+		group, err := s.groupRepo.GetByID(ctx, groupID)
+		if err != nil {
+			return fmt.Errorf("group not found: %w", err)
+		}
+		if !group.IsSubscriptionType() {
+			return ErrGroupNotSubscriptionType
+		}
+	}
+	return nil
+}
+
+// findAssignTargetSubscription 定位本次分配可以复用的订阅，找不到时返回 (nil, nil)。
+//
+// 查找维度必须与迁移 245 的两个部分唯一索引一致：
+//   - 按套餐分配用 (user, plan)。若误按分组查找，"另一个也覆盖该分组的套餐订阅"
+//     会被当成同一条而被错误续期，管理员想分配的那个套餐反而没发出去。
+//   - 手动分配用 (user, group) 且限定 plan_id IS NULL。若误命中套餐订阅，管理员的
+//     手动分配就会去延长一条用户花钱买来的订阅。
+func (s *SubscriptionService) findAssignTargetSubscription(ctx context.Context, input *AssignSubscriptionInput) (*UserSubscription, error) {
+	var (
+		sub *UserSubscription
+		err error
+	)
+	if input.PlanID != nil && *input.PlanID > 0 {
+		sub, err = s.userSubRepo.GetByUserIDAndPlanID(ctx, input.UserID, *input.PlanID)
+	} else {
+		sub, err = s.userSubRepo.GetManualByUserIDAndGroupID(ctx, input.UserID, input.GroupID)
+	}
+	if err != nil {
+		if errors.Is(err, ErrSubscriptionNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return sub, nil
+}
+
+// AssignSubscription 分配订阅给用户（不允许重复分配）。
+//
+// input 可以按分组分配（只给 GroupID），也可以按套餐分配（只给 PlanID，分组与
+// 有效期从套餐解析）。按套餐分配出来的订阅与用户自行购买的完全同构：一条订阅覆盖
+// 套餐的全部分组、共享套餐的一份限额。
 func (s *SubscriptionService) AssignSubscription(ctx context.Context, input *AssignSubscriptionInput) (*UserSubscription, error) {
+	if err := s.resolvePlanAssignment(ctx, input); err != nil {
+		return nil, err
+	}
 	sub, _, err := s.assignSubscriptionWithReuse(ctx, input)
 	if err != nil {
 		return nil, err
@@ -276,28 +377,19 @@ func (s *SubscriptionService) AssignOrExtendSubscription(ctx context.Context, in
 }
 
 func (s *SubscriptionService) assignOrExtendSubscription(ctx context.Context, input *AssignSubscriptionInput, deferCacheInvalidation bool) (*UserSubscription, bool, error) {
-	// 检查分组是否存在且为订阅类型
-	group, err := s.groupRepo.GetByID(ctx, input.GroupID)
-	if err != nil {
-		return nil, false, fmt.Errorf("group not found: %w", err)
+	if err := s.resolvePlanAssignment(ctx, input); err != nil {
+		return nil, false, err
 	}
-	if !group.IsSubscriptionType() {
-		return nil, false, ErrGroupNotSubscriptionType
+	// 检查覆盖的每个分组都存在且为订阅类型
+	if err := s.validateAssignGroups(ctx, input); err != nil {
+		return nil, false, err
 	}
 
-	// 查询是否已有订阅。查找维度必须与唯一约束一致（见迁移 245）：
-	//   - 套餐订阅按 (user, plan)：重复购买同一套餐落到同一条订阅上做续期；
-	//     若误按分组查找，"另一个也含该分组的套餐"会被当成同一条而错误续期，
-	//     用户就买不到第二个额度池。
-	//   - 手动分配按 (user, group) 且限定 plan_id IS NULL：不能误命中套餐订阅。
-	var existingSub *UserSubscription
-	if input.PlanID != nil && *input.PlanID > 0 {
-		existingSub, err = s.userSubRepo.GetByUserIDAndPlanID(ctx, input.UserID, *input.PlanID)
-	} else {
-		existingSub, err = s.userSubRepo.GetManualByUserIDAndGroupID(ctx, input.UserID, input.GroupID)
-	}
+	// 查询是否已有订阅。查找维度必须与唯一约束一致（见迁移 245），细节见
+	// findAssignTargetSubscription。
+	existingSub, err := s.findAssignTargetSubscription(ctx, input)
 	if err != nil {
-		// 不存在记录是正常情况，其他错误需要返回
+		// 查询失败不应阻断发放：按"无既有订阅"继续，唯一索引会兜住重复创建。
 		existingSub = nil
 	}
 
@@ -537,8 +629,11 @@ func (s *SubscriptionService) createSubscription(ctx context.Context, input *Ass
 
 // BulkAssignSubscriptionInput 批量分配订阅输入
 type BulkAssignSubscriptionInput struct {
-	UserIDs      []int64
-	GroupID      int64
+	UserIDs []int64
+	// GroupID 是按分组分配时的目标分组；按套餐分配时留空，由 PlanID 解析得出。
+	GroupID int64
+	// PlanID 非空表示按套餐分配：每个用户各得一条覆盖该套餐全部分组的订阅。
+	PlanID       *int64
 	ValidityDays int
 	AssignedBy   int64
 	Notes        string
@@ -563,11 +658,24 @@ func (s *SubscriptionService) BulkAssignSubscription(ctx context.Context, input 
 		Statuses:      make(map[int64]string),
 	}
 
+	// 套餐只解析一次：既省掉每个用户一次套餐查询，也保证这一批用户拿到的分组集合
+	// 与有效期完全一致——中途有人改了套餐也不会让同一批分配出现两种权益。
+	resolved := &AssignSubscriptionInput{
+		GroupID:      input.GroupID,
+		PlanID:       input.PlanID,
+		ValidityDays: input.ValidityDays,
+	}
+	if err := s.resolvePlanAssignment(ctx, resolved); err != nil {
+		return nil, err
+	}
+
 	for _, userID := range input.UserIDs {
 		sub, reused, err := s.assignSubscriptionWithReuse(ctx, &AssignSubscriptionInput{
 			UserID:       userID,
-			GroupID:      input.GroupID,
-			ValidityDays: input.ValidityDays,
+			GroupID:      resolved.GroupID,
+			GroupIDs:     resolved.GroupIDs,
+			PlanID:       resolved.PlanID,
+			ValidityDays: resolved.ValidityDays,
 			AssignedBy:   input.AssignedBy,
 			Notes:        input.Notes,
 		})
@@ -592,31 +700,31 @@ func (s *SubscriptionService) BulkAssignSubscription(ctx context.Context, input 
 }
 
 func (s *SubscriptionService) assignSubscriptionWithReuse(ctx context.Context, input *AssignSubscriptionInput) (*UserSubscription, bool, error) {
-	// 检查分组是否存在且为订阅类型
-	group, err := s.groupRepo.GetByID(ctx, input.GroupID)
-	if err != nil {
-		return nil, false, fmt.Errorf("group not found: %w", err)
-	}
-	if !group.IsSubscriptionType() {
-		return nil, false, ErrGroupNotSubscriptionType
+	// 检查覆盖的每个分组都存在且为订阅类型
+	if err := s.validateAssignGroups(ctx, input); err != nil {
+		return nil, false, err
 	}
 
-	// 检查是否已存在订阅；若已存在，则按幂等成功返回现有订阅
-	exists, err := s.userSubRepo.ExistsByUserIDAndGroupID(ctx, input.UserID, input.GroupID)
+	// 检查是否已存在同来源的订阅；若已存在，则按幂等成功返回现有订阅
+	sub, err := s.findAssignTargetSubscription(ctx, input)
 	if err != nil {
 		return nil, false, err
 	}
-	if exists {
-		sub, getErr := s.userSubRepo.GetByUserIDAndGroupID(ctx, input.UserID, input.GroupID)
-		if getErr != nil {
-			return nil, false, getErr
-		}
+	if sub != nil {
 		now := time.Now()
 		if sub.Status == SubscriptionStatusExpired ||
 			(sub.Status != SubscriptionStatusSuspended && !sub.ExpiresAt.After(now)) {
 			validityDays := normalizeAssignValidityDays(input.ValidityDays)
 			if err := s.updateExistingSubscriptionTerm(ctx, sub.ID, validityDays, input.Notes, true); err != nil {
 				return nil, false, err
+			}
+			// 套餐的分组构成可能在两次分配之间被改过，续期时把覆盖集合同步到最新，
+			// 否则续了期却还停留在旧的分组范围上。手动分配的覆盖集合本就只有主分组，
+			// 调用方不会给出集合，这里也就不重写。
+			if len(input.GroupIDs) > 0 {
+				if err := s.userSubRepo.ReplaceCoveredGroups(ctx, sub.ID, input.coveredGroupIDs()); err != nil {
+					return nil, false, fmt.Errorf("sync subscription covered groups: %w", err)
+				}
 			}
 			renewed, getErr := s.userSubRepo.GetByID(ctx, sub.ID)
 			if getErr != nil {
@@ -633,23 +741,16 @@ func (s *SubscriptionService) assignSubscriptionWithReuse(ctx context.Context, i
 		return sub, true, nil
 	}
 
-	sub, err := s.createSubscription(ctx, input)
+	created, err := s.createSubscription(ctx, input)
 	if err != nil {
 		return nil, false, err
 	}
 
-	// 失效订阅缓存
-	s.InvalidateSubCache(input.UserID, input.GroupID)
-	if s.billingCacheService != nil {
-		userID, groupID := input.UserID, input.GroupID
-		go func() {
-			cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = s.billingCacheService.InvalidateSubscription(cacheCtx, userID, groupID)
-		}()
-	}
+	// 失效订阅缓存。必须按整条订阅失效：额度池计数器按订阅 ID 寻址，而 L1 查找索引
+	// 要按覆盖的每个分组逐个清理，只传主分组会漏掉套餐里的其余分组。
+	s.maybeInvalidateAssignmentCaches(created, false)
 
-	return sub, false, nil
+	return created, false, nil
 }
 
 func detectAssignSemanticConflict(existing *UserSubscription, input *AssignSubscriptionInput) (string, bool) {
@@ -716,11 +817,20 @@ func (s *SubscriptionService) RestoreSubscription(ctx context.Context, subscript
 		return nil, ErrSubscriptionNotRevoked
 	}
 
-	exists, err := s.userSubRepo.ExistsActiveByUserIDAndGroupID(ctx, sub.UserID, sub.GroupID)
+	// 恢复会把这一行重新变回未删除，因此冲突判定必须与迁移 245 的两个部分唯一索引
+	// 对齐：套餐订阅按 (user, plan)、手动分配按 (user, group) 且 plan_id IS NULL。
+	//
+	// 一律按分组判断会误拦：允许两个都覆盖同一分组的套餐并存后，"另一个套餐的订阅"
+	// 与本行并不冲突，却会让恢复失败。
+	conflicting, err := s.findAssignTargetSubscription(ctx, &AssignSubscriptionInput{
+		UserID:  sub.UserID,
+		GroupID: sub.GroupID,
+		PlanID:  sub.PlanID,
+	})
 	if err != nil {
 		return nil, err
 	}
-	if exists {
+	if conflicting != nil && conflicting.ID != sub.ID {
 		return nil, ErrSubscriptionRestoreConflict
 	}
 

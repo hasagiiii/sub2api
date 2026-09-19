@@ -942,10 +942,16 @@ func UserSubscriptionFromServiceAdmin(sub *service.UserSubscription) *AdminUserS
 }
 
 func userSubscriptionFromServiceBase(sub *service.UserSubscription) UserSubscription {
+	// 生效限额按"套餐优先、未设回退分组"解析，与判定链路用的是同一个函数。
+	// 直接把分组限额当分母会让套餐订阅显示错误的用量进度：套餐的额度是整池共享的
+	// 一份，与主分组自己配了多少无关。
+	limits := sub.EffectiveLimits(sub.Group)
 	return UserSubscription{
 		ID:                 sub.ID,
 		UserID:             sub.UserID,
 		GroupID:            sub.GroupID,
+		PlanID:             sub.PlanID,
+		GroupIDs:           sub.CoveredGroupIDs(),
 		StartsAt:           sub.StartsAt,
 		ExpiresAt:          sub.ExpiresAt,
 		Status:             sub.Status,
@@ -955,6 +961,9 @@ func userSubscriptionFromServiceBase(sub *service.UserSubscription) UserSubscrip
 		DailyUsageUSD:      sub.DailyUsageUSD,
 		WeeklyUsageUSD:     sub.WeeklyUsageUSD,
 		MonthlyUsageUSD:    sub.MonthlyUsageUSD,
+		DailyLimitUSD:      limits.DailyLimitUSD,
+		WeeklyLimitUSD:     limits.WeeklyLimitUSD,
+		MonthlyLimitUSD:    limits.MonthlyLimitUSD,
 		CreatedAt:          sub.CreatedAt,
 		UpdatedAt:          sub.UpdatedAt,
 		RevokedAt:          sub.DeletedAt,

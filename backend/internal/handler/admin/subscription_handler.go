@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -38,10 +39,16 @@ func NewSubscriptionHandler(subscriptionService *service.SubscriptionService) *S
 	}
 }
 
-// AssignSubscriptionRequest represents assign subscription request
+// AssignSubscriptionRequest represents assign subscription request.
+//
+// GroupID and PlanID are mutually exclusive: assigning a group grants a
+// manually managed subscription limited by that group, while assigning a plan
+// grants the same thing a purchase would — one subscription covering every
+// group the plan bundles, sharing the plan's single quota.
 type AssignSubscriptionRequest struct {
 	UserID       int64  `json:"user_id" binding:"required"`
-	GroupID      int64  `json:"group_id" binding:"required"`
+	GroupID      int64  `json:"group_id" binding:"omitempty,min=1"`
+	PlanID       *int64 `json:"plan_id" binding:"omitempty,min=1"`
 	ValidityDays int    `json:"validity_days" binding:"omitempty,max=36500"` // max 100 years
 	Notes        string `json:"notes"`
 }
@@ -49,9 +56,21 @@ type AssignSubscriptionRequest struct {
 // BulkAssignSubscriptionRequest represents bulk assign subscription request
 type BulkAssignSubscriptionRequest struct {
 	UserIDs      []int64 `json:"user_ids" binding:"required,min=1"`
-	GroupID      int64   `json:"group_id" binding:"required"`
+	GroupID      int64   `json:"group_id" binding:"omitempty,min=1"`
+	PlanID       *int64  `json:"plan_id" binding:"omitempty,min=1"`
 	ValidityDays int     `json:"validity_days" binding:"omitempty,max=36500"` // max 100 years
 	Notes        string  `json:"notes"`
+}
+
+// validateAssignTarget rejects a request that names neither a group nor a plan,
+// or both. Accepting both would leave it ambiguous whose groups and validity
+// win, and silently preferring one would make the other look like it applied.
+func validateAssignTarget(groupID int64, planID *int64) error {
+	hasPlan := planID != nil && *planID > 0
+	if hasPlan == (groupID > 0) {
+		return errors.New("exactly one of group_id or plan_id is required")
+	}
+	return nil
 }
 
 // AdjustSubscriptionRequest represents adjust subscription request (extend or shorten)
@@ -141,12 +160,18 @@ func (h *SubscriptionHandler) Assign(c *gin.Context) {
 		return
 	}
 
+	if err := validateAssignTarget(req.GroupID, req.PlanID); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
 	// Get admin user ID from context
 	adminID := getAdminIDFromContext(c)
 
 	subscription, err := h.subscriptionService.AssignSubscription(c.Request.Context(), &service.AssignSubscriptionInput{
 		UserID:       req.UserID,
 		GroupID:      req.GroupID,
+		PlanID:       req.PlanID,
 		ValidityDays: req.ValidityDays,
 		AssignedBy:   adminID,
 		Notes:        req.Notes,
@@ -168,12 +193,18 @@ func (h *SubscriptionHandler) BulkAssign(c *gin.Context) {
 		return
 	}
 
+	if err := validateAssignTarget(req.GroupID, req.PlanID); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
 	// Get admin user ID from context
 	adminID := getAdminIDFromContext(c)
 
 	result, err := h.subscriptionService.BulkAssignSubscription(c.Request.Context(), &service.BulkAssignSubscriptionInput{
 		UserIDs:      req.UserIDs,
 		GroupID:      req.GroupID,
+		PlanID:       req.PlanID,
 		ValidityDays: req.ValidityDays,
 		AssignedBy:   adminID,
 		Notes:        req.Notes,

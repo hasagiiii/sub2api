@@ -205,36 +205,41 @@
           </template>
 
           <template #cell-group="{ row }">
-            <GroupBadge
-              v-if="row.group"
-              :name="row.group.name"
-              :platform="row.group.platform"
-              :subscription-type="row.group.subscription_type"
-              :rate-multiplier="row.group.rate_multiplier"
-              :show-rate="false"
-            />
+            <!--
+              套餐订阅是一条覆盖多个分组的订阅，必须把覆盖的分组都列出来：只显示
+              主分组会让管理员以为它只作用于一个分组。
+            -->
+            <div v-if="rowGroupIds(row).length > 0" class="flex flex-wrap items-center gap-1">
+              <GroupBadge
+                v-for="groupId in rowGroupIds(row)"
+                :key="groupId"
+                :name="groupName(groupId)"
+                :platform="groupPlatform(groupId)"
+                :show-rate="false"
+              />
+            </div>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
 
           <template #cell-usage="{ row }">
             <div class="min-w-[280px] space-y-2">
               <!-- Daily Usage -->
-              <div v-if="row.group?.daily_limit_usd" class="usage-row">
+              <div v-if="rowLimit(row, 'daily')" class="usage-row">
                 <div class="flex items-center gap-2">
                   <span class="usage-label">{{ t('admin.subscriptions.daily') }}</span>
                   <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
                       class="h-1.5 rounded-full transition-all"
-                      :class="getProgressClass(row.daily_usage_usd, row.group?.daily_limit_usd)"
+                      :class="getProgressClass(row.daily_usage_usd, rowLimit(row, 'daily'))"
                       :style="{
-                        width: getProgressWidth(row.daily_usage_usd, row.group?.daily_limit_usd)
+                        width: getProgressWidth(row.daily_usage_usd, rowLimit(row, 'daily'))
                       }"
                     ></div>
                   </div>
                   <span class="usage-amount">
                     ${{ row.daily_usage_usd?.toFixed(2) || '0.00' }}
                     <span class="text-gray-400">/</span>
-                    ${{ row.group?.daily_limit_usd?.toFixed(2) }}
+                    ${{ rowLimit(row, 'daily')?.toFixed(2) }}
                   </span>
                 </div>
                 <div class="reset-info" v-if="row.daily_window_start">
@@ -256,22 +261,22 @@
               </div>
 
               <!-- Weekly Usage -->
-              <div v-if="row.group?.weekly_limit_usd" class="usage-row">
+              <div v-if="rowLimit(row, 'weekly')" class="usage-row">
                 <div class="flex items-center gap-2">
                   <span class="usage-label">{{ t('admin.subscriptions.weekly') }}</span>
                   <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
                       class="h-1.5 rounded-full transition-all"
-                      :class="getProgressClass(row.weekly_usage_usd, row.group?.weekly_limit_usd)"
+                      :class="getProgressClass(row.weekly_usage_usd, rowLimit(row, 'weekly'))"
                       :style="{
-                        width: getProgressWidth(row.weekly_usage_usd, row.group?.weekly_limit_usd)
+                        width: getProgressWidth(row.weekly_usage_usd, rowLimit(row, 'weekly'))
                       }"
                     ></div>
                   </div>
                   <span class="usage-amount">
                     ${{ row.weekly_usage_usd?.toFixed(2) || '0.00' }}
                     <span class="text-gray-400">/</span>
-                    ${{ row.group?.weekly_limit_usd?.toFixed(2) }}
+                    ${{ rowLimit(row, 'weekly')?.toFixed(2) }}
                   </span>
                 </div>
                 <div class="reset-info" v-if="row.weekly_window_start">
@@ -293,22 +298,22 @@
               </div>
 
               <!-- Monthly Usage -->
-              <div v-if="row.group?.monthly_limit_usd" class="usage-row">
+              <div v-if="rowLimit(row, 'monthly')" class="usage-row">
                 <div class="flex items-center gap-2">
                   <span class="usage-label">{{ t('admin.subscriptions.monthly') }}</span>
                   <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
                       class="h-1.5 rounded-full transition-all"
-                      :class="getProgressClass(row.monthly_usage_usd, row.group?.monthly_limit_usd)"
+                      :class="getProgressClass(row.monthly_usage_usd, rowLimit(row, 'monthly'))"
                       :style="{
-                        width: getProgressWidth(row.monthly_usage_usd, row.group?.monthly_limit_usd)
+                        width: getProgressWidth(row.monthly_usage_usd, rowLimit(row, 'monthly'))
                       }"
                     ></div>
                   </div>
                   <span class="usage-amount">
                     ${{ row.monthly_usage_usd?.toFixed(2) || '0.00' }}
                     <span class="text-gray-400">/</span>
-                    ${{ row.group?.monthly_limit_usd?.toFixed(2) }}
+                    ${{ rowLimit(row, 'monthly')?.toFixed(2) }}
                   </span>
                 </div>
                 <div class="reset-info" v-if="row.monthly_window_start">
@@ -332,9 +337,9 @@
               <!-- No Limits - Unlimited badge -->
               <div
                 v-if="
-                  !row.group?.daily_limit_usd &&
-                  !row.group?.weekly_limit_usd &&
-                  !row.group?.monthly_limit_usd
+                  !rowLimit(row, 'daily') &&
+                  !rowLimit(row, 'weekly') &&
+                  !rowLimit(row, 'monthly')
                 "
                 class="flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-2 dark:from-emerald-900/20 dark:to-teal-900/20"
               >
@@ -530,7 +535,42 @@
             :disabled="organizationsLoading"
           />
         </div>
-        <div>
+        <!--
+          分配来源。按套餐分配得到的订阅与用户自行购买完全同构：一条覆盖套餐全部
+          分组、共享套餐的一份限额。企业订阅是另一套模型（限额取自各自分组），因此
+          只在个人用户下提供这个切换。
+        -->
+        <div v-if="assignTarget === 'user'">
+          <label class="input-label">{{ t('admin.subscriptions.form.assignSource') }}</label>
+          <div class="inline-flex rounded-md border border-gray-300 p-0.5 dark:border-dark-600">
+            <button type="button" class="rounded px-3 py-1.5 text-sm" :class="assignSource === 'group' ? 'bg-primary-600 text-white' : 'text-gray-600 dark:text-gray-300'" @click="assignSource = 'group'">
+              {{ t('admin.subscriptions.form.byGroup') }}
+            </button>
+            <button type="button" class="rounded px-3 py-1.5 text-sm" :class="assignSource === 'plan' ? 'bg-primary-600 text-white' : 'text-gray-600 dark:text-gray-300'" @click="assignSource = 'plan'">
+              {{ t('admin.subscriptions.form.byPlan') }}
+            </button>
+          </div>
+        </div>
+        <div v-if="assignTarget === 'user' && assignSource === 'plan'">
+          <label class="input-label">{{ t('admin.subscriptions.form.plan') }}</label>
+          <Select
+            v-model="assignForm.plan_id"
+            :options="planOptions"
+            :placeholder="t('admin.subscriptions.selectPlan')"
+            :disabled="plansLoading"
+          />
+          <!-- 列出套餐覆盖的分组，让管理员在分配前就看清这一条订阅能用在哪些分组上。 -->
+          <div v-if="selectedPlan" class="mt-2 flex flex-wrap items-center gap-1">
+            <GroupBadge
+              v-for="group in planGroupIds(selectedPlan)"
+              :key="group"
+              :name="groupName(group)"
+              :platform="groupPlatform(group)"
+            />
+          </div>
+          <p class="input-hint">{{ t('admin.subscriptions.planHint') }}</p>
+        </div>
+        <div v-else>
           <label class="input-label">{{ t('admin.subscriptions.form.group') }}</label>
           <Select
             v-model="assignForm.group_id"
@@ -791,8 +831,10 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import { adminPaymentAPI } from '@/api/admin/payment'
 import { organizationAPI } from '@/api/organization'
 import type { UserSubscription, Group, GroupPlatform, SubscriptionType, AdminOrganization, OrganizationSubscription } from '@/types'
+import type { SubscriptionPlan } from '@/types/payment'
 import type { SimpleUser } from '@/api/admin/usage'
 import type { Column } from '@/components/common/types'
 import { formatDateTimeToMinute } from '@/utils/format'
@@ -814,6 +856,7 @@ import {
   isOneTimeDailyQuota,
   type RemainingDurationParts
 } from '@/utils/subscriptionQuota'
+import { planGroupIds } from '@/utils/subscriptionPlan'
 import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
 
 const { t } = useI18n()
@@ -1017,13 +1060,68 @@ const assignForm = reactive({
   user_id: null as number | null,
   organization_id: null as number | null,
   group_id: null as number | null,
+  plan_id: null as number | null,
   validity_days: 30
 })
+
+// 分配来源：按分组给一条手动订阅，或按套餐给一条与用户自行购买完全同构的订阅
+// （覆盖套餐全部分组、共享套餐的一份限额）。
+// 企业订阅是另一套模型（限额取自各自分组），不支持按套餐分配。
+const assignSource = ref<'group' | 'plan'>('group')
+const plans = ref<SubscriptionPlan[]>([])
+const plansLoading = ref(false)
+
+watch(assignTarget, target => {
+  if (target === 'organization') assignSource.value = 'group'
+})
+
+// 切换来源时清掉另一种来源的选择，避免提交时两者同时带上（后端会拒绝）。
+watch(assignSource, source => {
+  if (source === 'plan') assignForm.group_id = null
+  else assignForm.plan_id = null
+})
+
+const planOptions = computed(() =>
+  plans.value.map(plan => {
+    const groupNames = planGroupIds(plan)
+      .map(id => groups.value.find(group => group.id === id)?.name || `#${id}`)
+      .join(' + ')
+    return {
+      value: plan.id,
+      label: plan.name,
+      description: groupNames
+    }
+  })
+)
+
+const selectedPlan = computed(() => plans.value.find(plan => plan.id === assignForm.plan_id) || null)
+
+/** 选中套餐后把有效期带出来，让管理员看到默认发放的时长（仍可改）。 */
+watch(
+  () => assignForm.plan_id,
+  () => {
+    const plan = selectedPlan.value
+    if (plan && plan.validity_days > 0) assignForm.validity_days = plan.validity_days
+  }
+)
 
 const organizationOptions = computed(() => organizations.value.map(organization => ({
   value: organization.id,
   label: `${organization.name} (${organization.company_id || organization.account_id})`
 })))
+
+watch(showAssignModal, async show => {
+  if (!show || plans.value.length > 0 || plansLoading.value) return
+  plansLoading.value = true
+  try {
+    const res = await adminPaymentAPI.getPlans()
+    plans.value = res.data || []
+  } catch (error) {
+    console.error('Failed to load subscription plans:', error)
+  } finally {
+    plansLoading.value = false
+  }
+})
 
 watch(showAssignModal, async show => {
   if (!show || organizations.value.length > 0) return
@@ -1076,6 +1174,54 @@ const subscriptionGroupOptions = computed(() =>
       rate: g.rate_multiplier
     }))
 )
+
+const groupById = computed(() => {
+  const map = new Map<number, Group>()
+  groups.value.forEach(group => map.set(group.id, group))
+  return map
+})
+
+/** 分组名；分组列表尚未加载或分组已被删除时退回 #id，避免显示成空白。 */
+const groupName = (groupId: number): string => groupById.value.get(groupId)?.name || `#${groupId}`
+const groupPlatform = (groupId: number): GroupPlatform | undefined => groupById.value.get(groupId)?.platform
+
+/**
+ * 订阅覆盖的全部分组。套餐订阅是一条覆盖多个分组的订阅，只展示 `group` 这个主分组
+ * 会让管理员以为它只作用于一个分组。`group_ids` 未下发时回退到主分组。
+ */
+const rowGroupIds = (row: AdminSubscriptionRow): number[] => {
+  if (row.group_ids?.length) return row.group_ids
+  return row.group_id ? [row.group_id] : []
+}
+
+type UsageWindow = 'daily' | 'weekly' | 'monthly'
+
+/**
+ * 该行用量进度的分母。
+ *
+ * 优先用后端解析好的生效限额（套餐限额优先、未设的窗口回退分组限额）。套餐订阅的
+ * 额度是整个额度池共享的一份，直接读主分组的限额会算出错误的进度——分组没配限额时
+ * 甚至会把有套餐限额的订阅显示成"无限制"。
+ * 企业订阅行来自另一个接口、没有这些字段，此时回退到分组限额。
+ */
+const rowLimit = (row: AdminSubscriptionRow, window: UsageWindow): number | null => {
+  const resolved =
+    window === 'daily'
+      ? row.daily_limit_usd
+      : window === 'weekly'
+        ? row.weekly_limit_usd
+        : row.monthly_limit_usd
+  if (resolved != null) return resolved
+  const group = row.group
+  if (!group) return null
+  const fallback =
+    window === 'daily'
+      ? group.daily_limit_usd
+      : window === 'weekly'
+        ? group.weekly_limit_usd
+        : group.monthly_limit_usd
+  return fallback ?? null
+}
 
 const applyFilters = () => {
   pagination.page = 1
@@ -1319,6 +1465,7 @@ const closeAssignModal = () => {
   showAssignModal.value = false
   assignForm.user_id = null
   assignForm.group_id = null
+  assignForm.plan_id = null
   assignForm.validity_days = 30
   // Clear user search state
   selectedUser.value = null
@@ -1326,6 +1473,7 @@ const closeAssignModal = () => {
   userSearchResults.value = []
   showUserDropdown.value = false
   assignTarget.value = 'user'
+  assignSource.value = 'group'
 }
 
 const handleAssignSubscription = async () => {
@@ -1337,7 +1485,12 @@ const handleAssignSubscription = async () => {
     appStore.showError(t('admin.subscriptions.pleaseSelectEnterprise'))
     return
   }
-  if (!assignForm.group_id) {
+  const byPlan = assignTarget.value === 'user' && assignSource.value === 'plan'
+  if (byPlan && !assignForm.plan_id) {
+    appStore.showError(t('admin.subscriptions.pleaseSelectPlan'))
+    return
+  }
+  if (!byPlan && !assignForm.group_id) {
     appStore.showError(t('admin.subscriptions.pleaseSelectGroup'))
     return
   }
@@ -1349,11 +1502,13 @@ const handleAssignSubscription = async () => {
   submitting.value = true
   try {
     if (assignTarget.value === 'organization') {
-      await organizationAPI.assignOrganizationSubscription(assignForm.organization_id!, assignForm.group_id, assignForm.validity_days)
+      await organizationAPI.assignOrganizationSubscription(assignForm.organization_id!, assignForm.group_id!, assignForm.validity_days)
     } else {
+      // group_id 与 plan_id 必须互斥地发出：后端拒绝同时收到两者，因为各自带一套
+      // 分组集合与有效期，偏向任何一方都会让另一方看起来也生效了。
       await adminAPI.subscriptions.assign({
         user_id: assignForm.user_id!,
-        group_id: assignForm.group_id,
+        ...(byPlan ? { plan_id: assignForm.plan_id! } : { group_id: assignForm.group_id! }),
         validity_days: assignForm.validity_days
       })
     }

@@ -452,6 +452,7 @@ func TestAPIContracts(t *testing.T) {
 						"id": 501,
 						"user_id": 1,
 						"group_id": 10,
+						"group_ids": [10],
 						"starts_at": "2025-01-02T03:04:05Z",
 						"expires_at": "2099-01-02T03:04:05Z",
 						"status": "active",

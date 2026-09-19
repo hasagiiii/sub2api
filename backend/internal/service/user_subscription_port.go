@@ -31,8 +31,10 @@ type UserSubscriptionRepository interface {
 	ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]UserSubscription, *pagination.PaginationResult, error)
 	List(ctx context.Context, params pagination.PaginationParams, userID, groupID *int64, status, platform, sortBy, sortOrder string) ([]UserSubscription, *pagination.PaginationResult, error)
 
-	ExistsByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error)
-	ExistsActiveByUserIDAndGroupID(ctx context.Context, userID, groupID int64) (bool, error)
+	// 注意：这里刻意不暴露"按 (user, group) 判断订阅是否存在"的方法。
+	// 允许两个都覆盖同一分组的套餐并存后，(user, group) 不再能唯一标识一条订阅，
+	// 用它做存在性判断会误判。判定复用/冲突请走 GetByUserIDAndPlanID 或
+	// GetManualByUserIDAndGroupID，与迁移 245 的两个部分唯一索引一一对应。
 	ExtendExpiry(ctx context.Context, subscriptionID int64, newExpiresAt time.Time) error
 	UpdateStatus(ctx context.Context, subscriptionID int64, status string) error
 	UpdateNotes(ctx context.Context, subscriptionID int64, notes string) error

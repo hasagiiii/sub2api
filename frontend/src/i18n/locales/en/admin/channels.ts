@@ -725,6 +725,10 @@ export default {
         personalUser: 'Personal user',
         enterprise: 'Enterprise',
         group: 'Subscription Group',
+        assignSource: 'Assign from',
+        byGroup: 'By group',
+        byPlan: 'By plan',
+        plan: 'Subscription Plan',
         validityDays: 'Validity (Days)',
         adjustDays: 'Adjust by (Days)'
       },
@@ -732,6 +736,8 @@ export default {
       selectEnterprise: 'Select an enterprise',
       selectGroup: 'Select a subscription group',
       groupHint: 'Only groups with subscription billing type are shown',
+      selectPlan: 'Select a subscription plan',
+      planHint: 'Same as a purchase: grants one subscription covering every group the plan bundles, sharing the plan\'s single limit',
       validityHint: 'Number of days the subscription will be valid',
       adjustingFor: 'Adjusting subscription for',
       currentExpiration: 'Current expiration',
@@ -765,6 +771,7 @@ export default {
       pleaseSelectEnterprise: 'Please select an enterprise',
       failedToLoadEnterprises: 'Failed to load enterprises',
       pleaseSelectGroup: 'Please select a group',
+      pleaseSelectPlan: 'Please select a plan',
       validityDaysRequired: 'Please enter a valid number of days (at least 1)',
       revokeConfirm:
         "Are you sure you want to revoke the subscription for '{user}'? You can restore it later from the revoked list.",

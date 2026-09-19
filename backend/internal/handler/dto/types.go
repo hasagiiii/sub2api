@@ -803,9 +803,15 @@ type Setting struct {
 }
 
 type UserSubscription struct {
-	ID      int64 `json:"id"`
-	UserID  int64 `json:"user_id"`
+	ID     int64 `json:"id"`
+	UserID int64 `json:"user_id"`
+	// GroupID 是主分组（覆盖分组集合的首元素），供徽标配色等需要单一代表分组的展示使用。
 	GroupID int64 `json:"group_id"`
+	// PlanID 非空表示这条订阅来自某个套餐（购买或管理员按套餐分配），其限额取自
+	// 该套餐并由 GroupIDs 里的全部分组共享；为空表示按分组手动分配，按分组限额走。
+	PlanID *int64 `json:"plan_id,omitempty"`
+	// GroupIDs 是这条订阅覆盖的全部分组，它们共享同一份额度池。
+	GroupIDs []int64 `json:"group_ids,omitempty"`
 
 	StartsAt  time.Time `json:"starts_at"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -818,6 +824,12 @@ type UserSubscription struct {
 	DailyUsageUSD   float64 `json:"daily_usage_usd"`
 	WeeklyUsageUSD  float64 `json:"weekly_usage_usd"`
 	MonthlyUsageUSD float64 `json:"monthly_usage_usd"`
+
+	// 生效限额（套餐限额优先、未设的窗口回退分组限额）。展示用量进度时必须用它做
+	// 分母：套餐订阅的额度来自套餐，读主分组的限额会算出错误的进度。
+	DailyLimitUSD   *float64 `json:"daily_limit_usd,omitempty"`
+	WeeklyLimitUSD  *float64 `json:"weekly_limit_usd,omitempty"`
+	MonthlyLimitUSD *float64 `json:"monthly_limit_usd,omitempty"`
 
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`

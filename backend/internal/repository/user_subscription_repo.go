@@ -7,6 +7,8 @@ import (
 
 	"github.com/lib/pq"
 
+	"entgo.io/ent/dialect/sql"
+
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
@@ -411,7 +413,20 @@ func (r *userSubscriptionRepository) List(ctx context.Context, params pagination
 		q = q.Where(usersubscription.UserIDEQ(*userID))
 	}
 	if groupID != nil {
-		q = q.Where(usersubscription.GroupIDEQ(*groupID))
+		// 按覆盖关系筛选，而不是只比主分组：套餐订阅的 group_id 只是它覆盖的首个
+		// 分组，按其余分组筛选时它同样应该出现在结果里。
+		// 仍保留主分组的直接比较作为兜底，覆盖关系行缺失时行为与改动前一致。
+		gid := *groupID
+		q = q.Where(func(s *sql.Selector) {
+			t := sql.Table("user_subscription_groups")
+			s.Where(sql.Or(
+				sql.EQ(s.C(usersubscription.FieldGroupID), gid),
+				sql.In(
+					s.C(usersubscription.FieldID),
+					sql.Select(t.C("subscription_id")).From(t).Where(sql.EQ(t.C("group_id"), gid)),
+				),
+			))
+		})
 	}
 	if platform != "" {
 		groupPredicates := []predicate.Group{group.PlatformEQ(platform)}
@@ -491,7 +506,13 @@ func (r *userSubscriptionRepository) List(ctx context.Context, params pagination
 		return nil, nil, err
 	}
 
-	result := userSubscriptionEntitiesToService(subs)
+	// 覆盖分组与套餐限额必须补齐：管理员列表要展示套餐订阅覆盖了哪些分组，用量
+	// 进度也要用套餐限额做分母。漏掉会让套餐订阅看起来只覆盖主分组，且进度按主
+	// 分组的限额计算而显示错误的百分比。
+	result, err := r.entitiesToServiceHydrated(ctx, subs)
+	if err != nil {
+		return nil, nil, err
+	}
 	if includeSoftDeleted {
 		if err := r.attachUserSubscriptionRelations(ctx, result); err != nil {
 			return nil, nil, err

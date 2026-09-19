@@ -2246,12 +2246,21 @@ export interface ChangePasswordRequest {
 export interface UserSubscription {
   id: number
   user_id: number
+  /** 主分组（覆盖分组集合的首元素），用于徽标配色等需要单一代表分组的展示。 */
   group_id: number
+  /** 非空表示这条订阅来自套餐（购买或管理员按套餐分配），限额取自套餐并由覆盖的全部分组共享。 */
+  plan_id?: number | null
+  /** 这条订阅覆盖的全部分组，它们共享同一份额度池。 */
+  group_ids?: number[]
   status: 'active' | 'expired' | 'revoked' | 'suspended'
   starts_at: string
   daily_usage_usd: number
   weekly_usage_usd: number
   monthly_usage_usd: number
+  /** 生效限额（套餐优先、未设的窗口回退分组），展示用量进度时必须用它做分母。 */
+  daily_limit_usd?: number | null
+  weekly_limit_usd?: number | null
+  monthly_limit_usd?: number | null
   daily_window_start: string | null
   weekly_window_start: string | null
   monthly_window_start: string | null
@@ -2287,15 +2296,22 @@ export interface SubscriptionProgress {
   days_remaining: number | null
 }
 
+/**
+ * 分配订阅请求。`group_id` 与 `plan_id` 二选一：
+ * 按分组分配得到一条受该分组限额约束的手动订阅；按套餐分配得到与用户自行购买
+ * 完全同构的订阅——一条覆盖套餐全部分组、共享套餐一份限额。
+ */
 export interface AssignSubscriptionRequest {
   user_id: number
-  group_id: number
+  group_id?: number
+  plan_id?: number
   validity_days?: number
 }
 
 export interface BulkAssignSubscriptionRequest {
   user_ids: number[]
-  group_id: number
+  group_id?: number
+  plan_id?: number
   validity_days?: number
 }
 
