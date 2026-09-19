@@ -170,7 +170,7 @@
                   data-test="plan-binding-badge"
                   :title="t('keys.poolHint')"
                 >
-                  {{ t('keys.poolBadge') }}
+                  {{ poolPlanLabelForKey(row) }}
                 </span>
                 <template v-if="row.organization_subscription_id">
                   <!--
@@ -1926,6 +1926,13 @@ const poolDescription = (sub: BindableUserSubscription): string | undefined =>
 const poolPlanLabel = (sub: BindableUserSubscription): string => {
   const planName = sub.plan_name?.trim()
   return planName ? t('keys.poolPlanLabel', { name: planName }) : t('keys.poolSubscription')
+}
+
+const poolPlanLabelForKey = (key: Pick<ApiKey, 'user_subscription_id'>): string => {
+  const subscriptionID = key.user_subscription_id
+  if (!subscriptionID) return t('keys.poolBadge')
+  const subscription = userSubscriptions.value.find(item => item.id === subscriptionID)
+  return subscription ? poolPlanLabel(subscription) : t('keys.poolBadge')
 }
 
 /**

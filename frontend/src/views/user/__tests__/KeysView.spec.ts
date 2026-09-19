@@ -641,7 +641,7 @@ describe('user KeysView column settings', () => {
       pages: 1,
     })
     listUserSubscriptions.mockResolvedValue([
-      { id: 55, group_id: 1, group_ids: [1, 2], group_names: ['Alpha', 'Beta'], status: 'active', expires_at: null },
+      { id: 55, plan_name: '图像套餐', group_id: 1, group_ids: [1, 2], group_names: ['Alpha', 'Beta'], status: 'active', expires_at: null },
     ])
 
     const wrapper = await mountView()
@@ -649,7 +649,7 @@ describe('user KeysView column settings', () => {
     const groupCell = wrapper.get('[data-test="group-cell"]')
     // 路由分组照常展示，额度池另用一个带说明的徽标标注。
     expect(groupCell.findAll('group-badge-stub').map(badge => badge.attributes('name'))).toEqual(['Alpha'])
-    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Subscription plan')
+    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Subscription: 图像套餐')
   })
 
   // 套餐覆盖的分组不一定都在"用户可绑定的分组"列表里（例如某个专属分组并未授予
@@ -665,13 +665,13 @@ describe('user KeysView column settings', () => {
       pages: 1,
     })
     listUserSubscriptions.mockResolvedValue([
-      { id: 55, group_id: 4, group_ids: [4, 5], group_names: ['订阅测试分组', '专属分组'], status: 'active', expires_at: null },
+      { id: 55, plan_name: '图像套餐', group_id: 4, group_ids: [4, 5], group_names: ['订阅测试分组', '专属分组'], status: 'active', expires_at: null },
     ])
 
     const wrapper = await mountView()
 
     expect(wrapper.get('[data-test="plan-binding-badge"]').text())
-      .toBe('Subscription plan')
+      .toBe('Subscription: 图像套餐')
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {
