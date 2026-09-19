@@ -840,10 +840,9 @@ export interface ApiKey {
 }
 
 /**
- * 可绑定到 API Key 的个人订阅（套餐）。
+ * 可作为 API Key 扣费来源的个人订阅（套餐）。
  *
- * 一条订阅就是一份额度池：group_ids 是共享这份额度的全部分组。后端只返回 ID
- * 与分组集合，分组名由前端已加载的分组列表映射。
+ * 一条订阅就是一份额度池：group_ids 是共享这份额度的全部分组。
  */
 export interface BindableUserSubscription {
   id: number
@@ -853,6 +852,13 @@ export interface BindableUserSubscription {
   group_id: number
   /** 共享该额度池的全部分组。 */
   group_ids: number[]
+  /**
+   * 与 group_ids 一一对应的分组名。
+   *
+   * 由接口直接返回而非前端映射：订阅覆盖的分组不一定都在"用户可绑定的分组"列表里
+   * （例如某个专属分组并未授予该用户），映射不到就只能显示成 #id。
+   */
+  group_names?: string[]
   expires_at: string
 }
 

@@ -36,7 +36,7 @@ type APIKey struct {
 	GroupID *int64 `json:"group_id,omitempty"`
 	// Ordered fallback group IDs for personal API keys
 	FallbackGroupIds []int64 `json:"fallback_group_ids,omitempty"`
-	// Bound personal subscription id for subscription-scoped API keys (user_subscriptions.id)
+	// Pinned personal subscription id used as the quota pool (user_subscriptions.id); routing still follows group_id
 	UserSubscriptionID *int64 `json:"user_subscription_id,omitempty"`
 	// Bound organization subscription id for enterprise API keys (organization_subscriptions.id)
 	OrganizationSubscriptionID *int64 `json:"organization_subscription_id,omitempty"`

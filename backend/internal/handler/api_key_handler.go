@@ -37,8 +37,8 @@ type CreateAPIKeyRequest struct {
 	FallbackGroupIDs []int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID 绑定公司订阅，创建企业 API Key（消费走公司订阅）
 	OrganizationSubscriptionID *int64 `json:"organization_subscription_id"`
-	// UserSubscriptionID 绑定个人订阅（套餐）：可路由分组取自该订阅覆盖的分组，
-	// 消费统一扣它那一份共享额度池。
+	// UserSubscriptionID 指定扣费套餐（仅决定扣哪份额度池，路由仍看 group_id）。
+	// 所指套餐必须覆盖 group_id。
 	UserSubscriptionID   *int64   `json:"user_subscription_id"`
 	PreferCompanyBalance bool     `json:"prefer_company_balance"`
 	CustomKey            *string  `json:"custom_key"`      // 可选的自定义key
@@ -60,7 +60,7 @@ type UpdateAPIKeyRequest struct {
 	FallbackGroupIDs *[]int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID 重新绑定公司订阅（企业 API Key）
 	OrganizationSubscriptionID *int64 `json:"organization_subscription_id"`
-	// UserSubscriptionID 重新绑定个人订阅（套餐）；改选普通分组会清除该绑定。
+	// UserSubscriptionID 指定扣费套餐；与 group_id 一同提交，省略即取消指定。
 	UserSubscriptionID   *int64    `json:"user_subscription_id"`
 	PreferCompanyBalance *bool     `json:"prefer_company_balance"`
 	Status               string    `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -379,18 +379,21 @@ func (h *APIKeyHandler) GetBindableOrganizationSubscriptions(c *gin.Context) {
 	response.Success(c, gin.H{"subscriptions": subs})
 }
 
-// BindableUserSubscription 是"可绑定个人订阅"选择器所需的最小信息。
-//
-// 只返回 ID 与分组集合，不返回分组名：前端创建 Key 的页面本就加载了分组列表，
-// 由它自行映射名称，避免这里为展示再做一次联表查询。
+// BindableUserSubscription 是"选择扣费套餐"选择器所需的最小信息。
 type BindableUserSubscription struct {
 	ID int64 `json:"id"`
 	// PlanID 为 nil 表示后台手动分配、不属于任何套餐的订阅。
 	PlanID *int64 `json:"plan_id,omitempty"`
 	// GroupID 是主分组；GroupIDs 是共享这份额度的全部分组。
-	GroupID   int64     `json:"group_id"`
-	GroupIDs  []int64   `json:"group_ids"`
-	ExpiresAt time.Time `json:"expires_at"`
+	GroupID  int64   `json:"group_id"`
+	GroupIDs []int64 `json:"group_ids"`
+	// GroupNames 与 GroupIDs 一一对应。
+	//
+	// 名称随接口一起返回，而不是交给前端用它已加载的分组列表去映射：那个列表只含
+	// 用户【可绑定】的分组，而订阅覆盖的分组不一定都在其中（例如某个专属分组并未
+	// 授予该用户），映射不到就只能显示成 #id。
+	GroupNames []string  `json:"group_names"`
+	ExpiresAt  time.Time `json:"expires_at"`
 }
 
 // GetBindableUserSubscriptions 获取当前用户可绑定到 API Key 的活跃个人订阅。
@@ -410,14 +413,21 @@ func (h *APIKeyHandler) GetBindableUserSubscriptions(c *gin.Context) {
 	}
 
 	out := make([]BindableUserSubscription, 0, len(subs))
+	groupNames := h.apiKeyService.SubscriptionGroupNames(c.Request.Context(), subs)
 	for i := range subs {
 		sub := &subs[i]
+		groupIDs := sub.CoveredGroupIDs()
+		names := make([]string, 0, len(groupIDs))
+		for _, groupID := range groupIDs {
+			names = append(names, groupNames[groupID])
+		}
 		out = append(out, BindableUserSubscription{
-			ID:        sub.ID,
-			PlanID:    sub.PlanID,
-			GroupID:   sub.GroupID,
-			GroupIDs:  sub.CoveredGroupIDs(),
-			ExpiresAt: sub.ExpiresAt,
+			ID:         sub.ID,
+			PlanID:     sub.PlanID,
+			GroupID:    sub.GroupID,
+			GroupIDs:   groupIDs,
+			GroupNames: names,
+			ExpiresAt:  sub.ExpiresAt,
 		})
 	}
 	response.Success(c, gin.H{"subscriptions": out})

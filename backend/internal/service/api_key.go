@@ -40,13 +40,17 @@ type APIKey struct {
 	// that consumes the referenced organization subscription
 	// (organization_subscriptions.id) instead of the owner's personal subscription.
 	OrganizationSubscriptionID *int64
-	// UserSubscriptionID, when set, binds this key to one of the owner's personal
-	// subscriptions (user_subscriptions.id) instead of a single group.
+	// UserSubscriptionID, when set, pins which of the owner's personal
+	// subscriptions (user_subscriptions.id) this key charges.
 	//
-	// The bound subscription is the quota pool the key draws from, and the groups
-	// that subscription covers become the key's routable candidates. This exists
-	// because a plan may cover several groups and two plans may both cover the
-	// same group, so a group alone can no longer identify which pool to charge.
+	// It only picks the quota pool; GroupID still decides routing. A plan may
+	// cover two groups that serve the same models, so the group has to stay
+	// under the caller's control — and because two plans may both cover one
+	// group, the group alone cannot say which pool to charge. Hence the two are
+	// chosen independently.
+	//
+	// nil means "resolve the pool from the group", which is unambiguous whenever
+	// only one of the owner's subscriptions covers it.
 	UserSubscriptionID *int64
 	// PreferCompanyBalance controls wallet selection when an enterprise key
 	// reaches a configured balance-based fallback group. It never bypasses an

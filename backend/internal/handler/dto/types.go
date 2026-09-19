@@ -72,8 +72,8 @@ type APIKey struct {
 	// OrganizationSubscriptionID is set for enterprise API keys bound to a
 	// company subscription.
 	OrganizationSubscriptionID *int64 `json:"organization_subscription_id,omitempty"`
-	// UserSubscriptionID is set for keys bound to one of the owner's personal
-	// subscriptions; the key draws from that subscription's shared quota pool.
+	// UserSubscriptionID is set when the key pins which of the owner's
+	// subscriptions to charge; routing still follows the group.
 	UserSubscriptionID   *int64     `json:"user_subscription_id,omitempty"`
 	PreferCompanyBalance bool       `json:"prefer_company_balance"`
 	Status               string     `json:"status"`

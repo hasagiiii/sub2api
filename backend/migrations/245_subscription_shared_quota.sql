@@ -89,7 +89,7 @@ ALTER TABLE api_keys
     ADD COLUMN IF NOT EXISTS user_subscription_id BIGINT;
 
 COMMENT ON COLUMN api_keys.user_subscription_id IS
-    '绑定的个人订阅（user_subscriptions.id）。设置后该 Key 消费这条订阅的额度池，可路由到它覆盖的全部分组；NULL 表示按 group_id 绑定单个分组的传统 Key';
+    '指定扣费的个人订阅（user_subscriptions.id）：仅决定扣哪一份额度池，路由仍由 group_id 决定，所指订阅必须覆盖该分组；NULL 表示不指定，由分组反查额度池';
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_subscription_id
     ON api_keys (user_subscription_id)

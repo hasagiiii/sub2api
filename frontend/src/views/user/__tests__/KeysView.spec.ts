@@ -19,6 +19,7 @@ const {
   createKey,
   updateKey,
   listOrganizationSubscriptions,
+  listUserSubscriptions,
   getSubscriptionFallback,
 } = vi.hoisted(() => ({
   listKeys: vi.fn(),
@@ -34,6 +35,7 @@ const {
   createKey: vi.fn(),
   updateKey: vi.fn(),
   listOrganizationSubscriptions: vi.fn(),
+  listUserSubscriptions: vi.fn(),
   getSubscriptionFallback: vi.fn(),
 }))
 
@@ -68,6 +70,11 @@ const messages: Record<string, string> = {
   'keys.fallbackGroupsSelectPrimary': 'Select a primary group first',
   'keys.fallbackGroupsEmpty': 'No same-platform fallback groups',
   'keys.orgSubscriptionLabel': 'Enterprise Subscription',
+  'keys.poolLabel': 'Charge to plan',
+  'keys.poolBadge': 'Charged: {plan}',
+  'keys.poolHint': 'Charge-to-plan hint',
+  'keys.poolRequired': 'Please select the plan to charge',
+  'keys.groupRequired': 'Please select a group',
   'keys.orgSubscriptionNone': 'None (use personal group)',
   'keys.orgSubscriptionHint': 'Enterprise subscription hint',
   'keys.preferCompanyBalanceLabel': 'Prefer company balance',
@@ -84,6 +91,7 @@ vi.mock('@/api', () => ({
     delete: vi.fn(),
     toggleStatus: vi.fn(),
     listOrganizationSubscriptions,
+    listUserSubscriptions,
   },
   organizationAPI: {
     getSubscriptionFallback,
@@ -130,7 +138,14 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      // 支持 {name} 插值：带参数的文案若原样返回占位符，断言就失去意义。
+      t: (key: string, params?: Record<string, unknown>) => {
+        const template = messages[key] ?? key
+        if (!params) return template
+        return template.replace(/\{(\w+)\}/g, (match, name) =>
+          params[name] === undefined ? match : String(params[name])
+        )
+      },
     }),
   }
 })
@@ -378,6 +393,7 @@ describe('user KeysView column settings', () => {
     createKey.mockReset()
     updateKey.mockReset()
     listOrganizationSubscriptions.mockReset()
+    listUserSubscriptions.mockReset()
     getSubscriptionFallback.mockReset()
 
     listKeys.mockResolvedValue({
@@ -392,6 +408,7 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     listOrganizationSubscriptions.mockResolvedValue([])
+    listUserSubscriptions.mockResolvedValue([])
     getSubscriptionFallback.mockResolvedValue({ auto_switch_enabled: true, candidates: [] })
     createKey.mockResolvedValue(createApiKey())
     updateKey.mockResolvedValue(createApiKey())
@@ -475,9 +492,10 @@ describe('user KeysView column settings', () => {
     expect(personalGroupCell.find('[data-test="auto-switch-help"]').exists()).toBe(false)
   })
 
-  it('shows enterprise subscriptions first with a marker in the group selector', async () => {
+  it('groups the selector into enterprise, plan and group sections', async () => {
     const personalGroup = createGroup({ id: 1, name: 'Personal Group' })
-    getAvailableGroups.mockResolvedValue([personalGroup])
+    const bundledGroup = createGroup({ id: 2, name: 'Bundled Group' })
+    getAvailableGroups.mockResolvedValue([personalGroup, bundledGroup])
     listKeys.mockResolvedValue({
       items: [{ ...createApiKey(), group_id: personalGroup.id, group: personalGroup }],
       total: 1,
@@ -495,25 +513,152 @@ describe('user KeysView column settings', () => {
       rate_multiplier: 0.2,
       status: 'active',
     }])
+    // 两个套餐都覆盖该 Key 当前的分组 1 —— 只有这种有歧义的情况才会出现套餐分节。
+    listUserSubscriptions.mockResolvedValue([
+      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+    ])
 
     const wrapper = await mountView()
     await wrapper.get('[data-test="group-selector-trigger"]').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('[data-test="enterprise-group-section"]').text()).toBe('Enterprise Subscription')
-    expect(wrapper.get('[data-test="enterprise-group-option-badge"]').text()).toBe('Enterprise Subscription')
+    // 三类的计费口径不同，必须各自成节并带可区分的徽标。
+    expect(wrapper.get('[data-test="org-group-section"]').text()).toBe('Enterprise Subscription')
+    expect(wrapper.get('[data-test="plan-group-section"]').text()).toBe('Charge to plan')
+    expect(wrapper.get('[data-test="group-group-section"]').text()).toBe('Group')
+    expect(wrapper.get('[data-test="org-group-option-badge"]').text()).toBe('Enterprise Subscription')
+    expect(wrapper.get('[data-test="plan-group-option-badge"]').text()).toBe('Charge to plan')
+
     const options = wrapper.findAll('[data-test="group-selector-option"]')
-    expect(options).toHaveLength(2)
-    expect(options[0].attributes('data-enterprise')).toBe('true')
-    expect(options[1].attributes('data-enterprise')).toBe('false')
+    expect(options.map(option => option.attributes('data-binding-kind'))).toEqual([
+      'org',
+      'plan',
+      'plan',
+      'group',
+      'group',
+    ])
+    // 套餐项的标签列出它覆盖的分组：同分组下的多个套餐往往只在这一点上有区别。
+    expect(options[1].find('group-option-item-stub').attributes('name'))
+      .toBe('Personal Group + Bundled Group')
+    expect(options[2].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
     expect(listOrganizationSubscriptions).toHaveBeenCalledTimes(2)
+    expect(listUserSubscriptions).toHaveBeenCalledTimes(2)
 
     await options[0].trigger('click')
     await flushPromises()
     expect(updateKey).toHaveBeenCalledWith(1, {
       organization_subscription_id: 90,
+      user_subscription_id: null,
       fallback_group_ids: [],
     })
+  })
+
+  // 只有一个套餐覆盖该分组时答案唯一，后端按分组反查就能得到同一条；此时不该出现
+  // 套餐分节，问用户等于制造噪音。
+  it('omits the plan section when only one plan covers the group', async () => {
+    const personalGroup = createGroup({ id: 1, name: 'Personal Group' })
+    getAvailableGroups.mockResolvedValue([personalGroup])
+    listKeys.mockResolvedValue({
+      items: [{ ...createApiKey(), group_id: personalGroup.id, group: personalGroup }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    listUserSubscriptions.mockResolvedValue([
+      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+    ])
+
+    const wrapper = await mountView()
+    await wrapper.get('[data-test="group-selector-trigger"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="plan-group-section"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="group-selector-option"]')
+      .map(option => option.attributes('data-binding-kind'))).toEqual(['group'])
+  })
+
+  // 选套餐只换额度池：分组与回退分组必须原样保留，否则用户会以为自己换了扣费来源，
+  // 实际连路由也被改掉了。
+  it('repins the quota pool from the list selector without changing the group', async () => {
+    const personalGroup = createGroup({ id: 1, name: 'Personal Group' })
+    const bundledGroup = createGroup({ id: 2, name: 'Bundled Group' })
+    getAvailableGroups.mockResolvedValue([personalGroup, bundledGroup])
+    listKeys.mockResolvedValue({
+      items: [{ ...createApiKey(), group_id: personalGroup.id, group: personalGroup }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    listUserSubscriptions.mockResolvedValue([
+      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+    ])
+
+    const wrapper = await mountView()
+    await wrapper.get('[data-test="group-selector-trigger"]').trigger('click')
+    await flushPromises()
+
+    const planOption = wrapper.findAll('[data-test="group-selector-option"]')
+      .find(option => option.attributes('data-binding-kind') === 'plan')
+    await planOption!.trigger('click')
+    await flushPromises()
+
+    expect(updateKey).toHaveBeenCalledWith(1, {
+      group_id: 1,
+      organization_subscription_id: null,
+      user_subscription_id: 55,
+    })
+  })
+
+  // 指定了扣费套餐要在列表里标出来：同一分组可能被多个套餐覆盖，不标就无法知道
+  // 这把 Key 扣的是哪一份额度。徽标必须带"扣费"字样，否则会和左边的路由分组混成
+  // 一片，读起来像这把 Key 还能用在别的分组上。
+  it('marks which quota pool a key charges', async () => {
+    const primary = createGroup({ id: 1, name: 'Alpha' })
+    const bundled = createGroup({ id: 2, name: 'Beta' })
+    getAvailableGroups.mockResolvedValue([primary, bundled])
+    listKeys.mockResolvedValue({
+      items: [{ ...createApiKey(), group_id: primary.id, group: primary, user_subscription_id: 55 }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    listUserSubscriptions.mockResolvedValue([
+      { id: 55, group_id: 1, group_ids: [1, 2], group_names: ['Alpha', 'Beta'], status: 'active', expires_at: null },
+    ])
+
+    const wrapper = await mountView()
+
+    const groupCell = wrapper.get('[data-test="group-cell"]')
+    // 路由分组照常展示，额度池另用一个带说明的徽标标注。
+    expect(groupCell.findAll('group-badge-stub').map(badge => badge.attributes('name'))).toEqual(['Alpha'])
+    expect(groupCell.get('[data-test="plan-binding-badge"]').text()).toBe('Charged: Alpha + Beta')
+  })
+
+  // 套餐覆盖的分组不一定都在"用户可绑定的分组"列表里（例如某个专属分组并未授予
+  // 该用户）。名称取接口随订阅返回的 group_names，否则会显示成 #5 这样的原始 ID。
+  it('names covered groups the local group list does not contain', async () => {
+    const primary = createGroup({ id: 4, name: '订阅测试分组' })
+    getAvailableGroups.mockResolvedValue([primary])
+    listKeys.mockResolvedValue({
+      items: [{ ...createApiKey(), group_id: 4, group: primary, user_subscription_id: 55 }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    listUserSubscriptions.mockResolvedValue([
+      { id: 55, group_id: 4, group_ids: [4, 5], group_names: ['订阅测试分组', '专属分组'], status: 'active', expires_at: null },
+    ])
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-test="plan-binding-badge"]').text())
+      .toBe('Charged: 订阅测试分组 + 专属分组')
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {
@@ -742,7 +887,9 @@ describe('user KeysView column settings', () => {
       { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 },
       null,
       [3, 4, 5, 6, 7],
-      true
+      true,
+      // 未绑定个人订阅时不传订阅选项。
+      undefined
     )
   })
 
@@ -822,8 +969,110 @@ describe('user KeysView column settings', () => {
       { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 },
       90,
       [2],
-      true
+      true,
+      // 企业订阅优先于个人订阅，不传订阅选项。
+      undefined
     )
+  })
+
+  // 多个套餐覆盖所选分组时才需要指定扣费来源；分组与回退分组始终可选，因为
+  // 同一套餐里的两个分组可能提供相同模型，路由必须由用户决定。
+  it('asks which plan to charge only when several cover the chosen group', async () => {
+    getAvailableGroups.mockResolvedValue([
+      createGroup({ id: 1, name: 'Alpha' }),
+      createGroup({ id: 2, name: 'Beta' }),
+    ])
+    listUserSubscriptions.mockResolvedValue([
+      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+    ])
+
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await nextTick()
+
+    // 还没选分组，无从判断有无歧义。
+    expect(wrapper.find('[data-test="key-form-pool-choice"]').exists()).toBe(false)
+
+    // 选中同时被两个套餐覆盖的分组 1 → 出现扣费套餐选择。
+    await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
+    await nextTick()
+    expect(wrapper.find('[data-test="key-form-pool-choice"]').exists()).toBe(true)
+    // 分组与回退分组不受影响：套餐只决定扣费来源。
+    expect(wrapper.find('[data-tour="key-form-group"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="fallback-groups-editor"]').exists()).toBe(true)
+
+    // 换到只有一个套餐覆盖的分组 2 → 答案唯一，不再询问。
+    await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 2)
+    await nextTick()
+    expect(wrapper.find('[data-test="key-form-pool-choice"]').exists()).toBe(false)
+  })
+
+  it('submits the chosen group together with the pinned plan', async () => {
+    getAvailableGroups.mockResolvedValue([
+      createGroup({ id: 1, name: 'Alpha' }),
+      createGroup({ id: 2, name: 'Beta' }),
+    ])
+    listUserSubscriptions.mockResolvedValue([
+      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
+      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+    ])
+
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await nextTick()
+    await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
+    await nextTick()
+    await wrapper.findComponent('[data-test="key-form-subscription"]').vm.$emit('update:modelValue', 56)
+    await nextTick()
+
+    await wrapper.get('input[required]').setValue('pinned-key')
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).not.toHaveBeenCalled()
+    expect(createKey).toHaveBeenCalledTimes(1)
+    const createArgs = createKey.mock.calls[0]
+    // 分组照常发送（路由依据），套餐通过末位 options 指定额度池。
+    expect(createArgs[1]).toBe(1)
+    expect(createArgs[createArgs.length - 1]).toEqual({ userSubscriptionId: 56 })
+  })
+
+  // 有歧义却不选，等于把池子的选择交给一个用户看不到的规则。
+  it('refuses to save when several plans cover the group and none is chosen', async () => {
+    getAvailableGroups.mockResolvedValue([createGroup({ id: 1, name: 'Alpha' })])
+    listUserSubscriptions.mockResolvedValue([
+      { id: 55, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
+    ])
+
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await nextTick()
+    await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
+    await nextTick()
+
+    await wrapper.get('input[required]').setValue('ambiguous-key')
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith(messages['keys.poolRequired'] ?? 'keys.poolRequired')
+    expect(createKey).not.toHaveBeenCalled()
+  })
+
+  it('still requires a group', async () => {
+    getAvailableGroups.mockResolvedValue([createGroup({ id: 1, name: 'Alpha' })])
+
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await nextTick()
+
+    await wrapper.get('input[required]').setValue('no-group-key')
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith(messages['keys.groupRequired'] ?? 'keys.groupRequired')
+    expect(createKey).not.toHaveBeenCalled()
   })
 
   it('shows the auto-switch explanation immediately when selected while editing', async () => {

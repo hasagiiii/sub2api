@@ -58,20 +58,22 @@ describe('API key fallback group payloads', () => {
     })
   })
 
-  // 绑定套餐（订阅）时候选分组完全由订阅的覆盖集合决定。同时发送 group_id /
-  // fallback 会形成两套来源，后端也会忽略它们，因此这里必须只发绑定本身。
-  it('sends only the subscription binding when a plan is bound', async () => {
-    await create('plan-bound', 1, undefined, [], [], 0, undefined, undefined, null, [3, 2], false, {
+  // 指定扣费套餐与分组并存：分组决定路由（同一套餐里的两个分组可能提供相同模型，
+  // 只有用户知道要用哪个），套餐只决定扣哪一份额度，回退分组照常生效。
+  it('sends the pinned plan alongside the group and fallbacks', async () => {
+    await create('plan-pinned', 1, undefined, [], [], 0, undefined, undefined, null, [3, 2], false, {
       userSubscriptionId: 55,
     })
 
     expect(post).toHaveBeenCalledWith('/keys', {
-      name: 'plan-bound',
+      name: 'plan-pinned',
+      group_id: 1,
+      fallback_group_ids: [3, 2],
       user_subscription_id: 55,
     })
   })
 
-  // 企业订阅优先级高于个人订阅，与后端及编辑表单的取值顺序一致。
+  // 企业订阅的额度池来自公司订阅，个人套餐的指定在那里没有意义。
   it('keeps the enterprise binding when both subscription kinds are supplied', async () => {
     await create('enterprise-wins', 1, undefined, [], [], 0, undefined, undefined, 90, [], false, {
       userSubscriptionId: 55,

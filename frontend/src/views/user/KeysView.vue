@@ -158,6 +158,20 @@
                 <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
                   t('keys.noGroup')
                 }}</span>
+                <!--
+                  指定了扣费套餐时标出来：同一个分组可能被多个套餐覆盖，不标的话
+                  无法知道这把 Key 扣的是哪一份额度。
+                  徽标必须带"扣费"字样：只写分组名会和左边的路由分组混成一片，
+                  读起来像是这把 Key 还能用在别的分组上。
+                -->
+                <span
+                  v-if="row.user_subscription_id"
+                  class="badge badge-purple shrink-0 whitespace-nowrap text-xs"
+                  data-test="plan-binding-badge"
+                  :title="t('keys.poolHint')"
+                >
+                  {{ t('keys.poolBadge', { plan: keyPoolLabel(row) }) }}
+                </span>
                 <template v-if="row.organization_subscription_id">
                   <!--
                     需求：自动切换 badge 与右侧问号在视觉上"连在一起"。
@@ -718,23 +732,7 @@
           </div>
         </div>
 
-        <!--
-          绑定订阅（套餐）：一条订阅就是一份共享额度池，它覆盖的分组都能用这把
-          Key。选了套餐就不再单独选分组/回退分组，避免出现两套候选来源。
-        -->
-        <div v-if="!formData.organization_subscription_id && userSubscriptionOptions.length > 0">
-          <label class="input-label">{{ t('keys.subscriptionLabel') }}</label>
-          <Select
-            v-model="formData.user_subscription_id"
-            :options="userSubscriptionOptions"
-            :placeholder="t('keys.selectSubscription')"
-            clearable
-            data-test="key-form-subscription"
-          />
-          <p class="input-hint mt-0.5">{{ t('keys.subscriptionHint') }}</p>
-        </div>
-
-        <div v-if="!formData.organization_subscription_id && !formData.user_subscription_id">
+        <div v-if="!formData.organization_subscription_id">
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
             v-model="formData.group_id"
@@ -778,8 +776,26 @@
 
         </div>
 
-        <!-- 绑定订阅时候选分组由订阅决定，手动回退分组不再适用 -->
-        <div v-if="!formData.user_subscription_id" class="mt-4 space-y-2" data-test="fallback-groups-editor">
+        <!--
+          扣费套餐的选择只在"有歧义"时出现：用户有多个套餐都覆盖了所选分组，
+          此时单看分组无法确定该扣哪一份额度。只有一个套餐覆盖时没有可选项，
+          多问一句反而是噪音。
+          注意它不决定路由——分组始终由上面的选择器决定，因为同一套餐里的两个
+          分组可能提供相同模型，只有用户知道要用哪个。
+        -->
+        <div v-if="showPoolChoice" data-test="key-form-pool-choice">
+          <label class="input-label">{{ t('keys.poolLabel') }}</label>
+          <Select
+            v-model="formData.user_subscription_id"
+            :options="poolOptions"
+            :placeholder="t('keys.selectPool')"
+            data-test="key-form-subscription"
+          />
+          <p class="input-hint mt-0.5">{{ t('keys.poolHint') }}</p>
+        </div>
+
+        <!-- 回退分组与扣费套餐互不影响：路由始终由分组决定 -->
+        <div class="mt-4 space-y-2" data-test="fallback-groups-editor">
             <div class="flex items-center justify-between gap-3">
               <div>
                 <label class="input-label mb-0">{{ t('keys.fallbackGroupsLabel') }}</label>
@@ -1462,36 +1478,40 @@
         <!-- Group list -->
         <div class="max-h-80 overflow-y-auto p-1.5">
           <template v-for="(option, index) in filteredGroupOptions" :key="option.value ?? 'null'">
+            <!--
+              按绑定类型分节。三类的计费口径完全不同（公司额度 / 套餐共享额度 /
+              分组自身限额），必须分开标注，否则用户无从判断这次消费扣哪一份。
+            -->
             <div
-              v-if="index === 0 || option.isEnterprise !== filteredGroupOptions[index - 1]?.isEnterprise"
+              v-if="index === 0 || option.kind !== filteredGroupOptions[index - 1]?.kind"
               class="px-3 pb-1 pt-2 text-xs font-semibold text-gray-500 dark:text-gray-400"
-              :data-test="option.isEnterprise ? 'enterprise-group-section' : 'personal-group-section'"
+              :data-test="`${option.kind}-group-section`"
             >
-              {{ option.isEnterprise ? t('keys.orgSubscriptionLabel') : t('keys.group') }}
+              {{ bindingKindLabel(option.kind) }}
             </div>
             <button
               @click="changeGroup(selectedKeyForGroup!, option.value)"
               :class="[
                 'flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm transition-colors',
                 'border-b border-gray-100 last:border-0 dark:border-dark-700',
-                (typeof option.value === 'string' && option.value.startsWith('org:')
-                  ? selectedKeyForGroup?.organization_subscription_id === Number(option.value.slice(4))
-                  : selectedKeyForGroup?.group_id === option.value) ||
-                (!selectedKeyForGroup?.group_id && !selectedKeyForGroup?.organization_subscription_id && option.value === null)
+                isBindingOptionSelected(option.value)
                   ? 'bg-primary-50 dark:bg-primary-900/20'
                   : 'hover:bg-gray-100 dark:hover:bg-dark-700'
               ]"
               data-test="group-selector-option"
-              :data-enterprise="option.isEnterprise ? 'true' : 'false'"
+              :data-binding-kind="option.kind"
+              :data-enterprise="option.kind === 'org' ? 'true' : 'false'"
               :title="option.description || undefined"
             >
+              <!-- 三类各自一种配色的徽标，便于在长列表里快速扫读 -->
               <span
-                v-if="option.isEnterprise"
-                class="badge badge-info shrink-0 whitespace-nowrap text-xs"
-                data-test="enterprise-group-option-badge"
-                :title="t('keys.orgSubscriptionHint')"
+                v-if="option.kind !== 'group'"
+                class="badge shrink-0 whitespace-nowrap text-xs"
+                :class="option.kind === 'org' ? 'badge-info' : 'badge-purple'"
+                :data-test="`${option.kind}-group-option-badge`"
+                :title="option.kind === 'org' ? t('keys.orgSubscriptionHint') : t('keys.poolHint')"
               >
-                {{ t('keys.orgSubscriptionLabel') }}
+                {{ bindingKindLabel(option.kind) }}
               </span>
               <GroupOptionItem
                 :name="option.label"
@@ -1504,12 +1524,7 @@
                 :peak-end="option.peakEnd"
                 :peak-rate-multiplier="option.peakRateMultiplier"
                 :description="option.description"
-                :selected="
-                  (typeof option.value === 'string' && option.value.startsWith('org:')
-                    ? selectedKeyForGroup?.organization_subscription_id === Number(option.value.slice(4))
-                    : selectedKeyForGroup?.group_id === option.value) ||
-                  (!selectedKeyForGroup?.group_id && !selectedKeyForGroup?.organization_subscription_id && option.value === null)
-                "
+                :selected="isBindingOptionSelected(option.value)"
               />
             </button>
           </template>
@@ -1831,6 +1846,15 @@ const onStatusFilterChange = (value: string | number | boolean | null) => {
 }
 
 // Convert groups to Select options format with rate multiplier and subscription type
+/**
+ * 一把 Key 可以绑到三种东西上，它们的计费与可路由分组各不相同，在选择器里必须
+ * 能一眼分清，否则用户无从判断这次消费会扣哪一份额度：
+ *   - org   企业订阅：扣公司的额度池
+ *   - plan  订阅套餐：扣自己那条订阅的共享额度池，可路由到套餐覆盖的所有分组
+ *   - group 单个分组：按分组自身的限额计费
+ */
+type KeyBindingKind = 'org' | 'plan' | 'group'
+
 const groupOptions = computed(() =>
   groups.value.map((group) => ({
     value: group.id,
@@ -1844,6 +1868,7 @@ const groupOptions = computed(() =>
     peakRateMultiplier: group.peak_rate_multiplier,
     subscriptionType: group.subscription_type,
     platform: group.platform,
+    kind: 'group' as KeyBindingKind,
     isEnterprise: false,
   }))
 )
@@ -1851,6 +1876,25 @@ const groupOptions = computed(() =>
 const fallbackGroupToAdd = ref<number | null>(null)
 
 const groupById = (groupId: number) => groups.value.find(group => group.id === groupId)
+
+/** 某条订阅覆盖的分组；未下发覆盖集合时回退主分组。 */
+const subscriptionGroupIds = (sub: Pick<BindableUserSubscription, 'group_id' | 'group_ids'> | undefined | null): number[] => {
+  if (!sub) return []
+  if (sub.group_ids?.length) return sub.group_ids
+  return sub.group_id ? [sub.group_id] : []
+}
+
+/**
+ * 该 Key 所扣额度池的标签。
+ *
+ * 用套餐覆盖的分组名拼成——同分组下的多个套餐往往只在"还覆盖了哪些别的分组"上
+ * 有区别。订阅列表里查不到（已过期/不再可绑定）时退回 #id，不让这一项变空白。
+ */
+const keyPoolLabel = (key: ApiKey): string => {
+  const sub = userSubscriptions.value.find(item => item.id === key.user_subscription_id)
+  if (!sub) return `#${key.user_subscription_id}`
+  return poolLabel(sub)
+}
 
 const fallbackPrimaryGroup = computed(() => {
   if (formData.value.organization_subscription_id) {
@@ -1894,22 +1938,72 @@ const fallbackGroupOptions = computed(() => eligibleFallbackGroups.value.map(gro
 })))
 
 /**
- * 可绑定的订阅（套餐）下拉项。
+ * 额度池（套餐）的展示标签：由它覆盖的分组名拼成。
  *
- * 标签由该订阅覆盖的分组名拼成，让用户直观看到"这一份额度能用在哪些分组"。
- * 分组名取自已加载的分组列表，缺失时退化为 #id，不额外请求接口。
+ * 同一分组下的多个套餐往往只在"还覆盖了哪些别的分组"上有区别，这是最能让用户
+ * 区分它们的信息。
+ *
+ * 名称优先取接口随订阅返回的 group_names：订阅覆盖的分组不一定都在"用户可绑定的
+ * 分组"列表里（例如某个专属分组并未授予该用户），只靠本地映射会显示成 #id。
  */
-const userSubscriptionOptions = computed(() =>
-  userSubscriptions.value.map(sub => {
-    const names = (sub.group_ids?.length ? sub.group_ids : [sub.group_id])
-      .map(gid => groupById(gid)?.name ?? `#${gid}`)
-    return {
-      value: sub.id,
-      label: names.join(' + '),
-      description: t('keys.subscriptionOptionDesc', { count: names.length })
-    }
-  })
+const poolLabel = (sub: BindableUserSubscription): string => {
+  const ids = subscriptionGroupIds(sub)
+  const names = ids.map((gid, index) =>
+    sub.group_names?.[index]?.trim() || groupById(gid)?.name || `#${gid}`
+  )
+  return names.length > 0 ? names.join(' + ') : `#${sub.id}`
+}
+
+/** 额度池的辅助说明：到期时间最能帮用户判断先用哪一份。 */
+const poolDescription = (sub: BindableUserSubscription): string | undefined =>
+  sub.expires_at ? t('keys.poolExpiresAt', { date: formatDateTime(sub.expires_at) }) : undefined
+
+/**
+ * 覆盖了指定分组的订阅（额度池候选）。
+ *
+ * 只有这些订阅才可能为该分组的消费付费，因此"该扣哪一份"的选择范围就是它们。
+ */
+const subscriptionsCoveringGroup = (groupId: number | null): BindableUserSubscription[] => {
+  if (!groupId) return []
+  return userSubscriptions.value.filter(sub => subscriptionGroupIds(sub).includes(groupId))
+}
+
+const poolCandidates = computed(() => subscriptionsCoveringGroup(formData.value.group_id))
+
+/**
+ * 只在有歧义时才要求用户选额度池。
+ *
+ * 一个套餐覆盖该分组时答案唯一，后端按分组反查就能得到同一条，问用户等于制造噪音；
+ * 两个及以上才必须由用户指定，否则池子会由一个用户看不到、也控制不了的排序规则决定。
+ */
+const showPoolChoice = computed(() =>
+  !formData.value.organization_subscription_id && poolCandidates.value.length > 1
 )
+
+/**
+ * 额度池下拉项。标签用套餐覆盖的分组名拼成——同一分组下的多个套餐往往只在"还覆盖
+ * 了哪些别的分组"上有区别，这是最能让用户区分它们的信息。
+ */
+const poolOptions = computed(() =>
+  poolCandidates.value.map(sub => ({
+    value: sub.id,
+    label: poolLabel(sub),
+    description: poolDescription(sub)
+  }))
+)
+
+/**
+ * 分组一变，之前选的池子可能已不覆盖新分组（后端会拒绝保存）。此时自动清掉，
+ * 让选择器回到"未指定"而不是留一个注定失败的值。
+ * 仅剩一个候选时也清掉：此时选择器不显示，留值只会让 payload 带上无谓的指定。
+ */
+watch([() => formData.value.group_id, poolCandidates], () => {
+  const current = formData.value.user_subscription_id
+  if (current === null) return
+  if (!showPoolChoice.value || !poolCandidates.value.some(sub => sub.id === current)) {
+    formData.value.user_subscription_id = null
+  }
+})
 
 const normalizeFallbackGroups = (primaryGroupId: number | null, fallbackGroupIds: number[], primaryPlatform?: string) => {  if (primaryGroupId === null) return []
   const primary = groupById(primaryGroupId)
@@ -2130,10 +2224,37 @@ const quickGroupOptions = computed(() => [
     peakEnd: undefined,
     peakRateMultiplier: undefined,
     subscriptionType: undefined,
+    kind: 'org' as KeyBindingKind,
     isEnterprise: true,
+  })),
+  // 扣费套餐：只列出覆盖该 Key 当前分组的套餐，且仅在有多个（存在歧义）时出现。
+  // 这里改的是"扣哪份额度"，不是路由——所以候选必须限定在当前分组之内，否则会
+  // 让人以为选它就能换分组。
+  ...quickPoolCandidates.value.map(sub => ({
+    value: `plan:${sub.id}`,
+    label: poolLabel(sub),
+    description: poolDescription(sub),
+    platform: 'composite' as const,
+    rate: undefined,
+    userRate: undefined,
+    peakRateEnabled: false,
+    peakStart: undefined,
+    peakEnd: undefined,
+    peakRateMultiplier: undefined,
+    subscriptionType: undefined,
+    kind: 'plan' as KeyBindingKind,
+    isEnterprise: false,
   })),
   ...groupOptions.value,
 ])
+
+/** 当前操作的 Key 可选的额度池；唯一候选时不给选项（无歧义）。 */
+const quickPoolCandidates = computed(() => {
+  const key = selectedKeyForGroup.value
+  if (!key || key.organization_subscription_id) return []
+  const candidates = subscriptionsCoveringGroup(key.group_id ?? null)
+  return candidates.length > 1 ? candidates : []
+})
 const filteredGroupOptions = computed(() => {
   const query = groupSearchQuery.value.trim().toLowerCase()
   if (!query) return quickGroupOptions.value
@@ -2142,6 +2263,32 @@ const filteredGroupOptions = computed(() => {
       (opt.description && opt.description.toLowerCase().includes(query))
   })
 })
+
+const bindingKindLabel = (kind: KeyBindingKind) => {
+  if (kind === 'org') return t('keys.orgSubscriptionLabel')
+  if (kind === 'plan') return t('keys.poolLabel')
+  return t('keys.group')
+}
+
+/**
+ * 该选项是否为当前 Key 的绑定对象。
+ *
+ * 必须按类型各自比较：企业订阅与套餐都会把 Key 的 group_id 设成订阅的主分组，
+ * 若只比 group_id，那个主分组会连带被高亮成"已选中"，看起来像同时绑了两样。
+ */
+const isBindingOptionSelected = (value: number | string | null) => {
+  const key = selectedKeyForGroup.value
+  if (!key) return false
+  if (typeof value === 'string') {
+    if (value.startsWith('org:')) return key.organization_subscription_id === Number(value.slice(4))
+    if (value.startsWith('plan:')) return key.user_subscription_id === Number(value.slice(5))
+    return false
+  }
+  // 直选分组仅在未绑定任何订阅时才算选中。
+  if (key.organization_subscription_id || key.user_subscription_id) return false
+  if (value === null) return !key.group_id
+  return key.group_id === value
+}
 
 const copyToClipboard = async (text: string, keyId: number) => {
   const success = await clipboardCopy(text, t('keys.copied'))
@@ -2341,8 +2488,10 @@ const openGroupSelector = (key: ApiKey) => {
     dropdownPosition.value = null
   } else {
     // Refresh when opening so newly provisioned enterprise subscriptions are
-    // visible without requiring a full page reload.
+    // visible without requiring a full page reload. 套餐同理：刚买/刚被分配的
+    // 订阅不该要求刷新整页才能选到。
     void loadOrgSubscriptions()
+    void loadUserSubscriptions()
     const buttonEl = groupButtonRefs.value.get(key.id)
     if (buttonEl) {
       const rect = buttonEl.getBoundingClientRect()
@@ -2375,21 +2524,48 @@ const openGroupSelector = (key: ApiKey) => {
 const changeGroup = async (key: ApiKey, selectedValue: number | string | null) => {
   groupSelectorKeyId.value = null
   dropdownPosition.value = null
-  const organizationSubscriptionID = typeof selectedValue === 'string' && selectedValue.startsWith('org:')
-    ? Number(selectedValue.slice(4))
-    : null
-  const newGroupId = organizationSubscriptionID
-    ? (orgSubscriptions.value.find(subscription => subscription.id === organizationSubscriptionID)?.group_id ?? null)
-    : typeof selectedValue === 'number' ? selectedValue : null
-  if (key.group_id === newGroupId && (key.organization_subscription_id ?? null) === organizationSubscriptionID) return
+  const prefixed = typeof selectedValue === 'string' ? selectedValue : ''
+  const organizationSubscriptionID = prefixed.startsWith('org:') ? Number(prefixed.slice(4)) : null
+  const pinnedSubscriptionID = prefixed.startsWith('plan:') ? Number(prefixed.slice(5)) : null
 
   try {
-    const fallbackGroupIds = organizationSubscriptionID
-      ? []
-      : normalizeFallbackGroups(newGroupId, key.fallback_group_ids ?? [])
-    await keysAPI.update(key.id, organizationSubscriptionID
-      ? { organization_subscription_id: organizationSubscriptionID, fallback_group_ids: [] }
-      : { group_id: newGroupId, organization_subscription_id: null, fallback_group_ids: fallbackGroupIds })
+    // 选套餐只换额度池，分组与回退分组保持不动——它改的是"扣哪份额度"，不是路由。
+    if (pinnedSubscriptionID) {
+      if (key.user_subscription_id === pinnedSubscriptionID) return
+      await keysAPI.update(key.id, {
+        group_id: key.group_id,
+        organization_subscription_id: null,
+        user_subscription_id: pinnedSubscriptionID,
+      })
+      appStore.showSuccess(t('keys.poolChangedSuccess'))
+      loadApiKeys()
+      return
+    }
+
+    const newGroupId = organizationSubscriptionID
+      ? (orgSubscriptions.value.find(subscription => subscription.id === organizationSubscriptionID)?.group_id ?? null)
+      : typeof selectedValue === 'number' ? selectedValue : null
+    if (
+      key.group_id === newGroupId &&
+      (key.organization_subscription_id ?? null) === organizationSubscriptionID
+    ) return
+
+    if (organizationSubscriptionID) {
+      await keysAPI.update(key.id, {
+        organization_subscription_id: organizationSubscriptionID,
+        user_subscription_id: null,
+        fallback_group_ids: [],
+      })
+    } else {
+      // 换分组时不沿用旧的额度池：它可能不覆盖新分组（后端会拒绝）。留给用户
+      // 在编辑弹窗里重新指定，或由后端按新分组反查。
+      await keysAPI.update(key.id, {
+        group_id: newGroupId,
+        organization_subscription_id: null,
+        user_subscription_id: null,
+        fallback_group_ids: normalizeFallbackGroups(newGroupId, key.fallback_group_ids ?? []),
+      })
+    }
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
@@ -2416,9 +2592,14 @@ const confirmDelete = (key: ApiKey) => {
 
 const handleSubmit = async () => {
   const orgSubscriptionId = formData.value.organization_subscription_id
-  // 未绑定企业订阅时，个人分组为必填；绑定企业订阅时分组由订阅决定，无需校验。
+  // 分组是路由依据，除企业订阅（分组由公司订阅决定）外一律必填。
   if (!orgSubscriptionId && formData.value.group_id === null) {
     appStore.showError(t('keys.groupRequired'))
+    return
+  }
+  // 有多个套餐覆盖所选分组时必须指定扣哪一份，否则池子会由用户看不到的规则决定。
+  if (showPoolChoice.value && !formData.value.user_subscription_id) {
+    appStore.showError(t('keys.poolRequired'))
     return
   }
 
@@ -2474,9 +2655,8 @@ const handleSubmit = async () => {
     if (showEditModal.value && selectedKey.value) {
       const updates: UpdateApiKeyRequest = {
         name: formData.value.name,
-        // 三种绑定互斥，按优先级取一种：
-        //   企业订阅 > 个人订阅（套餐）> 单个分组
-        // 绑定订阅时不发送 group_id / fallback：候选分组由订阅的覆盖集合决定。
+        // 企业订阅仍与个人绑定互斥（分组由公司订阅决定）。个人侧则是分组 +
+        // 可选的扣费套餐一同提交：两者各自回答"路由到哪"和"扣哪份额度"。
         ...(orgSubscriptionId
           ? {
               organization_subscription_id: orgSubscriptionId,
@@ -2486,17 +2666,12 @@ const handleSubmit = async () => {
                 fallbackPrimaryGroup.value?.platform,
               ),
             }
-          : formData.value.user_subscription_id
-            ? {
-                user_subscription_id: formData.value.user_subscription_id,
-                organization_subscription_id: null,
-              }
-            : {
-                group_id: formData.value.group_id,
-                organization_subscription_id: null,
-                user_subscription_id: null,
-                fallback_group_ids: normalizeFallbackGroups(formData.value.group_id, formData.value.fallback_group_ids)
-              }),
+          : {
+              group_id: formData.value.group_id,
+              organization_subscription_id: null,
+              user_subscription_id: formData.value.user_subscription_id,
+              fallback_group_ids: normalizeFallbackGroups(formData.value.group_id, formData.value.fallback_group_ids)
+            }),
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
         quota: quota,
@@ -2513,8 +2688,9 @@ const handleSubmit = async () => {
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
-      // 绑定个人订阅时不传分组与回退分组：候选分组由订阅的覆盖集合决定。
-      const boundSubscriptionId = orgSubscriptionId ? null : formData.value.user_subscription_id
+      // 分组始终发送（路由依据）；扣费套餐仅在有歧义时由用户指定后一同发送。
+      // 企业 Key 的额度池来自公司订阅，个人套餐的指定在那里没有意义。
+      const pinnedSubscriptionId = orgSubscriptionId ? null : formData.value.user_subscription_id
       const createArgs = [
         formData.value.name,
         formData.value.group_id,
@@ -2533,7 +2709,7 @@ const handleSubmit = async () => {
             )
           : normalizeFallbackGroups(formData.value.group_id, formData.value.fallback_group_ids)
       ] as const
-      const createOptions = boundSubscriptionId ? { userSubscriptionId: boundSubscriptionId } : undefined
+      const createOptions = pinnedSubscriptionId ? { userSubscriptionId: pinnedSubscriptionId } : undefined
       await keysAPI.create(...createArgs, formData.value.prefer_company_balance, createOptions)
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       // Only advance tour if active, on submit step, and creation succeeded

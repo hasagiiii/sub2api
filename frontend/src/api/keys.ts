@@ -59,9 +59,9 @@ export async function getById(id: number): Promise<ApiKey> {
  * @param organizationSubscriptionId - Optional company subscription to bind (enterprise API key)
  * @param fallbackGroupIds - Ordered fallback group IDs
  * @param preferCompanyBalance - Prefer company balance for enterprise keys
- * @param options.userSubscriptionId - Optional personal subscription (plan) to bind. When set,
- *   the key's routable groups come from that subscription's covered groups and all consumption
- *   draws from its single shared quota pool, so `groupId` and fallback groups are ignored.
+ * @param options.userSubscriptionId - Optional subscription (plan) to charge. It only picks the
+ *   quota pool; `groupId` still decides routing and must be covered by that subscription. Needed
+ *   when several of the owner's plans cover the same group.
  * @returns Created API key
  */
 export async function create(
@@ -80,17 +80,19 @@ export async function create(
 ): Promise<ApiKey> {
   const payload: CreateApiKeyRequest = { name }
   const userSubscriptionId = options?.userSubscriptionId
-  // 优先级与后端及编辑表单保持一致：企业订阅 > 个人订阅（套餐）> 单个分组。
+  // 企业订阅仍与个人绑定互斥：它的分组与额度池都来自公司订阅。
   if (organizationSubscriptionId !== undefined && organizationSubscriptionId !== null) {
     payload.organization_subscription_id = organizationSubscriptionId
     payload.fallback_group_ids = fallbackGroupIds ?? []
-  } else if (userSubscriptionId !== undefined && userSubscriptionId !== null) {
-    // 绑定订阅时不再发送 group_id / fallback：候选分组完全由订阅的覆盖集合决定，
-    // 同时发送会产生两套来源。
-    payload.user_subscription_id = userSubscriptionId
-  } else if (groupId !== undefined) {
-    payload.group_id = groupId
-    payload.fallback_group_ids = fallbackGroupIds ?? []
+  } else {
+    if (groupId !== undefined) {
+      payload.group_id = groupId
+      payload.fallback_group_ids = fallbackGroupIds ?? []
+    }
+    // 扣费套餐与分组并存：分组决定路由，套餐只决定扣哪一份额度。
+    if (userSubscriptionId !== undefined && userSubscriptionId !== null) {
+      payload.user_subscription_id = userSubscriptionId
+    }
   }
   if (preferCompanyBalance) {
     payload.prefer_company_balance = true

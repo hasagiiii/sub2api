@@ -17,10 +17,11 @@ func prepareAPIKeyRoutingState(
 	if apiKey == nil {
 		return nil, nil
 	}
-	// 绑定订阅的 Key 一定要走路由状态：它的可路由分组来自订阅的覆盖集合，没有
-	// 路由状态就无法展开，请求会退化到单个 group_id。
-	subscriptionBound := apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0
-	if !subscriptionBound && len(apiKey.FallbackGroupIDs) == 0 {
+	// 指定了额度池的 Key 也必须建路由状态：没有它，订阅会退化成按 (用户, 分组)
+	// 反查，在用户持有多个覆盖该分组的套餐时就会扣错池子——而这正是"指定套餐"
+	// 要解决的问题。
+	pinnedPool := apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0
+	if !pinnedPool && len(apiKey.FallbackGroupIDs) == 0 {
 		return nil, nil
 	}
 	candidates := apiKeyService.ResolveAPIKeyRoutingCandidates(ctx, apiKey)
@@ -38,9 +39,11 @@ func prepareAPIKeyRoutingState(
 		if subscriptionService == nil {
 			continue
 		}
-		subscription := candidate.Subscription
+		// 优先用 Key 指定的额度池，但仅当它覆盖本候选分组时（回退可能落到套餐
+		// 没覆盖的分组上，扣那条套餐等于让它为没买的分组付费）。
+		subscription := apiKeyService.PinnedSubscriptionForGroup(ctx, apiKey, candidate.Group.ID)
 		if subscription == nil {
-			// 按分组绑定的 Key：由 (用户, 分组) 反查订阅。
+			// 未指定或指定的池不覆盖该分组：由 (用户, 分组) 反查。
 			resolved, err := subscriptionService.GetActiveSubscription(ctx, apiKey.UserID, candidate.Group.ID)
 			if err != nil {
 				if errors.Is(err, service.ErrSubscriptionNotFound) {
@@ -51,8 +54,6 @@ func prepareAPIKeyRoutingState(
 			}
 			subscription = resolved
 		}
-		// 绑定订阅的 Key 已在解析候选时带上了订阅本体（所有候选共用同一条），
-		// 这里直接沿用，避免按分组反查时命中另一个覆盖同分组的额度池。
 		needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, candidate.Group)
 		if needsMaintenance {
 			refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(ctx, subscription)
