@@ -2261,16 +2261,28 @@ export interface UserSubscription {
   user_id: number
   /** 主分组（覆盖分组集合的首元素），用于徽标配色等需要单一代表分组的展示。 */
   group_id: number
-  /** 非空表示这条订阅来自套餐（购买或管理员按套餐分配），限额取自套餐并由覆盖的全部分组共享。 */
+  /** 非空表示这条订阅来自套餐；配置任一套餐限额后整条订阅进入套餐限额模式。 */
   plan_id?: number | null
-  /** 这条订阅覆盖的全部分组，它们共享同一份额度池。 */
+  /** 来源套餐的展示名称；后台手动分配的订阅为空。 */
+  plan_name?: string | null
+  /** 套餐级共享限额；只要任一窗口有值，其他未设置窗口也不再使用分组限额。 */
+  plan_daily_limit_usd?: number | null
+  plan_weekly_limit_usd?: number | null
+  plan_monthly_limit_usd?: number | null
+  /** 这条订阅覆盖的全部分组；套餐级额度池共享，无套餐限额时分组窗口独立。 */
   group_ids?: number[]
+  /** 与 group_ids 一一对应的分组名称。 */
+  group_names?: string[]
+  /** 与 group_ids 一一对应的分组自身限额。 */
+  group_limits?: UserSubscriptionGroupLimit[]
+  /** 每个覆盖分组的独立窗口用量；套餐级字段仍是整条订阅累计值。 */
+  group_usages?: UserSubscriptionGroupUsage[]
   status: 'active' | 'expired' | 'revoked' | 'suspended'
   starts_at: string
   daily_usage_usd: number
   weekly_usage_usd: number
   monthly_usage_usd: number
-  /** 生效限额（套餐优先、未设的窗口回退分组），展示用量进度时必须用它做分母。 */
+  /** 生效限额（套餐模式下未配置窗口为不限额），展示用量进度时必须用它做分母。 */
   daily_limit_usd?: number | null
   weekly_limit_usd?: number | null
   monthly_limit_usd?: number | null
@@ -2283,6 +2295,24 @@ export interface UserSubscription {
   expires_at: string | null
   user?: User
   group?: Group
+}
+
+export interface UserSubscriptionGroupLimit {
+  group_id: number
+  name: string
+  daily_limit_usd?: number | null
+  weekly_limit_usd?: number | null
+  monthly_limit_usd?: number | null
+}
+
+export interface UserSubscriptionGroupUsage {
+  group_id: number
+  daily_window_start?: string | null
+  weekly_window_start?: string | null
+  monthly_window_start?: string | null
+  daily_usage_usd: number
+  weekly_usage_usd: number
+  monthly_usage_usd: number
 }
 
 export interface SubscriptionProgress {

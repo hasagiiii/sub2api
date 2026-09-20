@@ -53,3 +53,16 @@ type UserSubscriptionRepository interface {
 
 	BatchUpdateExpiredStatus(ctx context.Context) (int64, error)
 }
+
+// UserSubscriptionGroupUsageRepository is implemented by repositories that
+// persist the per-group counters introduced for multi-group subscriptions.
+// It is kept separate from UserSubscriptionRepository so lightweight test and
+// plugin repositories remain source-compatible.
+type UserSubscriptionGroupUsageRepository interface {
+	IncrementUsageForGroup(ctx context.Context, subscriptionID, groupID int64, costUSD float64) error
+	ActivateGroupWindows(ctx context.Context, subscriptionID, groupID int64, dailyStart, periodicStart time.Time) error
+	ResetGroupUsageWindows(ctx context.Context, subscriptionID, groupID int64, resetDaily, resetWeekly, resetMonthly bool, dailyStart, periodicStart time.Time) error
+	ResetGroupDailyUsage(ctx context.Context, subscriptionID, groupID int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
+	ResetGroupWeeklyUsage(ctx context.Context, subscriptionID, groupID int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
+	ResetGroupMonthlyUsage(ctx context.Context, subscriptionID, groupID int64, expectedWindowStart *time.Time, newWindowStart time.Time) error
+}

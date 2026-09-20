@@ -35,6 +35,7 @@ vi.mock('@/stores/adminSettings', () => ({
 vi.mock('@/utils/featureFlags', () => ({
   FeatureFlags: { modelPlaza: 'model_plaza' },
   isFeatureFlagEnabled: () => false,
+  resolveFeatureFlag: () => false,
 }))
 
 vi.mock('vue-router', () => ({

@@ -51,6 +51,18 @@ func TestUserSubscriptionGetByIDForUpdateLocksRow(t *testing.T) {
 	mock.ExpectQuery("covered groups").WillReturnRows(
 		sqlmock.NewRows([]string{"subscription_id", "group_id"}).AddRow(int64(7), int64(13)),
 	)
+	// Hydration also loads the limits for each covered group.
+	mock.ExpectQuery("group limits").WillReturnRows(
+		sqlmock.NewRows([]string{"id", "name", "daily_limit_usd", "weekly_limit_usd", "monthly_limit_usd"}).AddRow(
+			int64(13), "test-group", nil, nil, nil,
+		),
+	)
+	mock.ExpectQuery("group usages").WillReturnRows(
+		sqlmock.NewRows([]string{
+			"subscription_id", "group_id", "daily_window_start", "weekly_window_start", "monthly_window_start",
+			"daily_usage_usd", "weekly_usage_usd", "monthly_usage_usd",
+		}).AddRow(int64(7), int64(13), now, now, now, 0.0, 0.0, 0.0),
+	)
 
 	sub, err := repo.GetByIDForUpdate(context.Background(), 7)
 	require.NoError(t, err)

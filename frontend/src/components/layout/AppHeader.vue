@@ -67,8 +67,6 @@
         <!-- Language Switcher -->
         <LocaleSwitcher />
 
-        <!-- Subscription Progress (for users with active subscriptions) -->
-        <SubscriptionProgressMini v-if="user && user.identity_type !== 'iam'" />
         <!-- Subscription Progress (for users with active subscriptions; disabled feature hides it) -->
         <SubscriptionProgressMini v-if="user && user.identity_type !== 'iam' && subscriptionFeatureEnabled" />
 

@@ -1106,10 +1106,34 @@ func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, 
 		return ErrSubscriptionInvalid
 	}
 
+	// Subscriptions without any package limit use independent per-group counters.
+	// Do not read the package-only Redis entry in that mode: doing so would make
+	// usage from one covered group reject another group. The DB snapshot is
+	// authoritative because the billing transaction updates both rows together.
+	if subscription.UsesIndependentGroupUsage() {
+		fresh := subscription
+		if s.subRepo != nil {
+			loaded, loadErr := s.subRepo.GetByID(ctx, subscription.ID)
+			if loadErr != nil {
+				return ErrBillingServiceUnavailable.WithCause(loadErr)
+			}
+			fresh = loaded
+		}
+		if !fresh.CheckDailyLimit(group, 0) {
+			return ErrDailyLimitExceeded
+		}
+		if !fresh.CheckWeeklyLimit(group, 0) {
+			return ErrWeeklyLimitExceeded
+		}
+		if !fresh.CheckMonthlyLimit(group, 0) {
+			return ErrMonthlyLimitExceeded
+		}
+		return nil
+	}
+
 	// 检查限额。必须与中间件侧 ValidateAndCheckLimits 读到的是同一组限额：
-	// 套餐限额优先、未设的窗口回退分组限额。若这里继续直接读 group，绑定了共
-	// 享额度套餐的订阅就会在两道闸门间判定不一致——中间件按套餐放行，这里却按
-	// 分组拦截（或相反）。
+	// 套餐只要配置任一窗口，整条订阅使用套餐模式，未配置的窗口不限额；只有
+	// 完全没有套餐限额时才读取当前分组的独立限额。
 	limits := subscription.EffectiveLimits(group)
 
 	if limits.HasDailyLimit() && subData.DailyUsage >= *limits.DailyLimitUSD {

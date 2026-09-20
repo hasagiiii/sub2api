@@ -942,33 +942,64 @@ func UserSubscriptionFromServiceAdmin(sub *service.UserSubscription) *AdminUserS
 }
 
 func userSubscriptionFromServiceBase(sub *service.UserSubscription) UserSubscription {
-	// 生效限额按"套餐优先、未设回退分组"解析，与判定链路用的是同一个函数。
+	// 生效限额按统一的套餐/分组模式解析，与判定链路用的是同一个函数：套餐只要
+	// 配置任一窗口，其他套餐窗口即为不限额，不再回退到分组。
 	// 直接把分组限额当分母会让套餐订阅显示错误的用量进度：套餐的额度是整池共享的
 	// 一份，与主分组自己配了多少无关。
 	limits := sub.EffectiveLimits(sub.Group)
+	groupLimits := make([]UserSubscriptionGroupLimit, 0, len(sub.GroupLimits))
+	for _, groupLimit := range sub.GroupLimits {
+		groupLimits = append(groupLimits, UserSubscriptionGroupLimit{
+			GroupID:         groupLimit.GroupID,
+			Name:            groupLimit.Name,
+			DailyLimitUSD:   groupLimit.DailyLimitUSD,
+			WeeklyLimitUSD:  groupLimit.WeeklyLimitUSD,
+			MonthlyLimitUSD: groupLimit.MonthlyLimitUSD,
+		})
+	}
+	groupUsages := make([]UserSubscriptionGroupUsage, 0, len(sub.GroupUsages))
+	for _, groupID := range sub.CoveredGroupIDs() {
+		usage := sub.GroupUsage(&service.Group{ID: groupID})
+		groupUsages = append(groupUsages, UserSubscriptionGroupUsage{
+			GroupID:            groupID,
+			DailyWindowStart:   usage.DailyWindowStart,
+			WeeklyWindowStart:  usage.WeeklyWindowStart,
+			MonthlyWindowStart: usage.MonthlyWindowStart,
+			DailyUsageUSD:      usage.DailyUsageUSD,
+			WeeklyUsageUSD:     usage.WeeklyUsageUSD,
+			MonthlyUsageUSD:    usage.MonthlyUsageUSD,
+		})
+	}
 	return UserSubscription{
-		ID:                 sub.ID,
-		UserID:             sub.UserID,
-		GroupID:            sub.GroupID,
-		PlanID:             sub.PlanID,
-		GroupIDs:           sub.CoveredGroupIDs(),
-		StartsAt:           sub.StartsAt,
-		ExpiresAt:          sub.ExpiresAt,
-		Status:             sub.Status,
-		DailyWindowStart:   sub.DailyWindowStart,
-		WeeklyWindowStart:  sub.WeeklyWindowStart,
-		MonthlyWindowStart: sub.MonthlyWindowStart,
-		DailyUsageUSD:      sub.DailyUsageUSD,
-		WeeklyUsageUSD:     sub.WeeklyUsageUSD,
-		MonthlyUsageUSD:    sub.MonthlyUsageUSD,
-		DailyLimitUSD:      limits.DailyLimitUSD,
-		WeeklyLimitUSD:     limits.WeeklyLimitUSD,
-		MonthlyLimitUSD:    limits.MonthlyLimitUSD,
-		CreatedAt:          sub.CreatedAt,
-		UpdatedAt:          sub.UpdatedAt,
-		RevokedAt:          sub.DeletedAt,
-		User:               UserFromServiceShallow(sub.User),
-		Group:              GroupFromServiceShallow(sub.Group),
+		ID:                  sub.ID,
+		UserID:              sub.UserID,
+		GroupID:             sub.GroupID,
+		PlanID:              sub.PlanID,
+		PlanName:            sub.PlanName,
+		PlanDailyLimitUSD:   sub.PlanLimits.DailyLimitUSD,
+		PlanWeeklyLimitUSD:  sub.PlanLimits.WeeklyLimitUSD,
+		PlanMonthlyLimitUSD: sub.PlanLimits.MonthlyLimitUSD,
+		GroupIDs:            sub.CoveredGroupIDs(),
+		GroupNames:          append([]string(nil), sub.GroupNames...),
+		GroupLimits:         groupLimits,
+		GroupUsages:         groupUsages,
+		StartsAt:            sub.StartsAt,
+		ExpiresAt:           sub.ExpiresAt,
+		Status:              sub.Status,
+		DailyWindowStart:    sub.DailyWindowStart,
+		WeeklyWindowStart:   sub.WeeklyWindowStart,
+		MonthlyWindowStart:  sub.MonthlyWindowStart,
+		DailyUsageUSD:       sub.DailyUsageUSD,
+		WeeklyUsageUSD:      sub.WeeklyUsageUSD,
+		MonthlyUsageUSD:     sub.MonthlyUsageUSD,
+		DailyLimitUSD:       limits.DailyLimitUSD,
+		WeeklyLimitUSD:      limits.WeeklyLimitUSD,
+		MonthlyLimitUSD:     limits.MonthlyLimitUSD,
+		CreatedAt:           sub.CreatedAt,
+		UpdatedAt:           sub.UpdatedAt,
+		RevokedAt:           sub.DeletedAt,
+		User:                UserFromServiceShallow(sub.User),
+		Group:               GroupFromServiceShallow(sub.Group),
 	}
 }
 

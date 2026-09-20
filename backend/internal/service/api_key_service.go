@@ -1547,8 +1547,31 @@ func (s *APIKeyService) ResolveAPIKeyRoutingCandidates(ctx context.Context, apiK
 	groupIDs := make([]int64, 0, 1+len(apiKey.FallbackGroupIDs))
 	if apiKey.GroupID != nil && *apiKey.GroupID > 0 {
 		groupIDs = append(groupIDs, *apiKey.GroupID)
+	} else if apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0 && s.userSubRepo != nil {
+		// 兼容早期“只绑定套餐、不单独保存分组”的 Key。新 Key 始终由
+		// group_id 决定路由；历史 Key 的 group_id 为空时，必须从实际订阅的
+		// 覆盖关系恢复候选，否则认证阶段会把空候选集误报成 NO_AVAILABLE_GROUP。
+		sub, err := s.userSubRepo.GetByID(ctx, *apiKey.UserSubscriptionID)
+		if err != nil {
+			return []APIKeyRoutingCandidate{{Unavailable: err}}
+		}
+		if sub == nil {
+			// A legacy key without a group has no independent routing identity;
+			// never let it fall through to an arbitrary group-based subscription.
+			return []APIKeyRoutingCandidate{{Unavailable: ErrSubscriptionNotFound}}
+		}
+		if sub.UserID != apiKey.UserID {
+			// The key cannot consume another user's quota pool.
+			return []APIKeyRoutingCandidate{{Unavailable: ErrSubscriptionInvalid}}
+		}
+		groupIDs = append(groupIDs, sub.CoveredGroupIDs()...)
 	}
 	groupIDs = append(groupIDs, apiKey.FallbackGroupIDs...)
+	if len(groupIDs) == 0 && apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0 {
+		// Keep the failure actionable when a legacy subscription row has no
+		// usable primary/covered group instead of returning a generic group error.
+		return []APIKeyRoutingCandidate{{Unavailable: ErrSubscriptionNotFound}}
+	}
 	candidates := make([]APIKeyRoutingCandidate, 0, len(groupIDs))
 	primaryPlatform := ""
 	for index, groupID := range groupIDs {

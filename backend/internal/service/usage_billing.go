@@ -29,6 +29,11 @@ type UsageBillingCommand struct {
 	AuthzGeneration int64
 	AccountID       int64
 	SubscriptionID  *int64
+	// SubscriptionGroupID is the concrete group that served the request. It is
+	// recorded alongside the package counter so independent no-plan group limits
+	// can remain independent across a multi-group subscription and future plan
+	// limit changes can use an up-to-date snapshot.
+	SubscriptionGroupID *int64
 	// OrganizationSubscriptionID, when set, routes SubscriptionCost to the
 	// referenced organization_subscriptions row (enterprise API key) instead of
 	// a personal user subscription.
@@ -115,7 +120,7 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 		return ""
 	}
 	raw := fmt.Sprintf(
-		"%d|%d|%d|%d|%s|%d|%d|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%s|%d|%d|%0.10f|%0.10f|%0.10f|%0.10f|%0.10f",
+		"%d|%d|%d|%d|%s|%d|%d|%s|%s|%s|%s|%d|%d|%d|%d|%d|%d|%s|%d|%d|%d|%0.10f|%0.10f|%0.10f|%0.10f|%0.10f",
 		c.UserID,
 		valueOrZero(c.OrganizationID),
 		c.PayerUserID,
@@ -135,6 +140,7 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 		c.ImageCount,
 		strings.TrimSpace(c.MediaType),
 		valueOrZero(c.SubscriptionID),
+		valueOrZero(c.SubscriptionGroupID),
 		valueOrZero(c.OrganizationSubscriptionID),
 		c.BalanceCost,
 		c.SubscriptionCost,

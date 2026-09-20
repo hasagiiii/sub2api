@@ -1311,9 +1311,10 @@ type UsageWindow = 'daily' | 'weekly' | 'monthly'
 /**
  * 该行用量进度的分母。
  *
- * 优先用后端解析好的生效限额（套餐限额优先、未设的窗口回退分组限额）。套餐订阅的
- * 额度是整个额度池共享的一份，直接读主分组的限额会算出错误的进度——分组没配限额时
- * 甚至会把有套餐限额的订阅显示成"无限制"。
+ * 优先用后端解析好的生效限额。只要套餐设置了任一窗口，整条订阅进入套餐模式，其他
+ * 未设置窗口为不限额，不能再回退到主分组限额。套餐订阅的额度是整个额度池共享的一份，
+ * 直接读主分组的限额会算出错误的进度——分组没配限额时甚至会把有套餐限额的订阅显示成
+ * "无限制"。
  * 企业订阅行来自另一个接口、没有这些字段，此时回退到分组限额。
  */
 const rowLimit = (row: AdminSubscriptionRow, window: UsageWindow): number | null => {
@@ -1324,6 +1325,12 @@ const rowLimit = (row: AdminSubscriptionRow, window: UsageWindow): number | null
         ? row.weekly_limit_usd
         : row.monthly_limit_usd
   if (resolved != null) return resolved
+  const hasPlanLimits = [
+    row.plan_daily_limit_usd,
+    row.plan_weekly_limit_usd,
+    row.plan_monthly_limit_usd,
+  ].some((limit) => typeof limit === 'number' && limit > 0)
+  if (hasPlanLimits) return null
   const group = row.group
   if (!group) return null
   const fallback =

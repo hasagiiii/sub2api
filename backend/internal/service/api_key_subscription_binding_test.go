@@ -78,6 +78,61 @@ func TestResolveCandidatesIgnoresPinnedSubscription(t *testing.T) {
 	require.Equal(t, int64(11), candidates[1].Group.ID)
 }
 
+// 旧版套餐 Key 可能没有保存 group_id。认证时仍应从订阅的实际覆盖关系恢复
+// 候选分组，而不是把空候选集转换成 NO_AVAILABLE_GROUP。
+func TestResolveCandidatesRecoversLegacySubscriptionBoundKeyWithoutGroup(t *testing.T) {
+	svc := pinnedPoolService(activeSharedSubscription(), nil)
+	subscriptionID := int64(77)
+	key := &APIKey{ID: 1, UserID: 5, UserSubscriptionID: &subscriptionID}
+
+	candidates := svc.ResolveAPIKeyRoutingCandidates(context.Background(), key)
+
+	require.Len(t, candidates, 3)
+	require.Equal(t, []int64{10, 11, 12}, []int64{
+		candidates[0].Group.ID,
+		candidates[1].Group.ID,
+		candidates[2].Group.ID,
+	})
+}
+
+func TestResolveCandidatesReportsMissingLegacySubscription(t *testing.T) {
+	subscriptionID := int64(77)
+	key := &APIKey{ID: 1, UserID: 5, UserSubscriptionID: &subscriptionID}
+	svc := pinnedPoolService(nil, ErrSubscriptionNotFound)
+
+	candidates := svc.ResolveAPIKeyRoutingCandidates(context.Background(), key)
+
+	require.Len(t, candidates, 1)
+	require.ErrorIs(t, candidates[0].Unavailable, ErrSubscriptionNotFound)
+}
+
+func TestResolveCandidatesRejectsForeignLegacySubscription(t *testing.T) {
+	subscriptionID := int64(77)
+	key := &APIKey{ID: 1, UserID: 5, UserSubscriptionID: &subscriptionID}
+	foreign := activeSharedSubscription()
+	foreign.UserID = 999
+	svc := pinnedPoolService(foreign, nil)
+
+	candidates := svc.ResolveAPIKeyRoutingCandidates(context.Background(), key)
+
+	require.Len(t, candidates, 1)
+	require.ErrorIs(t, candidates[0].Unavailable, ErrSubscriptionInvalid)
+}
+
+func TestResolveCandidatesReportsLegacySubscriptionWithoutGroups(t *testing.T) {
+	subscriptionID := int64(77)
+	key := &APIKey{ID: 1, UserID: 5, UserSubscriptionID: &subscriptionID}
+	sub := activeSharedSubscription()
+	sub.GroupID = 0
+	sub.GroupIDs = nil
+	svc := pinnedPoolService(sub, nil)
+
+	candidates := svc.ResolveAPIKeyRoutingCandidates(context.Background(), key)
+
+	require.Len(t, candidates, 1)
+	require.ErrorIs(t, candidates[0].Unavailable, ErrSubscriptionNotFound)
+}
+
 // 指定的套餐覆盖该分组时，额度池就是它。
 func TestPinnedSubscriptionForGroupReturnsPinnedPool(t *testing.T) {
 	svc := pinnedPoolService(activeSharedSubscription(), nil)

@@ -186,7 +186,7 @@ type CreatePlanRequest struct {
 	ForSale       bool     `json:"for_sale"`
 	SortOrder     int      `json:"sort_order"`
 	// 套餐级限额：由 GroupIDs 里的全部分组【共享】这一份额度。
-	// nil 表示不设置，判定时逐窗口回退到分组自身限额。
+	// nil 表示不设置；只要任一窗口有套餐限额，其他窗口也不再回退到分组限额。
 	// 键名带 plan_ 前缀以区别于分组自身的 *_limit_usd。
 	DailyLimitUSD   *float64 `json:"plan_daily_limit_usd"`
 	WeeklyLimitUSD  *float64 `json:"plan_weekly_limit_usd"`

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"go.uber.org/zap"
 )
 
 func prepareAPIKeyRoutingState(
@@ -25,6 +27,7 @@ func prepareAPIKeyRoutingState(
 		return nil, nil
 	}
 	candidates := apiKeyService.ResolveAPIKeyRoutingCandidates(ctx, apiKey)
+	rejectedSubscriptions := make(map[int]*service.UserSubscription)
 	for index := range candidates {
 		candidate := &candidates[index]
 		// The primary enterprise group is checked against its organization
@@ -56,7 +59,7 @@ func prepareAPIKeyRoutingState(
 		}
 		needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, candidate.Group)
 		if needsMaintenance {
-			refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(ctx, subscription)
+			refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenanceForGroup(ctx, subscription, candidate.Group.ID)
 			if maintenanceErr != nil {
 				return nil, maintenanceErr
 			}
@@ -65,6 +68,7 @@ func prepareAPIKeyRoutingState(
 		}
 		if validateErr != nil {
 			candidate.Unavailable = validateErr
+			rejectedSubscriptions[index] = subscription
 			continue
 		}
 		candidate.Subscription = subscription
@@ -72,8 +76,99 @@ func prepareAPIKeyRoutingState(
 	state := service.NewAPIKeyRoutingState(apiKey, candidates)
 	index, ok := state.FirstAvailable()
 	if !ok {
+		// Preserve the reason the candidates were rejected. In particular, a
+		// subscription that has hit its limit must not be reported as though the
+		// API key had no group at all; the auth middleware maps these errors to
+		// the appropriate subscription/usage response.
+		var firstErr error
+		for index, candidate := range candidates {
+			logAPIKeyRoutingRejection(ctx, apiKey, index, len(candidates), candidate, rejectedSubscriptions[index])
+			if firstErr == nil && candidate.Unavailable != nil {
+				firstErr = candidate.Unavailable
+			}
+		}
+		if firstErr != nil {
+			return nil, firstErr
+		}
 		return nil, service.ErrNoAvailableAccounts
 	}
 	state.Activate(index)
 	return state, nil
+}
+
+func logAPIKeyRoutingRejection(ctx context.Context, apiKey *service.APIKey, index, count int, candidate service.APIKeyRoutingCandidate, sub *service.UserSubscription) {
+	reason := candidate.Unavailable
+	if reason == nil {
+		reason = service.ErrNoAvailableAccounts
+	}
+	status, code, _ := apiKeyRoutingErrorResponse(reason)
+	fields := []zap.Field{
+		zap.String("component", "middleware.api_key_routing"),
+		zap.Int64("api_key_id", apiKey.ID),
+		zap.Int64("user_id", apiKey.UserID),
+		zap.Int("candidate_index", index),
+		zap.Int("candidate_count", count),
+		zap.Int("response_status", status),
+		zap.String("reason_code", code),
+		zap.Error(reason),
+	}
+	if apiKey.UserSubscriptionID != nil {
+		fields = append(fields, zap.Int64("pinned_subscription_id", *apiKey.UserSubscriptionID))
+	}
+	if candidate.Group != nil {
+		fields = append(fields,
+			zap.Int64("group_id", candidate.Group.ID),
+			zap.String("group_status", candidate.Group.Status),
+		)
+	}
+	if sub != nil {
+		limits := sub.EffectiveLimits(candidate.Group)
+		fields = append(fields,
+			zap.Int64("subscription_id", sub.ID),
+			zap.String("subscription_status", sub.Status),
+			zap.Time("subscription_expires_at", sub.ExpiresAt),
+			zap.Any("daily_window_start", sub.DailyWindowStart),
+			zap.Any("weekly_window_start", sub.WeeklyWindowStart),
+			zap.Any("monthly_window_start", sub.MonthlyWindowStart),
+			zap.Float64("daily_usage_usd", sub.DailyUsageUSD),
+			zap.Float64("weekly_usage_usd", sub.WeeklyUsageUSD),
+			zap.Float64("monthly_usage_usd", sub.MonthlyUsageUSD),
+			zap.Any("daily_limit_usd", limits.DailyLimitUSD),
+			zap.Any("weekly_limit_usd", limits.WeeklyLimitUSD),
+			zap.Any("monthly_limit_usd", limits.MonthlyLimitUSD),
+			zap.Any("plan_daily_limit_usd", sub.PlanLimits.DailyLimitUSD),
+			zap.Any("plan_weekly_limit_usd", sub.PlanLimits.WeeklyLimitUSD),
+			zap.Any("plan_monthly_limit_usd", sub.PlanLimits.MonthlyLimitUSD),
+		)
+		if sub.PlanID != nil {
+			fields = append(fields, zap.Int64("plan_id", *sub.PlanID))
+		}
+	}
+	logger.FromContext(ctx).Warn("api_key.routing_precheck_rejected", fields...)
+}
+
+// apiKeyRoutingErrorResponse translates a request-wide routing precheck failure
+// into the public auth error. Candidate billing failures are intentionally
+// kept distinct from a missing/disabled group so clients can tell whether they
+// need a different key, a renewed subscription, or a quota reset.
+func apiKeyRoutingErrorResponse(err error) (status int, code, message string) {
+	if errors.Is(err, service.ErrDailyLimitExceeded) ||
+		errors.Is(err, service.ErrWeeklyLimitExceeded) ||
+		errors.Is(err, service.ErrMonthlyLimitExceeded) {
+		return 429, "USAGE_LIMIT_EXCEEDED", err.Error()
+	}
+	if errors.Is(err, service.ErrSubscriptionNotFound) {
+		return 403, "SUBSCRIPTION_NOT_FOUND", err.Error()
+	}
+	if errors.Is(err, service.ErrSubscriptionExpired) ||
+		errors.Is(err, service.ErrSubscriptionSuspended) ||
+		errors.Is(err, service.ErrSubscriptionInvalid) {
+		return 403, "SUBSCRIPTION_INVALID", err.Error()
+	}
+	if errors.Is(err, service.ErrGroupNotFound) ||
+		errors.Is(err, service.ErrGroupNotAllowed) ||
+		errors.Is(err, service.ErrNoAvailableAccounts) {
+		return 403, "NO_AVAILABLE_GROUP", "No available API key group"
+	}
+	return 500, "INTERNAL_ERROR", "Failed to resolve API key group"
 }

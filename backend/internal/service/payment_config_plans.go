@@ -267,7 +267,7 @@ func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req Upd
 	if req.SortOrder != nil {
 		u.SetSortOrder(*req.SortOrder)
 	}
-	// 限额补丁：nil 不修改；传 <= 0 表示清除（回退到分组限额）。
+	// 限额补丁：nil 不修改；传 <= 0 表示清除。套餐仍处于模式时，清除的窗口为不限额。
 	if req.DailyLimitUSD != nil {
 		if *req.DailyLimitUSD > 0 {
 			u.SetDailyLimitUsd(*req.DailyLimitUSD)

@@ -178,7 +178,8 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			skipBilling || cfg.RunMode == config.RunModeSimple,
 		)
 		if routingErr != nil {
-			AbortWithError(c, http.StatusForbidden, "NO_AVAILABLE_GROUP", "No available API key group")
+			status, code, message := apiKeyRoutingErrorResponse(routingErr)
+			AbortWithError(c, status, code, message)
 			return
 		}
 		if routingState != nil {
@@ -353,7 +354,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				// 订阅模式：验证订阅限额
 				needsMaintenance, validateErr := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
 				if needsMaintenance {
-					refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(c.Request.Context(), subscription)
+					refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenanceForGroup(c.Request.Context(), subscription, apiKey.Group.ID)
 					if maintenanceErr != nil {
 						AbortWithError(c, 500, "SUBSCRIPTION_MAINTENANCE_FAILED", "Failed to maintain subscription usage windows")
 						return

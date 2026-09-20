@@ -174,7 +174,13 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 					slog.Error("increment enterprise subscription usage failed", "subscription_id", *p.APIKey.OrganizationSubscriptionID, "error", err)
 				}
 			} else if p.Subscription != nil {
-				if err := deps.userSubRepo.IncrementUsage(billingCtx, p.Subscription.ID, cost.ActualCost); err != nil {
+				var err error
+				if groupRepo, ok := deps.userSubRepo.(UserSubscriptionGroupUsageRepository); ok && p.APIKey != nil && p.APIKey.GroupID != nil {
+					err = groupRepo.IncrementUsageForGroup(billingCtx, p.Subscription.ID, *p.APIKey.GroupID, cost.ActualCost)
+				} else {
+					err = deps.userSubRepo.IncrementUsage(billingCtx, p.Subscription.ID, cost.ActualCost)
+				}
+				if err != nil {
 					slog.Error("increment subscription usage failed", "subscription_id", p.Subscription.ID, "error", err)
 				}
 			}
@@ -342,6 +348,9 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		}
 		if usageLog.SubscriptionID != nil {
 			cmd.SubscriptionID = usageLog.SubscriptionID
+		}
+		if usageLog.GroupID != nil {
+			cmd.SubscriptionGroupID = usageLog.GroupID
 		}
 	}
 

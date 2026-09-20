@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -92,6 +93,11 @@ func replaceSubscriptionCoveredGroups(ctx context.Context, client *dbent.Client,
 			`INSERT INTO user_subscription_groups(subscription_id, group_id, sort_order) VALUES($1, $2, $3)
 			 ON CONFLICT (subscription_id, group_id) DO UPDATE SET sort_order = EXCLUDED.sort_order`,
 			subscriptionID, groupID, i); err != nil {
+			return err
+		}
+		if _, err := client.ExecContext(ctx, `
+			INSERT INTO user_subscription_group_usages(subscription_id, group_id)
+			VALUES($1, $2) ON CONFLICT (subscription_id, group_id) DO NOTHING`, subscriptionID, groupID); err != nil {
 			return err
 		}
 	}
@@ -670,6 +676,127 @@ func (r *userSubscriptionRepository) IncrementUsage(ctx context.Context, id int6
 	return service.ErrSubscriptionNotFound
 }
 
+// IncrementUsageForGroup records both the package-level usage and the usage
+// of the concrete group that served the request. The latter is what enforces
+// group limits for plans without a package-level limit.
+func (r *userSubscriptionRepository) IncrementUsageForGroup(ctx context.Context, subscriptionID, groupID int64, costUSD float64) error {
+	client := clientFromContext(ctx, r.client)
+	if groupID <= 0 {
+		return r.IncrementUsage(ctx, subscriptionID, costUSD)
+	}
+	if _, err := client.ExecContext(ctx, `
+		INSERT INTO user_subscription_group_usages(subscription_id, group_id)
+		VALUES($1, $2) ON CONFLICT (subscription_id, group_id) DO NOTHING`, subscriptionID, groupID); err != nil {
+		return err
+	}
+	const updateSQL = `
+		UPDATE user_subscriptions us
+		SET daily_usage_usd = us.daily_usage_usd + $1,
+			weekly_usage_usd = us.weekly_usage_usd + $1,
+			monthly_usage_usd = us.monthly_usage_usd + $1,
+			updated_at = NOW()
+		WHERE us.id = $2 AND us.deleted_at IS NULL`
+	result, err := client.ExecContext(ctx, updateSQL, costUSD, subscriptionID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrSubscriptionNotFound
+	}
+	_, err = client.ExecContext(ctx, `
+		UPDATE user_subscription_group_usages
+		SET daily_usage_usd = daily_usage_usd + $1,
+			weekly_usage_usd = weekly_usage_usd + $1,
+			monthly_usage_usd = monthly_usage_usd + $1,
+			updated_at = NOW()
+		WHERE subscription_id = $2 AND group_id = $3`, costUSD, subscriptionID, groupID)
+	return err
+}
+
+func (r *userSubscriptionRepository) ActivateGroupWindows(ctx context.Context, subscriptionID, groupID int64, dailyStart, periodicStart time.Time) error {
+	client := clientFromContext(ctx, r.client)
+	_, err := client.ExecContext(ctx, `
+		INSERT INTO user_subscription_group_usages(
+			subscription_id, group_id, daily_window_start, weekly_window_start, monthly_window_start
+		) VALUES($1, $2, $3, $4, $4)
+		ON CONFLICT (subscription_id, group_id) DO UPDATE SET
+			daily_window_start = COALESCE(user_subscription_group_usages.daily_window_start, EXCLUDED.daily_window_start),
+			weekly_window_start = COALESCE(user_subscription_group_usages.weekly_window_start, EXCLUDED.weekly_window_start),
+			monthly_window_start = COALESCE(user_subscription_group_usages.monthly_window_start, EXCLUDED.monthly_window_start)`,
+		subscriptionID, groupID, dailyStart, periodicStart)
+	return err
+}
+
+func (r *userSubscriptionRepository) ResetGroupUsageWindows(ctx context.Context, subscriptionID, groupID int64, resetDaily, resetWeekly, resetMonthly bool, dailyStart, periodicStart time.Time) error {
+	client := clientFromContext(ctx, r.client)
+	if _, err := client.ExecContext(ctx, `
+		INSERT INTO user_subscription_group_usages(subscription_id, group_id)
+		VALUES($1, $2) ON CONFLICT (subscription_id, group_id) DO NOTHING`, subscriptionID, groupID); err != nil {
+		return err
+	}
+	sets := make([]string, 0, 6)
+	if resetDaily {
+		sets = append(sets, "daily_usage_usd = 0", "daily_window_start = $3")
+	}
+	if resetWeekly {
+		sets = append(sets, "weekly_usage_usd = 0", "weekly_window_start = $4")
+	}
+	if resetMonthly {
+		sets = append(sets, "monthly_usage_usd = 0", "monthly_window_start = $4")
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	sets = append(sets, "updated_at = NOW()")
+	_, err := client.ExecContext(ctx, fmt.Sprintf(`UPDATE user_subscription_group_usages SET %s WHERE subscription_id = $1 AND group_id = $2`, strings.Join(sets, ", ")), subscriptionID, groupID, dailyStart, periodicStart)
+	return err
+}
+
+func (r *userSubscriptionRepository) ResetGroupDailyUsage(ctx context.Context, subscriptionID, groupID int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
+	return r.resetGroupUsageWindow(ctx, subscriptionID, groupID, "daily", expectedWindowStart, newWindowStart)
+}
+
+func (r *userSubscriptionRepository) ResetGroupWeeklyUsage(ctx context.Context, subscriptionID, groupID int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
+	return r.resetGroupUsageWindow(ctx, subscriptionID, groupID, "weekly", expectedWindowStart, newWindowStart)
+}
+
+func (r *userSubscriptionRepository) ResetGroupMonthlyUsage(ctx context.Context, subscriptionID, groupID int64, expectedWindowStart *time.Time, newWindowStart time.Time) error {
+	return r.resetGroupUsageWindow(ctx, subscriptionID, groupID, "monthly", expectedWindowStart, newWindowStart)
+}
+
+func (r *userSubscriptionRepository) resetGroupUsageWindow(ctx context.Context, subscriptionID, groupID int64, period string, expectedWindowStart *time.Time, newWindowStart time.Time) error {
+	columns := map[string][2]string{
+		"daily":   {"daily_usage_usd", "daily_window_start"},
+		"weekly":  {"weekly_usage_usd", "weekly_window_start"},
+		"monthly": {"monthly_usage_usd", "monthly_window_start"},
+	}
+	column, ok := columns[period]
+	if !ok {
+		return fmt.Errorf("unknown group usage period %q", period)
+	}
+	where := "window_start IS NULL"
+	args := []any{subscriptionID, groupID, newWindowStart}
+	if expectedWindowStart != nil {
+		where = "window_start = $4"
+		args = append(args, *expectedWindowStart)
+	}
+	query := fmt.Sprintf(`UPDATE user_subscription_group_usages
+		SET %s = 0, %s = $3, updated_at = NOW()
+		WHERE subscription_id = $1 AND group_id = $2 AND %s`, column[0], column[1], strings.Replace(where, "window_start", column[1], 1))
+	result, err := clientFromContext(ctx, r.client).ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	if affected, _ := result.RowsAffected(); affected > 0 {
+		return nil
+	}
+	return nil
+}
+
 func (r *userSubscriptionRepository) BatchUpdateExpiredStatus(ctx context.Context) (int64, error) {
 	client := clientFromContext(ctx, r.client)
 	n, err := client.UserSubscription.Update().
@@ -875,6 +1002,25 @@ func (r *userSubscriptionRepository) hydrateSubscriptions(ctx context.Context, s
 	if err != nil {
 		return err
 	}
+	allGroupIDs := make([]int64, 0)
+	for _, sub := range subs {
+		if sub == nil {
+			continue
+		}
+		if groupIDs := groupsBySub[sub.ID]; len(groupIDs) > 0 {
+			allGroupIDs = append(allGroupIDs, groupIDs...)
+		} else {
+			allGroupIDs = append(allGroupIDs, sub.GroupID)
+		}
+	}
+	groupLimitsByID, err := loadGroupLimits(ctx, client, uniqueInt64s(allGroupIDs))
+	if err != nil {
+		return err
+	}
+	groupUsagesBySub, err := loadGroupUsages(ctx, client, uniqueInt64s(subIDs))
+	if err != nil {
+		return err
+	}
 	planDetailsByID, err := loadPlanDetails(ctx, client, uniqueInt64s(planIDs))
 	if err != nil {
 		return err
@@ -890,6 +1036,17 @@ func (r *userSubscriptionRepository) hydrateSubscriptions(ctx context.Context, s
 			// 关联表尚未回填（迁移期）或订阅刚建好：回退到主分组，绝不留空，
 			// 否则这条订阅会被判定成"不覆盖任何分组"而完全不可用。
 			sub.GroupIDs = []int64{sub.GroupID}
+		}
+		sub.GroupNames = make([]string, 0, len(sub.GroupIDs))
+		sub.GroupLimits = make([]service.SubscriptionGroupLimit, 0, len(sub.GroupIDs))
+		sub.GroupUsages = groupUsagesBySub[sub.ID]
+		for _, groupID := range sub.GroupIDs {
+			groupLimit := groupLimitsByID[groupID]
+			if groupLimit.GroupID == 0 {
+				groupLimit.GroupID = groupID
+			}
+			sub.GroupNames = append(sub.GroupNames, groupLimit.Name)
+			sub.GroupLimits = append(sub.GroupLimits, groupLimit)
 		}
 		if sub.PlanID != nil {
 			plan := planDetailsByID[*sub.PlanID]
@@ -920,6 +1077,76 @@ func loadCoveredGroupsBySubscription(ctx context.Context, client *dbent.Client, 
 			return nil, err
 		}
 		out[subID] = append(out[subID], groupID)
+	}
+	return out, rows.Err()
+}
+
+func loadGroupLimits(ctx context.Context, client *dbent.Client, groupIDs []int64) (map[int64]service.SubscriptionGroupLimit, error) {
+	out := make(map[int64]service.SubscriptionGroupLimit, len(groupIDs))
+	if len(groupIDs) == 0 {
+		return out, nil
+	}
+	groups, err := client.Group.Query().
+		Where(group.IDIn(groupIDs...)).
+		Select(
+			group.FieldID,
+			group.FieldName,
+			group.FieldDailyLimitUsd,
+			group.FieldWeeklyLimitUsd,
+			group.FieldMonthlyLimitUsd,
+		).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range groups {
+		out[item.ID] = service.SubscriptionGroupLimit{
+			GroupID:         item.ID,
+			Name:            item.Name,
+			DailyLimitUSD:   item.DailyLimitUsd,
+			WeeklyLimitUSD:  item.WeeklyLimitUsd,
+			MonthlyLimitUSD: item.MonthlyLimitUsd,
+		}
+	}
+	return out, nil
+}
+
+func loadGroupUsages(ctx context.Context, client *dbent.Client, subIDs []int64) (map[int64]map[int64]service.SubscriptionGroupUsage, error) {
+	out := make(map[int64]map[int64]service.SubscriptionGroupUsage, len(subIDs))
+	if len(subIDs) == 0 {
+		return out, nil
+	}
+	rows, err := client.QueryContext(ctx, `
+		SELECT subscription_id, group_id,
+		       daily_window_start, weekly_window_start, monthly_window_start,
+		       daily_usage_usd, weekly_usage_usd, monthly_usage_usd
+		FROM user_subscription_group_usages
+		WHERE subscription_id = ANY($1)`, pq.Array(subIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			subscriptionID, groupID               int64
+			dailyStart, weeklyStart, monthlyStart *time.Time
+			dailyUsage, weeklyUsage, monthlyUsage float64
+		)
+		if err := rows.Scan(&subscriptionID, &groupID, &dailyStart, &weeklyStart, &monthlyStart, &dailyUsage, &weeklyUsage, &monthlyUsage); err != nil {
+			return nil, err
+		}
+		if out[subscriptionID] == nil {
+			out[subscriptionID] = make(map[int64]service.SubscriptionGroupUsage)
+		}
+		out[subscriptionID][groupID] = service.SubscriptionGroupUsage{
+			GroupID:            groupID,
+			DailyWindowStart:   dailyStart,
+			WeeklyWindowStart:  weeklyStart,
+			MonthlyWindowStart: monthlyStart,
+			DailyUsageUSD:      dailyUsage,
+			WeeklyUsageUSD:     weeklyUsage,
+			MonthlyUsageUSD:    monthlyUsage,
+		}
 	}
 	return out, rows.Err()
 }

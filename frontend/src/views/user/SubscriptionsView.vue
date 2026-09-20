@@ -40,12 +40,15 @@
               <div>
                 <div class="flex items-center gap-2">
                   <h3 class="font-semibold text-gray-900 dark:text-white">
-                    {{ subscription.group?.name || `Group #${subscription.group_id}` }}
+                    {{ getSubscriptionName(subscription) }}
                   </h3>
                   <span :class="['rounded-md border px-2 py-0.5 text-[11px] font-medium', platformBadgeClass(subscription.group?.platform || '')]">
                     {{ platformLabel(subscription.group?.platform || '') }}
                   </span>
                 </div>
+                <p class="mt-1 break-words text-xs text-gray-500 dark:text-dark-400">
+                  {{ getSubscriptionGroupNames(subscription).join('、') }}
+                </p>
                 <p v-if="subscription.group?.description" class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
                   {{ subscription.group.description }}
                 </p>
@@ -100,132 +103,46 @@
               }}</span>
             </div>
 
-            <!-- Daily Usage -->
-            <div v-if="subscription.group?.daily_limit_usd" class="space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('userSubscriptions.daily') }}
-                </span>
-                <span class="text-sm text-gray-500 dark:text-dark-400">
-                  ${{ (subscription.daily_usage_usd || 0).toFixed(2) }} / ${{
-                    subscription.group.daily_limit_usd.toFixed(2)
-                  }}
-                </span>
-              </div>
-              <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                <div
-                  class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                  :class="
-                    getProgressBarClass(
-                      subscription.daily_usage_usd,
-                      subscription.group.daily_limit_usd
-                    )
-                  "
-                  :style="{
-                    width: getProgressWidth(
-                      subscription.daily_usage_usd,
-                      subscription.group.daily_limit_usd
-                    )
-                  }"
-                ></div>
-              </div>
-              <p
-                v-if="subscription.daily_window_start"
-                class="text-xs text-gray-500 dark:text-dark-400"
+            <div class="max-h-72 space-y-4 overflow-y-auto pr-1">
+              <div
+                v-for="section in getQuotaSections(subscription)"
+                :key="section.key"
+                class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30"
               >
-                {{ formatDailyUsageWindow(subscription) }}
-              </p>
-            </div>
+                <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                  <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500"></span>
+                  <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                    {{ section.label }}
+                  </h4>
+                </div>
 
-            <!-- Weekly Usage -->
-            <div v-if="subscription.group?.weekly_limit_usd" class="space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('userSubscriptions.weekly') }}
-                </span>
-                <span class="text-sm text-gray-500 dark:text-dark-400">
-                  ${{ (subscription.weekly_usage_usd || 0).toFixed(2) }} / ${{
-                    subscription.group.weekly_limit_usd.toFixed(2)
-                  }}
-                </span>
+                <div class="space-y-3 px-1 pt-1">
+                  <div v-for="row in section.rows" :key="row.key" class="space-y-2">
+                    <div class="flex items-center justify-between gap-3">
+                      <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ row.label }}</span>
+                      <span v-if="row.limit !== null" class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
+                        ${{ row.used.toFixed(2) }} / ${{ row.limit.toFixed(2) }}
+                      </span>
+                      <span v-else class="shrink-0 text-sm text-emerald-600 dark:text-emerald-400">
+                        {{ t('userSubscriptions.unlimited') }}
+                      </span>
+                    </div>
+                    <div v-if="row.limit !== null" class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                      <div
+                        class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+                        :class="getProgressBarClass(row.used, row.limit)"
+                        :style="{ width: getProgressWidth(row.used, row.limit) }"
+                      ></div>
+                    </div>
+                    <p v-if="row.resetText" class="text-xs text-gray-500 dark:text-dark-400">{{ row.resetText }}</p>
+                  </div>
+                </div>
               </div>
-              <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                <div
-                  class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                  :class="
-                    getProgressBarClass(
-                      subscription.weekly_usage_usd,
-                      subscription.group.weekly_limit_usd
-                    )
-                  "
-                  :style="{
-                    width: getProgressWidth(
-                      subscription.weekly_usage_usd,
-                      subscription.group.weekly_limit_usd
-                    )
-                  }"
-                ></div>
-              </div>
-              <p
-                v-if="subscription.weekly_window_start"
-                class="text-xs text-gray-500 dark:text-dark-400"
-              >
-                {{
-                  t('userSubscriptions.resetIn', {
-                    time: formatResetTime(subscription.weekly_window_start, 168)
-                  })
-                }}
-              </p>
-            </div>
-
-            <!-- Monthly Usage -->
-            <div v-if="subscription.group?.monthly_limit_usd" class="space-y-2">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('userSubscriptions.monthly') }}
-                </span>
-                <span class="text-sm text-gray-500 dark:text-dark-400">
-                  ${{ (subscription.monthly_usage_usd || 0).toFixed(2) }} / ${{
-                    subscription.group.monthly_limit_usd.toFixed(2)
-                  }}
-                </span>
-              </div>
-              <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                <div
-                  class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                  :class="
-                    getProgressBarClass(
-                      subscription.monthly_usage_usd,
-                      subscription.group.monthly_limit_usd
-                    )
-                  "
-                  :style="{
-                    width: getProgressWidth(
-                      subscription.monthly_usage_usd,
-                      subscription.group.monthly_limit_usd
-                    )
-                  }"
-                ></div>
-              </div>
-              <p
-                v-if="subscription.monthly_window_start"
-                class="text-xs text-gray-500 dark:text-dark-400"
-              >
-                {{
-                  t('userSubscriptions.resetIn', {
-                    time: formatResetTime(subscription.monthly_window_start, 720)
-                  })
-                }}
-              </p>
             </div>
 
             <!-- No limits configured - Unlimited badge -->
             <div
-              v-if="
-                !subscription.group?.daily_limit_usd &&
-                !subscription.group?.weekly_limit_usd &&
-                !subscription.group?.monthly_limit_usd
-              "
+              v-if="getQuotaSections(subscription).length === 0"
               class="flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 py-6 dark:from-emerald-900/20 dark:to-teal-900/20"
             >
               <div class="flex items-center gap-3">
@@ -289,6 +206,190 @@ function subscriptionHasPeakRate(subscription: UserSubscription): boolean {
 
 function subscriptionPeakRateLabel(subscription: UserSubscription): string {
   return formatPeakRateWindow(subscription.group, serverTimezoneLabel(appStore.cachedPublicSettings?.server_utc_offset))
+}
+
+function getSubscriptionName(subscription: UserSubscription): string {
+  return subscription.plan_name || subscription.group?.name || `Group #${subscription.group_id}`
+}
+
+function getSubscriptionGroupNames(subscription: UserSubscription): string[] {
+  const groupIDs = subscription.group_ids?.length ? subscription.group_ids : [subscription.group_id]
+  return groupIDs.map((groupID, index) => subscription.group_names?.[index] || `Group #${groupID}`)
+}
+
+type QuotaPeriod = 'daily' | 'weekly' | 'monthly'
+
+interface SubscriptionQuotaRow {
+  key: string
+  label: string
+  used: number
+  limit: number | null
+  resetText: string | null
+}
+
+interface SubscriptionQuotaSection {
+  key: string
+  label: string
+  rows: SubscriptionQuotaRow[]
+}
+
+const quotaPeriodConfig: Record<QuotaPeriod, {
+  planLimitKey: 'plan_daily_limit_usd' | 'plan_weekly_limit_usd' | 'plan_monthly_limit_usd'
+  groupLimitKey: 'daily_limit_usd' | 'weekly_limit_usd' | 'monthly_limit_usd'
+  usageKey: 'daily_usage_usd' | 'weekly_usage_usd' | 'monthly_usage_usd'
+}> = {
+  daily: {
+    planLimitKey: 'plan_daily_limit_usd',
+    groupLimitKey: 'daily_limit_usd',
+    usageKey: 'daily_usage_usd',
+  },
+  weekly: {
+    planLimitKey: 'plan_weekly_limit_usd',
+    groupLimitKey: 'weekly_limit_usd',
+    usageKey: 'weekly_usage_usd',
+  },
+  monthly: {
+    planLimitKey: 'plan_monthly_limit_usd',
+    groupLimitKey: 'monthly_limit_usd',
+    usageKey: 'monthly_usage_usd',
+  },
+}
+
+function isPositiveLimit(value: number | null | undefined): value is number {
+  return typeof value === 'number' && value > 0
+}
+
+function hasPlanLimits(subscription: UserSubscription): boolean {
+  return (
+    isPositiveLimit(subscription.plan_daily_limit_usd) ||
+    isPositiveLimit(subscription.plan_weekly_limit_usd) ||
+    isPositiveLimit(subscription.plan_monthly_limit_usd)
+  )
+}
+
+function getQuotaSections(subscription: UserSubscription): SubscriptionQuotaSection[] {
+  const periods = Object.keys(quotaPeriodConfig) as QuotaPeriod[]
+  const planRows: SubscriptionQuotaRow[] = []
+  const groupLimits = subscription.group_limits || []
+  const groupSections = new Map<number, SubscriptionQuotaSection>()
+
+  // A single configured package window switches the whole subscription to
+  // package mode. Unconfigured package windows are unlimited; group limits
+  // must not reappear as a per-window fallback in the same subscription.
+  if (hasPlanLimits(subscription)) {
+    for (const period of periods) {
+      const config = quotaPeriodConfig[period]
+      const planLimit = subscription[config.planLimitKey]
+      planRows.push({
+        key: `plan-${period}`,
+        label: t(`userSubscriptions.${period}`),
+        used: subscription[config.usageKey] || 0,
+        limit: isPositiveLimit(planLimit) ? planLimit : null,
+        resetText: getQuotaResetText(subscription, period),
+      })
+    }
+    return [{
+      key: 'plan',
+      label: t('userSubscriptions.planQuota'),
+      rows: planRows,
+    }]
+  }
+
+  for (const period of periods) {
+    const config = quotaPeriodConfig[period]
+    if (groupLimits.length === 0) {
+      const fallbackLimit = subscription[config.groupLimitKey]
+      if (isPositiveLimit(fallbackLimit)) {
+        const groupID = subscription.group_id
+        const section = getOrCreateQuotaSection(
+          groupSections,
+          groupID,
+          subscription.group?.name || `Group #${groupID}`
+        )
+        section.rows.push({
+          key: `${period}-${groupID}`,
+          label: t(`userSubscriptions.${period}`),
+          used: getGroupUsage(subscription, groupID, period),
+          limit: fallbackLimit,
+          resetText: getQuotaResetText(subscription, period, groupID),
+        })
+      }
+      continue
+    }
+
+    // A period is shown for every group when at least one group has a limit
+    // for that period. This keeps unlimited groups visible without mixing
+    // their rows into another group's section.
+    const hasGroupLimit = groupLimits.some((groupLimit) =>
+      isPositiveLimit(groupLimit[config.groupLimitKey])
+    )
+    if (!hasGroupLimit) continue
+
+    for (const groupLimit of groupLimits) {
+      const section = getOrCreateQuotaSection(
+        groupSections,
+        groupLimit.group_id,
+        groupLimit.name || `Group #${groupLimit.group_id}`
+      )
+      const groupLimitValue = groupLimit[config.groupLimitKey]
+      section.rows.push({
+        key: `${period}-${groupLimit.group_id}`,
+        label: t(`userSubscriptions.${period}`),
+        used: getGroupUsage(subscription, groupLimit.group_id, period),
+        limit: isPositiveLimit(groupLimitValue) ? groupLimitValue : null,
+        resetText: getQuotaResetText(subscription, period, groupLimit.group_id),
+      })
+    }
+  }
+
+  const sections: SubscriptionQuotaSection[] = []
+  sections.push(...Array.from(groupSections.values()).filter((section) => section.rows.length > 0))
+  return sections
+}
+
+function getOrCreateQuotaSection(
+  sections: Map<number, SubscriptionQuotaSection>,
+  groupID: number,
+  label: string
+): SubscriptionQuotaSection {
+  const existing = sections.get(groupID)
+  if (existing) return existing
+
+  const section: SubscriptionQuotaSection = {
+    key: `group-${groupID}`,
+    label,
+    rows: [],
+  }
+  sections.set(groupID, section)
+  return section
+}
+
+function getGroupUsage(subscription: UserSubscription, groupID: number, period: QuotaPeriod): number {
+  const usage = subscription.group_usages?.find((item) => item.group_id === groupID)
+  if (!usage) return subscription[quotaPeriodConfig[period].usageKey] || 0
+  if (period === 'daily') return usage.daily_usage_usd || 0
+  if (period === 'weekly') return usage.weekly_usage_usd || 0
+  return usage.monthly_usage_usd || 0
+}
+
+function getGroupWindowStart(subscription: UserSubscription, groupID: number, period: QuotaPeriod): string | null {
+  const usage = subscription.group_usages?.find((item) => item.group_id === groupID)
+  if (!usage) return period === 'daily' ? subscription.daily_window_start : period === 'weekly' ? subscription.weekly_window_start : subscription.monthly_window_start
+  return period === 'daily' ? usage.daily_window_start || null : period === 'weekly' ? usage.weekly_window_start || null : usage.monthly_window_start || null
+}
+
+function getQuotaResetText(subscription: UserSubscription, period: QuotaPeriod, groupID?: number): string | null {
+  if (period === 'daily') {
+    if (groupID === undefined) return subscription.daily_window_start ? formatDailyUsageWindow(subscription) : null
+    const start = getGroupWindowStart(subscription, groupID, period)
+    return start ? formatResetTime(start, 24) : null
+  }
+  const windowStart = groupID === undefined
+    ? (period === 'weekly' ? subscription.weekly_window_start : subscription.monthly_window_start)
+    : getGroupWindowStart(subscription, groupID, period)
+  if (!windowStart) return null
+  const windowHours = period === 'weekly' ? 168 : 720
+  return t('userSubscriptions.resetIn', { time: formatResetTime(windowStart, windowHours) })
 }
 
 async function loadSubscriptions() {

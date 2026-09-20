@@ -178,7 +178,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 			return err
 		}
 	} else if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
-		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
+		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionGroupID, cmd.SubscriptionCost); err != nil {
 			return err
 		}
 	}
@@ -254,7 +254,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	return nil
 }
 
-func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {
+func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, groupID *int64, costUSD float64) error {
 	const updateSQL = `
 		UPDATE user_subscriptions us
 		SET
@@ -277,7 +277,30 @@ func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscrip
 		return err
 	}
 	if affected > 0 {
-		return nil
+		if groupID == nil || *groupID <= 0 {
+			return nil
+		}
+		// Keep the per-group row in the same billing transaction as the package
+		// counter. If the migration was applied after a subscription was created,
+		// create the row with the package's current window anchors first.
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO user_subscription_group_usages(
+				subscription_id, group_id, daily_window_start, weekly_window_start, monthly_window_start
+			)
+			SELECT id, $2, daily_window_start, weekly_window_start, monthly_window_start
+			FROM user_subscriptions
+			WHERE id = $1
+			ON CONFLICT (subscription_id, group_id) DO NOTHING`, subscriptionID, *groupID); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `
+			UPDATE user_subscription_group_usages
+			SET daily_usage_usd = daily_usage_usd + $1,
+				weekly_usage_usd = weekly_usage_usd + $1,
+				monthly_usage_usd = monthly_usage_usd + $1,
+				updated_at = NOW()
+			WHERE subscription_id = $2 AND group_id = $3`, costUSD, subscriptionID, *groupID)
+		return err
 	}
 	return service.ErrSubscriptionNotFound
 }

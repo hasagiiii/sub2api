@@ -12,7 +12,7 @@ func groupWithLimits(daily, weekly, monthly *float64) *Group {
 	}
 }
 
-func TestResolveSubscriptionLimitsPrefersPlanPerWindow(t *testing.T) {
+func TestResolveSubscriptionLimitsUsesPlanModeForEveryWindow(t *testing.T) {
 	group := groupWithLimits(subscriptionPtrFloat(5), subscriptionPtrFloat(50), subscriptionPtrFloat(200))
 	plan := SubscriptionLimits{DailyLimitUSD: subscriptionPtrFloat(9)}
 
@@ -22,13 +22,12 @@ func TestResolveSubscriptionLimitsPrefersPlanPerWindow(t *testing.T) {
 	if resolved.DailyLimitUSD == nil || *resolved.DailyLimitUSD != 9 {
 		t.Fatalf("daily should come from the plan, got %v", resolved.DailyLimitUSD)
 	}
-	// 套餐没设周/月 -> 逐窗口回退到分组，而不是因为"套餐配过限额"就把分组原有
-	// 的另外两项保护一并丢掉
-	if resolved.WeeklyLimitUSD == nil || *resolved.WeeklyLimitUSD != 50 {
-		t.Fatalf("weekly should fall back to the group, got %v", resolved.WeeklyLimitUSD)
+	// 只要套餐配置了任一窗口，其他窗口也不再回退到分组，而是不限额。
+	if resolved.WeeklyLimitUSD != nil {
+		t.Fatalf("weekly should be unlimited in plan mode, got %v", *resolved.WeeklyLimitUSD)
 	}
-	if resolved.MonthlyLimitUSD == nil || *resolved.MonthlyLimitUSD != 200 {
-		t.Fatalf("monthly should fall back to the group, got %v", resolved.MonthlyLimitUSD)
+	if resolved.MonthlyLimitUSD != nil {
+		t.Fatalf("monthly should be unlimited in plan mode, got %v", *resolved.MonthlyLimitUSD)
 	}
 }
 
@@ -56,7 +55,7 @@ func TestResolveSubscriptionLimitsTreatsNonPositivePlanLimitAsUnset(t *testing.T
 	resolved := ResolveSubscriptionLimits(SubscriptionLimits{DailyLimitUSD: subscriptionPtrFloat(0)}, group)
 
 	if resolved.DailyLimitUSD == nil || *resolved.DailyLimitUSD != 5 {
-		t.Fatalf("a zero plan limit must fall back to the group, got %v", resolved.DailyLimitUSD)
+		t.Fatalf("a zero-only plan must use the group, got %v", resolved.DailyLimitUSD)
 	}
 }
 

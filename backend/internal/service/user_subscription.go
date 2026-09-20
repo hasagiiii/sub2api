@@ -8,6 +8,24 @@ import (
 
 const subscriptionDayDuration = 24 * time.Hour
 
+type SubscriptionGroupLimit struct {
+	GroupID         int64
+	Name            string
+	DailyLimitUSD   *float64
+	WeeklyLimitUSD  *float64
+	MonthlyLimitUSD *float64
+}
+
+type SubscriptionGroupUsage struct {
+	GroupID            int64
+	DailyWindowStart   *time.Time
+	WeeklyWindowStart  *time.Time
+	MonthlyWindowStart *time.Time
+	DailyUsageUSD      float64
+	WeeklyUsageUSD     float64
+	MonthlyUsageUSD    float64
+}
+
 type UserSubscription struct {
 	ID      int64
 	UserID  int64
@@ -17,11 +35,18 @@ type UserSubscription struct {
 	// PlanName 是来源套餐的展示名称；手动分配的订阅为空。
 	PlanName string
 	// GroupIDs 是这条订阅覆盖的全部分组（含 GroupID，且 GroupID 为首元素）。
-	// 这些分组【共享】本条订阅的同一份用量计数器与限额，这正是"买一份套餐拿
-	// 一份额度"的实现方式。空切片表示尚未加载，读取方应回退到 GroupID。
+	// 套餐级限额和套餐级累计由订阅行共享；套餐完全未配置限额时，各分组才按实际
+	// 分组使用 GroupUsages 独立校验。空切片表示尚未加载，读取方应回退到 GroupID。
 	GroupIDs []int64
-	// PlanLimits 是来源套餐的限额，加载订阅时实时读入。未设置的窗口在
-	// EffectiveLimits 里逐个回退到分组限额。
+	// GroupNames 与 GroupIDs 一一对应，用于向用户展示套餐覆盖的全部分组。
+	GroupNames []string
+	// GroupLimits 按 GroupIDs 顺序保存套餐内各分组的原始限额。
+	GroupLimits []SubscriptionGroupLimit
+	// GroupUsages 按分组保存独立用量。套餐模式当前使用订阅行计数器，无套餐限额模式
+	// 使用这里的分组计数器；两层数据始终同时累计。
+	GroupUsages map[int64]SubscriptionGroupUsage
+	// PlanLimits 是来源套餐的限额，加载订阅时实时读入。只要任一窗口有套餐限额，
+	// EffectiveLimits 对其他窗口返回不限额；只有完全未配置时才使用分组限额。
 	PlanLimits SubscriptionLimits
 
 	StartsAt  time.Time
@@ -215,15 +240,19 @@ func (s *UserSubscription) MonthlyResetTime() *time.Time {
 	return &t
 }
 
-// CheckDailyLimit 等三个方法判定的是【这条订阅】的额度池，而不是某个分组各自
-// 的额度：订阅覆盖的所有分组共用 s.DailyUsageUSD 这一个计数器。group 参数仍然
-// 保留，因为套餐未设置的窗口要回退到分组自身的限额。
+// CheckDailyLimit 等方法按整条订阅的限额模式选择计数器：套餐配置了任一窗口限额
+// 时，所有窗口都使用订阅级累计值；套餐完全没有限额时，才使用本次实际路由分组
+// 的独立累计值。
 func (s *UserSubscription) CheckDailyLimit(group *Group, additionalCost float64) bool {
 	limits := s.EffectiveLimits(group)
 	if !limits.HasDailyLimit() {
 		return true
 	}
-	return s.DailyUsageUSD+additionalCost <= *limits.DailyLimitUSD
+	usage := s.DailyUsageUSD
+	if !s.UsesPlanLimits() {
+		usage = s.GroupUsage(group).DailyUsageUSD
+	}
+	return usage+additionalCost <= *limits.DailyLimitUSD
 }
 
 func (s *UserSubscription) CheckWeeklyLimit(group *Group, additionalCost float64) bool {
@@ -231,7 +260,11 @@ func (s *UserSubscription) CheckWeeklyLimit(group *Group, additionalCost float64
 	if !limits.HasWeeklyLimit() {
 		return true
 	}
-	return s.WeeklyUsageUSD+additionalCost <= *limits.WeeklyLimitUSD
+	usage := s.WeeklyUsageUSD
+	if !s.UsesPlanLimits() {
+		usage = s.GroupUsage(group).WeeklyUsageUSD
+	}
+	return usage+additionalCost <= *limits.WeeklyLimitUSD
 }
 
 func (s *UserSubscription) CheckMonthlyLimit(group *Group, additionalCost float64) bool {
@@ -239,7 +272,65 @@ func (s *UserSubscription) CheckMonthlyLimit(group *Group, additionalCost float6
 	if !limits.HasMonthlyLimit() {
 		return true
 	}
-	return s.MonthlyUsageUSD+additionalCost <= *limits.MonthlyLimitUSD
+	usage := s.MonthlyUsageUSD
+	if !s.UsesPlanLimits() {
+		usage = s.GroupUsage(group).MonthlyUsageUSD
+	}
+	return usage+additionalCost <= *limits.MonthlyLimitUSD
+}
+
+// UsesIndependentGroupUsage is true for subscriptions whose package has no
+// package-level limit. Such a package still records both package and group
+// usage, but group limits are enforced against the per-group counters.
+func (s *UserSubscription) UsesIndependentGroupUsage() bool {
+	return s != nil && !s.UsesPlanLimits()
+}
+
+// UsesPlanLimits reports whether any positive package limit is configured. The
+// result is intentionally subscription-wide: configuring one window switches
+// all limit checks to package counters, while other package windows remain
+// unlimited until explicitly configured.
+func (s *UserSubscription) UsesPlanLimits() bool {
+	return s != nil && !s.PlanLimits.IsZero()
+}
+
+func (s *UserSubscription) UsesGroupDailyUsage() bool {
+	return s != nil && s.GroupUsages != nil && s.UsesIndependentGroupUsage()
+}
+
+func (s *UserSubscription) UsesGroupWeeklyUsage() bool {
+	return s != nil && s.GroupUsages != nil && s.UsesIndependentGroupUsage()
+}
+
+func (s *UserSubscription) UsesGroupMonthlyUsage() bool {
+	return s != nil && s.GroupUsages != nil && s.UsesIndependentGroupUsage()
+}
+
+func (s *UserSubscription) GroupUsage(group *Group) SubscriptionGroupUsage {
+	if s == nil {
+		return SubscriptionGroupUsage{}
+	}
+	groupID := s.GroupID
+	if group != nil && group.ID > 0 {
+		groupID = group.ID
+	}
+	if usage, ok := s.GroupUsages[groupID]; ok {
+		return usage
+	}
+	return SubscriptionGroupUsage{
+		GroupID:            groupID,
+		DailyWindowStart:   s.DailyWindowStart,
+		WeeklyWindowStart:  s.WeeklyWindowStart,
+		MonthlyWindowStart: s.MonthlyWindowStart,
+		DailyUsageUSD:      s.DailyUsageUSD,
+		WeeklyUsageUSD:     s.WeeklyUsageUSD,
+		MonthlyUsageUSD:    s.MonthlyUsageUSD,
+	}
+}
+
+func (s *UserSubscription) GroupWindowActivated(group *Group) bool {
+	usage := s.GroupUsage(group)
+	return usage.DailyWindowStart != nil || usage.WeeklyWindowStart != nil || usage.MonthlyWindowStart != nil
 }
 
 // CoveredGroupIDs 返回这条订阅覆盖的全部分组，主分组在首位。

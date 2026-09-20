@@ -15,10 +15,12 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 func TestAPIKeyAuthRejectsOversizedCredentialsBeforeLookup(t *testing.T) {
@@ -1592,6 +1594,147 @@ func TestPrepareAPIKeyRoutingStateSubscriptionToMetered(t *testing.T) {
 	require.NotNil(t, state)
 	require.Equal(t, fallback.ID, *key.GroupID)
 	require.Zero(t, state.SubscriptionRef().ID)
+}
+
+func TestPrepareAPIKeyRoutingStateUsesPinnedSubscriptionForCoveredGroup(t *testing.T) {
+	now := time.Now()
+	group := &service.Group{
+		ID:               11,
+		Status:           service.StatusActive,
+		Platform:         service.PlatformAnthropic,
+		SubscriptionType: service.SubscriptionTypeSubscription,
+		Hydrated:         true,
+	}
+	primaryGroup := *group
+	primaryGroup.ID = 10
+	subscriptionID := int64(77)
+	subscription := &service.UserSubscription{
+		ID:                 subscriptionID,
+		UserID:             7,
+		GroupID:            10,
+		GroupIDs:           []int64{10, 11},
+		Status:             service.SubscriptionStatusActive,
+		ExpiresAt:          now.Add(time.Hour),
+		DailyWindowStart:   &now,
+		WeeklyWindowStart:  &now,
+		MonthlyWindowStart: &now,
+	}
+	subscriptionRepo := &stubUserSubscriptionRepo{
+		getByID: func(context.Context, int64) (*service.UserSubscription, error) {
+			clone := *subscription
+			return &clone, nil
+		},
+	}
+	key := &service.APIKey{
+		UserID:             subscription.UserID,
+		GroupID:            &group.ID,
+		Group:              group,
+		UserSubscriptionID: &subscriptionID,
+	}
+	keyService := service.NewAPIKeyService(nil, nil, &fallbackMiddlewareGroupRepo{groups: map[int64]*service.Group{
+		primaryGroup.ID: &primaryGroup,
+		group.ID:        group,
+	}}, subscriptionRepo, nil, nil, &config.Config{})
+	subscriptionService := service.NewSubscriptionService(nil, subscriptionRepo, nil, nil, &config.Config{})
+	t.Cleanup(subscriptionService.Stop)
+
+	state, err := prepareAPIKeyRoutingState(context.Background(), keyService, subscriptionService, key, false)
+
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	require.Equal(t, subscriptionID, state.EffectiveSubscription().ID)
+	require.Equal(t, group.ID, *key.GroupID)
+
+	legacyKey := &service.APIKey{UserID: subscription.UserID, UserSubscriptionID: &subscriptionID}
+	legacyState, err := prepareAPIKeyRoutingState(context.Background(), keyService, subscriptionService, legacyKey, false)
+	require.NoError(t, err)
+	require.NotNil(t, legacyState)
+	require.Equal(t, primaryGroup.ID, *legacyKey.GroupID)
+}
+
+func TestPrepareAPIKeyRoutingStatePreservesSubscriptionLimitError(t *testing.T) {
+	sink := initMiddlewareTestLogger(t)
+	limit := 1.0
+	group := &service.Group{
+		ID:               11,
+		Status:           service.StatusActive,
+		Platform:         service.PlatformAnthropic,
+		SubscriptionType: service.SubscriptionTypeSubscription,
+		DailyLimitUSD:    &limit,
+	}
+	now := time.Now()
+	subscriptionID := int64(77)
+	subscription := &service.UserSubscription{
+		ID:                 subscriptionID,
+		UserID:             7,
+		GroupID:            group.ID,
+		GroupIDs:           []int64{group.ID},
+		Status:             service.SubscriptionStatusActive,
+		ExpiresAt:          now.Add(time.Hour),
+		DailyWindowStart:   &now,
+		WeeklyWindowStart:  &now,
+		MonthlyWindowStart: &now,
+		DailyUsageUSD:      limit + 0.1,
+	}
+	key := &service.APIKey{
+		UserID:             subscription.UserID,
+		GroupID:            &group.ID,
+		Group:              group,
+		UserSubscriptionID: &subscriptionID,
+	}
+	subscriptionRepo := &stubUserSubscriptionRepo{
+		getByID: func(context.Context, int64) (*service.UserSubscription, error) {
+			clone := *subscription
+			return &clone, nil
+		},
+	}
+	keyService := service.NewAPIKeyService(nil, nil, &fallbackMiddlewareGroupRepo{groups: map[int64]*service.Group{group.ID: group}}, subscriptionRepo, nil, nil, &config.Config{})
+	subscriptionService := service.NewSubscriptionService(nil, subscriptionRepo, nil, nil, &config.Config{})
+	t.Cleanup(subscriptionService.Stop)
+
+	ctx := logger.IntoContext(context.Background(), logger.With(zap.String("request_id", "req-quota-429")))
+	_, err := prepareAPIKeyRoutingState(ctx, keyService, subscriptionService, key, false)
+
+	require.ErrorIs(t, err, service.ErrDailyLimitExceeded)
+	var rejection *logger.LogEvent
+	for _, event := range sink.list() {
+		if event.Message == "api_key.routing_precheck_rejected" {
+			rejection = event
+			break
+		}
+	}
+	require.NotNil(t, rejection)
+	require.Equal(t, "req-quota-429", rejection.Fields["request_id"])
+	require.Equal(t, "USAGE_LIMIT_EXCEEDED", rejection.Fields["reason_code"])
+	require.Equal(t, int64(http.StatusTooManyRequests), rejection.Fields["response_status"])
+	require.Equal(t, subscriptionID, rejection.Fields["subscription_id"])
+	require.Equal(t, group.ID, rejection.Fields["group_id"])
+	require.Equal(t, subscription.DailyUsageUSD, rejection.Fields["daily_usage_usd"])
+	require.Equal(t, limit, rejection.Fields["daily_limit_usd"])
+}
+
+func TestAPIKeyRoutingErrorResponseMapsSubscriptionFailures(t *testing.T) {
+	tests := []struct {
+		name    string
+		err     error
+		status  int
+		code    string
+		message string
+	}{
+		{name: "daily limit", err: service.ErrDailyLimitExceeded, status: http.StatusTooManyRequests, code: "USAGE_LIMIT_EXCEEDED", message: service.ErrDailyLimitExceeded.Error()},
+		{name: "expired", err: service.ErrSubscriptionExpired, status: http.StatusForbidden, code: "SUBSCRIPTION_INVALID", message: service.ErrSubscriptionExpired.Error()},
+		{name: "missing", err: service.ErrSubscriptionNotFound, status: http.StatusForbidden, code: "SUBSCRIPTION_NOT_FOUND", message: service.ErrSubscriptionNotFound.Error()},
+		{name: "group unavailable", err: service.ErrGroupNotFound, status: http.StatusForbidden, code: "NO_AVAILABLE_GROUP", message: "No available API key group"},
+		{name: "store unavailable", err: errors.New("database unavailable"), status: http.StatusInternalServerError, code: "INTERNAL_ERROR", message: "Failed to resolve API key group"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			status, code, message := apiKeyRoutingErrorResponse(tc.err)
+			require.Equal(t, tc.status, status)
+			require.Equal(t, tc.code, code)
+			require.Equal(t, tc.message, message)
+		})
+	}
 }
 
 func TestPrepareAPIKeyRoutingStateStopsOnSubscriptionStoreError(t *testing.T) {

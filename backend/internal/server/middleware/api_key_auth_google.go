@@ -123,7 +123,8 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			cfg.RunMode == config.RunModeSimple,
 		)
 		if routingErr != nil {
-			abortWithGoogleError(c, 403, "No available API key group")
+			status, _, message := apiKeyRoutingErrorResponse(routingErr)
+			abortWithGoogleError(c, status, message)
 			return
 		}
 		if routingState != nil {
@@ -242,7 +243,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 
 			needsMaintenance, err := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)
 			if needsMaintenance {
-				refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenance(c.Request.Context(), subscription)
+				refreshed, maintenanceErr := subscriptionService.EnsureWindowMaintenanceForGroup(c.Request.Context(), subscription, apiKey.Group.ID)
 				if maintenanceErr != nil {
 					abortWithGoogleError(c, 500, "Failed to maintain subscription usage windows")
 					return

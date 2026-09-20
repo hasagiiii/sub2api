@@ -807,11 +807,22 @@ type UserSubscription struct {
 	UserID int64 `json:"user_id"`
 	// GroupID 是主分组（覆盖分组集合的首元素），供徽标配色等需要单一代表分组的展示使用。
 	GroupID int64 `json:"group_id"`
-	// PlanID 非空表示这条订阅来自某个套餐（购买或管理员按套餐分配），其限额取自
-	// 该套餐并由 GroupIDs 里的全部分组共享；为空表示按分组手动分配，按分组限额走。
+	// PlanID 非空表示这条订阅来自某个套餐（购买或管理员按套餐分配），套餐级
+	// 限额和累计由 GroupIDs 里的全部分组共享；未配置套餐窗口时展示分组独立用量。
 	PlanID *int64 `json:"plan_id,omitempty"`
-	// GroupIDs 是这条订阅覆盖的全部分组，它们共享同一份额度池。
+	// PlanName 是来源套餐的展示名称；手动分配的订阅为空。
+	PlanName            string   `json:"plan_name,omitempty"`
+	PlanDailyLimitUSD   *float64 `json:"plan_daily_limit_usd,omitempty"`
+	PlanWeeklyLimitUSD  *float64 `json:"plan_weekly_limit_usd,omitempty"`
+	PlanMonthlyLimitUSD *float64 `json:"plan_monthly_limit_usd,omitempty"`
+	// GroupIDs 是这条订阅覆盖的全部分组；套餐级额度池共享，分组级回退窗口独立。
 	GroupIDs []int64 `json:"group_ids,omitempty"`
+	// GroupNames 与 GroupIDs 一一对应，用于展示套餐覆盖的全部分组。
+	GroupNames []string `json:"group_names,omitempty"`
+	// GroupLimits 与 GroupIDs 一一对应，保存各分组自身的限额。
+	GroupLimits []UserSubscriptionGroupLimit `json:"group_limits,omitempty"`
+	// GroupUsages 保存每个覆盖分组的独立窗口用量；套餐级字段仍保存整条订阅的累计用量。
+	GroupUsages []UserSubscriptionGroupUsage `json:"group_usages,omitempty"`
 
 	StartsAt  time.Time `json:"starts_at"`
 	ExpiresAt time.Time `json:"expires_at"`
@@ -825,8 +836,8 @@ type UserSubscription struct {
 	WeeklyUsageUSD  float64 `json:"weekly_usage_usd"`
 	MonthlyUsageUSD float64 `json:"monthly_usage_usd"`
 
-	// 生效限额（套餐限额优先、未设的窗口回退分组限额）。展示用量进度时必须用它做
-	// 分母：套餐订阅的额度来自套餐，读主分组的限额会算出错误的进度。
+	// 生效限额：套餐只要配置任一窗口，其他套餐窗口为不限额；完全没有套餐限额时
+	// 才使用分组限额。展示用量进度时必须用它做分母。
 	DailyLimitUSD   *float64 `json:"daily_limit_usd,omitempty"`
 	WeeklyLimitUSD  *float64 `json:"weekly_limit_usd,omitempty"`
 	MonthlyLimitUSD *float64 `json:"monthly_limit_usd,omitempty"`
@@ -837,6 +848,24 @@ type UserSubscription struct {
 
 	User  *User  `json:"user,omitempty"`
 	Group *Group `json:"group,omitempty"`
+}
+
+type UserSubscriptionGroupLimit struct {
+	GroupID         int64    `json:"group_id"`
+	Name            string   `json:"name"`
+	DailyLimitUSD   *float64 `json:"daily_limit_usd,omitempty"`
+	WeeklyLimitUSD  *float64 `json:"weekly_limit_usd,omitempty"`
+	MonthlyLimitUSD *float64 `json:"monthly_limit_usd,omitempty"`
+}
+
+type UserSubscriptionGroupUsage struct {
+	GroupID            int64      `json:"group_id"`
+	DailyWindowStart   *time.Time `json:"daily_window_start,omitempty"`
+	WeeklyWindowStart  *time.Time `json:"weekly_window_start,omitempty"`
+	MonthlyWindowStart *time.Time `json:"monthly_window_start,omitempty"`
+	DailyUsageUSD      float64    `json:"daily_usage_usd"`
+	WeeklyUsageUSD     float64    `json:"weekly_usage_usd"`
+	MonthlyUsageUSD    float64    `json:"monthly_usage_usd"`
 }
 
 // AdminUserSubscription 是管理员接口使用的订阅 DTO（包含分配信息/备注等字段）。
