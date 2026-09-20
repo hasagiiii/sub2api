@@ -228,15 +228,28 @@ func (r *userSubscriptionRepository) GetManualByUserIDAndGroupID(ctx context.Con
 //
 // 绑定了订阅的 API Key 不走这里（它直接按订阅 ID 取池），因此这条路径只服务于
 // 传统的按分组绑定的 Key。
+// 覆盖关系表为空时回退到主分组，兼容迁移期的存量行以及绕过仓库直接写入的旧数据；
+// 一旦存在覆盖关系行，则以关联表为准。
 func (r *userSubscriptionRepository) findSubscriptionCoveringGroup(ctx context.Context, userID, groupID int64, activeOnly bool) (*service.UserSubscription, error) {
 	client := clientFromContext(ctx, r.client)
 
 	query := `
 		SELECT us.id
 		FROM user_subscriptions us
-		JOIN user_subscription_groups usg ON usg.subscription_id = us.id
+		LEFT JOIN user_subscription_groups usg
+		  ON usg.subscription_id = us.id AND usg.group_id = $2
 		WHERE us.user_id = $1
-		  AND usg.group_id = $2
+		  AND (
+			usg.subscription_id IS NOT NULL
+			OR (
+				us.group_id = $2
+				AND NOT EXISTS (
+					SELECT 1
+					FROM user_subscription_groups usg_any
+					WHERE usg_any.subscription_id = us.id
+				)
+			)
+		  )
 		  AND us.deleted_at IS NULL`
 	args := []any{userID, groupID}
 	if activeOnly {
