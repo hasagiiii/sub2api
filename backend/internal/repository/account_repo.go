@@ -702,11 +702,12 @@ func lockAndMergeAccountProbeExtra(
 
 	var currentExtra map[string]any
 	if len(currentExtraJSON) > 0 {
-		if err := json.Unmarshal(currentExtraJSON, &currentExtra); err != nil {
-			logger.LegacyPrintf("repository.account",
-				"[Account] current extra unmarshal failed, codex ticket preservation skipped: id=%d err=%v",
-				account.ID, err)
-			currentExtra = nil
+		// Legacy rows may contain a JSON array instead of the expected object.
+		// There are no keyed ticket entries to preserve in that shape, so treat it
+		// as an empty managed-extra map without emitting a misleading warning.
+		var decoded any
+		if err := json.Unmarshal(currentExtraJSON, &decoded); err == nil {
+			currentExtra, _ = decoded.(map[string]any)
 		}
 	}
 	extra := service.MergeOpenAICodexTicketExtra(copyJSONMap(normalizeJSONMap(account.Extra)), currentExtra)

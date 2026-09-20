@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"math"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -21,7 +22,8 @@ func TestBytedanceSettlementAdjustsDifferenceAtomically(t *testing.T) {
 			mock.ExpectBegin()
 			mock.ExpectQuery("SELECT state,billing_type,unit_price").WithArgs(int64(7)).WillReturnRows(sqlmock.NewRows([]string{"state", "billing_type", "unit_price"}).AddRow("result_ready", 0, 0.1))
 			if count != 16 {
-				mock.ExpectExec("UPDATE users SET balance").WithArgs(cost-held, int64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
+				expectedDelta := math.Round((cost-held)*1e8) / 1e8
+				mock.ExpectExec("UPDATE users SET balance").WithArgs(expectedDelta, int64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
 			}
 			mock.ExpectExec("UPDATE async_media_tasks").WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec("UPDATE bytedance_image_executions").WithArgs(int64(7), "settled", count, nil).WillReturnResult(sqlmock.NewResult(0, 1))
