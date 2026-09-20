@@ -70,6 +70,7 @@ type AccountHandler struct {
 	ollamaCloudUsage        *service.OllamaCloudUsageService
 	costCenter              *service.CostCenterService
 	billingService          *service.BillingService
+	codexTicketSettings     *service.SettingService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
@@ -90,6 +91,14 @@ func (h *AccountHandler) SetBillingService(billing *service.BillingService) {
 	h.billingService = billing
 	if h.accountTestService != nil {
 		h.accountTestService.SetBillingService(billing)
+	}
+}
+
+// SetCodexTicketSettings supplies the live ticket policy without mutating the
+// shared startup configuration.
+func (h *AccountHandler) SetCodexTicketSettings(settings *service.SettingService) {
+	if h != nil {
+		h.codexTicketSettings = settings
 	}
 }
 
@@ -366,6 +375,7 @@ const accountListGroupUngroupedQueryValue = "ungrouped"
 
 func (h *AccountHandler) accountResponseFromService(account *service.Account) *dto.Account {
 	out := dto.AccountFromService(account)
+	h.enrichCodexTicketStatus(account, out)
 	if h != nil && h.ollamaCloudUsage != nil && out != nil {
 		h.ollamaCloudUsage.EnrichState(out.OllamaCloudUsage)
 	}
@@ -377,10 +387,22 @@ func (h *AccountHandler) accountListResponseFromService(account *service.Account
 	if out != nil && account != nil {
 		out.Proxy = dto.ProxyFromService(account.Proxy)
 	}
+	h.enrichCodexTicketStatus(account, out)
 	if h != nil && h.ollamaCloudUsage != nil && out != nil {
 		h.ollamaCloudUsage.EnrichState(out.OllamaCloudUsage)
 	}
 	return out
+}
+
+func (h *AccountHandler) enrichCodexTicketStatus(account *service.Account, out *dto.Account) {
+	if h == nil || out == nil || account == nil || h.cfg == nil {
+		return
+	}
+	cfg := h.cfg.Gateway.OpenAICodexTicket
+	if h.codexTicketSettings != nil {
+		cfg.Enabled = h.codexTicketSettings.GetOpenAICodexTicketEnabled(context.Background(), cfg.Enabled)
+	}
+	out.CodexTurnTickets = service.OpenAICodexTicketStatuses(account, cfg, time.Now())
 }
 
 func (h *AccountHandler) isSimpleMode() bool {

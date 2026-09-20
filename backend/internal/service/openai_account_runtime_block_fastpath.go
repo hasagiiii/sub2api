@@ -546,15 +546,25 @@ func (s *OpenAIGatewayService) clearOpenAIAccountRuntimeBlockIfUnchanged(account
 	s.openaiAccountRuntimeBlockGeneration.Store(accountID, s.openaiAccountRuntimeBlockSequence.Add(1))
 }
 
-// isOpenAIAccountRequestRuntimeBlocked treats persisted cooldown fields on the
-// scheduling Account as source of truth. When TempUnschedulableUntil,
-// RateLimitResetAt, and OverloadUntil are all inactive, a stale local account
-// block is dropped with generation+deadline CAS. Model-scoped transient blocks
-// are left alone. This is fail-open if a DB write failed or the snapshot has
-// not caught up yet: empty cooldown fields drop the local account-level block.
-func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string) bool {
+// requireCompact should match the /responses/compact routing decision so ticket
+// gating uses the actual outbound model instead of the client model.
+//
+// The variadic form preserves compatibility with existing test/helpers that do
+// not participate in compact routing.
+func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Account, requestedModel string, requireCompactOpt ...bool) bool {
+	// isOpenAIAccountRequestRuntimeBlocked treats persisted cooldown fields on the
+	// scheduling Account as source of truth. When TempUnschedulableUntil,
+	// RateLimitResetAt, and OverloadUntil are all inactive, a stale local account
+	// block is dropped with generation+deadline CAS. Model-scoped transient blocks
+	// are left alone. This is fail-open if a DB write failed or the snapshot has
+	// not caught up yet: empty cooldown fields drop the local account-level block.
 	if s == nil {
 		return false
+	}
+	requireCompact := len(requireCompactOpt) > 0 && requireCompactOpt[0]
+	outboundModel := s.openAICodexTicketOutboundModel(account, requestedModel, requireCompact)
+	if s.openAICodexTicketBlocksAccount(account, outboundModel) {
+		return true
 	}
 	snapshot := s.peekOpenAIAccountRuntimeBlock(account)
 	if snapshot.blocked {
