@@ -1243,10 +1243,6 @@ func (s *TokenRefreshService) postRefreshStateSync(ctx context.Context, account 
 			slog.Debug("token_refresh.scheduler_cache_synced", "account_id", account.ID)
 		}
 	}
-	// OpenAI OAuth: 刷新成功后，检查是否已设置 privacy_mode，未设置则尝试关闭训练数据共享
-	s.ensureOpenAIPrivacy(ctx, account)
-	// Antigravity OAuth: 刷新成功后，检查是否已设置 privacy_mode，未设置则调用 setUserSettings
-	s.ensureAntigravityPrivacy(ctx, account)
 	// Kiro OAuth: 刷新成功后，提前解析并回填 profileArn（Enterprise/IdC 账号需要）
 	s.ensureKiroProfileArn(ctx, account)
 }
