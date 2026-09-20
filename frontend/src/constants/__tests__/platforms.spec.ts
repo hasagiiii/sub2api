@@ -14,6 +14,8 @@ const concretePlatforms = [
   'leonardo',
   'kiro',
   'higgsfield',
+  'minimax',
+  'opencode_go',
   'bytedance'
 ]
 

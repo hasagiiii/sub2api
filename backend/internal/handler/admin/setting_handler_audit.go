@@ -585,6 +585,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.VideoFeatureEnabled != after.VideoFeatureEnabled {
 		changed = append(changed, "video_feature_enabled")
 	}
+	if before.SubscriptionEnabled != after.SubscriptionEnabled {
+		changed = append(changed, "subscription_enabled")
+	}
 	if before.ModelPlazaEnabled != after.ModelPlazaEnabled {
 		changed = append(changed, "model_plaza_enabled")
 	}

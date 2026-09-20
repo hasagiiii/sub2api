@@ -157,15 +157,15 @@ export default {
         endTime: 'End Time'
       },
       openaiTokenStats: {
-        title: 'OpenAI Token Request Stats',
+        title: 'Token Request Stats',
         viewModeTopN: 'TopN',
         viewModePagination: 'Pagination',
         prevPage: 'Previous',
         nextPage: 'Next',
         pageInfo: 'Page {page}/{total}',
         totalModels: 'Total models: {total}',
-        failedToLoad: 'Failed to load OpenAI token stats',
-        empty: 'No OpenAI token stats for the current filters',
+        failedToLoad: 'Failed to load token request stats',
+        empty: 'No token request stats for the current filters',
         table: {
           model: 'Model',
           requestCount: 'Requests',

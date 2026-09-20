@@ -63,6 +63,8 @@ export default {
   purchase: {
     title: 'Recharge / Subscription',
     description: 'Recharge balance or purchase subscription via the embedded page',
+    rechargeDescription: 'Recharge balance via the embedded page',
+    subscriptionDescription: 'Purchase subscription via the embedded page',
     openInNewTab: 'Open in new tab',
     notEnabledTitle: 'Feature not enabled',
     notEnabledDesc: 'The administrator has not enabled the recharge/subscription entry. Please contact admin.',
@@ -403,6 +405,7 @@ export default {
     organizationSubscriptionNotice: 'You are provisioning a subscription for the company. The current owner pays, and the subscription is provisioned onto the company subject.',
     noPlans: 'No subscription plans available',
     notAvailable: 'Top-up is currently unavailable',
+    billingUnavailable: 'Neither top-up nor subscriptions are currently available. Please contact the administrator.',
     confirmSubscription: 'Confirm Subscription',
     confirmCancel: 'Are you sure you want to cancel this order?',
     amountTooLow: 'Minimum amount is {min}',

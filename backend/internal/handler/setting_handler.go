@@ -101,6 +101,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		CompanyIAMEnabled:                   settings.CompanyIAMEnabled,
 		CompanyDocumentationURL:             settings.CompanyDocumentationURL,
 		PaymentEnabled:                      settings.PaymentEnabled,
+		PaymentBalanceDisabled:              settings.PaymentBalanceDisabled,
 		Version:                             h.version,
 		ServerTimezone:                      timezone.Name(),
 		ServerUTCOffset:                     timezone.UTCOffset(),
@@ -118,6 +119,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 		VideoFeatureEnabled:      settings.VideoFeatureEnabled,
+		SubscriptionEnabled:      settings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,

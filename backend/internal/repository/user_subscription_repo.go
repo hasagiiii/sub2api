@@ -98,27 +98,6 @@ func replaceSubscriptionCoveredGroups(ctx context.Context, client *dbent.Client,
 	return nil
 }
 
-// loadSubscriptionCoveredGroups 读出一条订阅覆盖的分组，按 sort_order 排列。
-func loadSubscriptionCoveredGroups(ctx context.Context, client *dbent.Client, subscriptionID int64) ([]int64, error) {
-	rows, err := client.QueryContext(ctx,
-		`SELECT group_id FROM user_subscription_groups WHERE subscription_id = $1 ORDER BY sort_order, group_id`,
-		subscriptionID)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-
-	var out []int64
-	for rows.Next() {
-		var groupID int64
-		if err := rows.Scan(&groupID); err != nil {
-			return nil, err
-		}
-		out = append(out, groupID)
-	}
-	return out, rows.Err()
-}
-
 func (r *userSubscriptionRepository) GetByID(ctx context.Context, id int64) (*service.UserSubscription, error) {
 	client := clientFromContext(ctx, r.client)
 	m, err := client.UserSubscription.Query().

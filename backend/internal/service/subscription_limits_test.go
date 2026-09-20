@@ -2,6 +2,8 @@ package service
 
 import "testing"
 
+func subscriptionPtrFloat(v float64) *float64 { return &v }
+
 func groupWithLimits(daily, weekly, monthly *float64) *Group {
 	return &Group{
 		DailyLimitUSD:   daily,
@@ -11,8 +13,8 @@ func groupWithLimits(daily, weekly, monthly *float64) *Group {
 }
 
 func TestResolveSubscriptionLimitsPrefersPlanPerWindow(t *testing.T) {
-	group := groupWithLimits(ptrFloat(5), ptrFloat(50), ptrFloat(200))
-	plan := SubscriptionLimits{DailyLimitUSD: ptrFloat(9)}
+	group := groupWithLimits(subscriptionPtrFloat(5), subscriptionPtrFloat(50), subscriptionPtrFloat(200))
+	plan := SubscriptionLimits{DailyLimitUSD: subscriptionPtrFloat(9)}
 
 	resolved := ResolveSubscriptionLimits(plan, group)
 
@@ -32,7 +34,7 @@ func TestResolveSubscriptionLimitsPrefersPlanPerWindow(t *testing.T) {
 
 func TestResolveSubscriptionLimitsFallsBackEntirelyWhenPlanHasNone(t *testing.T) {
 	// 后台手动分配的订阅、以及未配限额的套餐，行为必须与改动前完全一致。
-	group := groupWithLimits(ptrFloat(5), nil, ptrFloat(200))
+	group := groupWithLimits(subscriptionPtrFloat(5), nil, subscriptionPtrFloat(200))
 
 	resolved := ResolveSubscriptionLimits(SubscriptionLimits{}, group)
 
@@ -49,9 +51,9 @@ func TestResolveSubscriptionLimitsFallsBackEntirelyWhenPlanHasNone(t *testing.T)
 
 func TestResolveSubscriptionLimitsTreatsNonPositivePlanLimitAsUnset(t *testing.T) {
 	// 与 Group.HasDailyLimit 一致：<=0 表示未限额，不能被当成"限额为 0 即禁用"。
-	group := groupWithLimits(ptrFloat(5), nil, nil)
+	group := groupWithLimits(subscriptionPtrFloat(5), nil, nil)
 
-	resolved := ResolveSubscriptionLimits(SubscriptionLimits{DailyLimitUSD: ptrFloat(0)}, group)
+	resolved := ResolveSubscriptionLimits(SubscriptionLimits{DailyLimitUSD: subscriptionPtrFloat(0)}, group)
 
 	if resolved.DailyLimitUSD == nil || *resolved.DailyLimitUSD != 5 {
 		t.Fatalf("a zero plan limit must fall back to the group, got %v", resolved.DailyLimitUSD)
@@ -61,10 +63,10 @@ func TestResolveSubscriptionLimitsTreatsNonPositivePlanLimitAsUnset(t *testing.T
 // 这是本次改动要解决的核心问题：一份套餐额度由多个分组共享，而不是每个分组各
 // 给一份。用量累加在订阅上，因此在任一分组消费都会推高同一个计数器。
 func TestSharedPlanQuotaIsNotMultipliedAcrossCoveredGroups(t *testing.T) {
-	planDaily := ptrFloat(10)
+	planDaily := subscriptionPtrFloat(10)
 	// 两个分组各自的日限额都比套餐高，若判定误用分组限额就会放行
-	groupA := groupWithLimits(ptrFloat(100), nil, nil)
-	groupB := groupWithLimits(ptrFloat(100), nil, nil)
+	groupA := groupWithLimits(subscriptionPtrFloat(100), nil, nil)
+	groupB := groupWithLimits(subscriptionPtrFloat(100), nil, nil)
 
 	sub := &UserSubscription{
 		ID:         7,

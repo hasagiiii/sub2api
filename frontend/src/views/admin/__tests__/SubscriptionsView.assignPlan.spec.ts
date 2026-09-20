@@ -4,12 +4,13 @@ import { defineComponent } from 'vue'
 
 import SubscriptionsView from '../SubscriptionsView.vue'
 
-const { listSubscriptions, getAllGroups, assignSubscription, getPlans, searchUsers, listAdminOrganizationSubscriptions, listOrganizations } = vi.hoisted(() => ({
+const { listSubscriptions, getAllGroups, assignSubscription, getPlans, searchUsers, listUsers, listAdminOrganizationSubscriptions, listOrganizations } = vi.hoisted(() => ({
   listSubscriptions: vi.fn(),
   getAllGroups: vi.fn(),
   assignSubscription: vi.fn(),
   getPlans: vi.fn(),
   searchUsers: vi.fn(),
+  listUsers: vi.fn(),
   listAdminOrganizationSubscriptions: vi.fn(),
   listOrganizations: vi.fn()
 }))
@@ -18,7 +19,8 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     subscriptions: { list: listSubscriptions, assign: assignSubscription },
     groups: { getAll: getAllGroups },
-    usage: { searchUsers }
+    usage: { searchUsers },
+    users: { list: listUsers }
   }
 }))
 
@@ -129,6 +131,7 @@ describe('admin subscription assignment by plan', () => {
     listAdminOrganizationSubscriptions.mockResolvedValue({ items: [], total: 0, pages: 0 })
     listOrganizations.mockResolvedValue({ items: [], total: 0 })
     searchUsers.mockResolvedValue([{ id: 42, email: 'reader@example.com', username: 'Reader' }])
+    listUsers.mockResolvedValue({ items: [{ id: 42, email: 'reader@example.com', username: 'Reader' }] })
     getAllGroups.mockResolvedValue([
       { id: 3, name: 'Alpha', platform: 'openai', status: 'active', subscription_type: 'subscription', rate_multiplier: 1 },
       { id: 4, name: 'Beta', platform: 'gemini', status: 'active', subscription_type: 'subscription', rate_multiplier: 1 }

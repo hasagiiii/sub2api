@@ -24,7 +24,8 @@ type CustomMenuItem struct {
 	// ShowRedDot 表示该菜单项是否需要显示未读红点提醒。true 时前端在标签旁渲染红点，
 	// 用户首次点击后按 (userId, itemId, custom_menu_version) 粒度做 dismiss 持久化；
 	// no-op 保存不会改变 custom_menu_version，因此不打扰已看过的用户。默认 false。
-	ShowRedDot bool `json:"show_red_dot,omitempty"`
+	ShowRedDot     bool `json:"show_red_dot,omitempty"`
+	HideOpenButton bool `json:"hide_open_button,omitempty"`
 }
 
 // CustomEndpoint represents an admin-configured API endpoint for quick copy.
@@ -357,6 +358,10 @@ type SystemSettings struct {
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 	VideoFeatureEnabled      bool `json:"video_feature_enabled"`
 
+	// Subscription feature switch: gates the whole user-facing subscription surface
+	// (sidebar entries, purchase-page subscription tab, header badge, /subscriptions route).
+	SubscriptionEnabled bool `json:"subscription_enabled"`
+
 	// Model Plaza feature (public group/model pricing showcase)
 	ModelPlazaEnabled       bool   `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth   bool   `json:"model_plaza_require_auth"`
@@ -497,6 +502,10 @@ type PublicSettings struct {
 	CompanyApplicationsEnabled          bool                     `json:"company_applications_enabled"`
 	CompanyIAMEnabled                   bool                     `json:"company_iam_enabled"`
 	CompanyDocumentationURL             string                   `json:"company_documentation_url"`
+	// PaymentBalanceDisabled mirrors the payment-config BALANCE_PAYMENT_DISABLED switch so the
+	// user shell can derive the site billing mode (recharge & subscription / recharge only /
+	// subscription only) before any authenticated checkout call.
+	PaymentBalanceDisabled bool `json:"payment_balance_disabled"`
 	// 服务器全局时区（IANA 名称与当前 UTC 偏移，如 "Asia/Shanghai" / "+08:00"）。
 	// 高峰时段等按服务器本地时间判定的窗口，前端展示时据此标注，避免用户按浏览器本地时间误读。
 	ServerTimezone              string  `json:"server_timezone"`
@@ -515,6 +524,8 @@ type PublicSettings struct {
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 	VideoFeatureEnabled      bool `json:"video_feature_enabled"`
+
+	SubscriptionEnabled bool `json:"subscription_enabled"`
 
 	ModelPlazaEnabled       bool `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth   bool `json:"model_plaza_require_auth"`

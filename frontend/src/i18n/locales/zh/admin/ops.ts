@@ -153,15 +153,15 @@ export default {
         custom: '自定义'
       },
       openaiTokenStats: {
-        title: 'OpenAI Token 请求统计',
+        title: 'Token 请求统计',
         viewModeTopN: 'TopN',
         viewModePagination: '分页',
         prevPage: '上一页',
         nextPage: '下一页',
         pageInfo: '第 {page}/{total} 页',
         totalModels: '模型总数：{total}',
-        failedToLoad: '加载 OpenAI Token 统计失败',
-        empty: '当前筛选条件下暂无 OpenAI Token 请求统计数据',
+        failedToLoad: '加载 Token 请求统计失败',
+        empty: '当前筛选条件下暂无 Token 请求统计数据',
         table: {
           model: '模型',
           requestCount: '请求数',

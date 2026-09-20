@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "check:i18n": "vitest run src/i18n/__tests__/localeKeyCompleteness.spec.ts",
+    "check:vue-sfc": "node tools/check_vue_sfc_syntax.mjs",
     "build": "pnpm run check:i18n && vue-tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
@@ -48,6 +49,7 @@
     "@typescript-eslint/parser": "^7.18.0",
     "@vitejs/plugin-vue": "^5.2.3",
     "@vitest/coverage-v8": "^2.1.9",
+    "@vue/compiler-sfc": "^3.5.34",
     "@vue/test-utils": "^2.4.6",
     "autoprefixer": "^10.4.16",
     "eslint": "^8.57.0",

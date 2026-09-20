@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -228,6 +229,10 @@ func (r *asyncMediaTaskRepository) RefundBytedance(ctx context.Context, id int64
 }
 
 func adjustBytedanceBalance(ctx context.Context, tx *sql.Tx, task *service.AsyncMediaTask, delta float64) error {
+	// User and organization balances are NUMERIC(20,8). Normalize the
+	// float64 difference before binding it so values such as 1.7-1.6 do not
+	// become 0.10000000000000009 at the database boundary.
+	delta = math.Round(delta*1e8) / 1e8
 	if delta == 0 {
 		return nil
 	}

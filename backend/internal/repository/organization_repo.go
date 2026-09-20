@@ -1376,7 +1376,6 @@ DO UPDATE SET
 WHERE organization_subscriptions.status='expired' OR organization_subscriptions.expires_at<=NOW()
 RETURNING id,starts_at,expires_at,status,assigned_at,created_at`
 
-
 // CreateOrganizationSubscription provisions a subscription plan (group) for the
 // caller's company. Only the active owner of an active organization may do
 // this. When validityDays is 0 the group's default validity is used.

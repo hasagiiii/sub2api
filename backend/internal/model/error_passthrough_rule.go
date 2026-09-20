@@ -51,6 +51,8 @@ const (
 	PlatformAtlasCloud  = domain.PlatformAtlasCloud
 	PlatformApiz        = domain.PlatformApiz
 	PlatformHiggsfield  = domain.PlatformHiggsfield
+	PlatformMiniMax     = domain.PlatformMiniMax
+	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
 )
 
 // AllPlatforms 返回所有支持的平台列表
@@ -71,6 +73,8 @@ func AllPlatforms() []string {
 		PlatformAtlasCloud,
 		PlatformApiz,
 		PlatformHiggsfield,
+		PlatformMiniMax,
+		PlatformOpenCodeGo,
 	}
 }
 

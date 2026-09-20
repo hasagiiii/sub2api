@@ -26,19 +26,19 @@ import (
 )
 
 var (
-	ErrAPIKeyNotFound        = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
-	ErrGroupNotAllowed       = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrAPIKeyNotFound  = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrGroupNotAllowed = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
 	// 指定扣费套餐时必须同时指定分组：没有分组就没有"该扣哪个池"的问题。
 	ErrGroupRequiredForSubscription = infraerrors.BadRequest("GROUP_REQUIRED_FOR_SUBSCRIPTION", "a group is required when pinning a subscription plan")
 	// 指定的套餐没有覆盖所选分组，这个选择在运行时不会生效。
 	ErrSubscriptionGroupMismatch = infraerrors.BadRequest("SUBSCRIPTION_GROUP_MISMATCH", "the selected plan does not cover the selected group")
-	ErrAPIKeyExists          = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
-	ErrAPIKeyTooShort        = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
-	ErrAPIKeyInvalidChars    = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
-	ErrAPIKeyRateLimited     = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
-	ErrAPIKeyAuthOverloaded  = infraerrors.ServiceUnavailable("API_KEY_AUTH_OVERLOADED", "api key authentication is temporarily overloaded")
-	ErrInvalidIPPattern      = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
-	ErrInvalidFallbackGroups = infraerrors.BadRequest("INVALID_FALLBACK_GROUPS", "invalid fallback group configuration")
+	ErrAPIKeyExists              = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
+	ErrAPIKeyTooShort            = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
+	ErrAPIKeyInvalidChars        = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
+	ErrAPIKeyRateLimited         = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
+	ErrAPIKeyAuthOverloaded      = infraerrors.ServiceUnavailable("API_KEY_AUTH_OVERLOADED", "api key authentication is temporarily overloaded")
+	ErrInvalidIPPattern          = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
+	ErrInvalidFallbackGroups     = infraerrors.BadRequest("INVALID_FALLBACK_GROUPS", "invalid fallback group configuration")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -226,7 +226,7 @@ type CreateAPIKeyRequest struct {
 	// to the given company subscription. The key's group is forced to the
 	// subscription's group and consumption is charged against the organization
 	// subscription instead of a personal subscription.
-	OrganizationSubscriptionID *int64   `json:"organization_subscription_id"`
+	OrganizationSubscriptionID *int64 `json:"organization_subscription_id"`
 	// UserSubscriptionID, when set, pins which of the owner's subscriptions this
 	// key charges. GroupID is still required and still decides routing; the pin
 	// must cover it.

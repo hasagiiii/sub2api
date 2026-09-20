@@ -81,11 +81,11 @@ type APIKey struct {
 	IPBlacklist          []string   `json:"ip_blacklist"`
 	LastUsedAt           *time.Time `json:"last_used_at"`
 	LastUsedIP           *string    `json:"last_used_ip"`
-	Quota                      float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
-	QuotaUsed                  float64    `json:"quota_used"` // Used quota amount in USD
-	ExpiresAt                  *time.Time `json:"expires_at"` // Expiration time (nil = never expires)
-	CreatedAt                  time.Time  `json:"created_at"`
-	UpdatedAt                  time.Time  `json:"updated_at"`
+	Quota                float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
+	QuotaUsed            float64    `json:"quota_used"` // Used quota amount in USD
+	ExpiresAt            *time.Time `json:"expires_at"` // Expiration time (nil = never expires)
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 	// CurrentConcurrency is the real-time active request count for this API key.
 	CurrentConcurrency int `json:"current_concurrency"`
 

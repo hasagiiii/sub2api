@@ -23,5 +23,7 @@ func TestAllPlatformsIncludesEveryConcretePlatform(t *testing.T) {
 		"apiz",
 		"higgsfield",
 		"bytedance",
+		"minimax",
+		"opencode_go",
 	}, AllPlatforms())
 }

@@ -34,6 +34,13 @@ const {
   deleteProvider,
   fetchPublicSettings,
   adminSettingsFetch,
+  adminRebuildDocIndex,
+  adminGetDocIndexStatus,
+  affiliateListUsers,
+  affiliateLookupUsers,
+  affiliateUpdateUserSettings,
+  affiliateClearUserSettings,
+  affiliateBatchSetRate,
   showError,
   showSuccess,
 } = vi.hoisted(() => ({
@@ -75,6 +82,25 @@ const {
   deleteProvider: vi.fn(),
   fetchPublicSettings: vi.fn(),
   adminSettingsFetch: vi.fn(),
+  adminRebuildDocIndex: vi.fn().mockResolvedValue({ accepted: true }),
+  adminGetDocIndexStatus: vi.fn().mockResolvedValue({
+    state: "idle",
+    started_at: "",
+    last_run_at: "",
+    duration_seconds: 0,
+    pages_visited: 0,
+    pages_cap_hit: false,
+    chunks_total: 0,
+    chunks_added: 0,
+    chunks_removed: 0,
+    chunks_failed_embed: 0,
+    errors: [],
+  }),
+  affiliateListUsers: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  affiliateLookupUsers: vi.fn().mockResolvedValue([]),
+  affiliateUpdateUserSettings: vi.fn().mockResolvedValue({ user_id: 1 }),
+  affiliateClearUserSettings: vi.fn().mockResolvedValue({ user_id: 1 }),
+  affiliateBatchSetRate: vi.fn().mockResolvedValue({ affected: 0 }),
   showError: vi.fn(),
   showSuccess: vi.fn(),
 }));
@@ -118,6 +144,22 @@ vi.mock("@/api", () => ({
     },
   },
 }));
+
+vi.mock("@/api/admin/supportFaq", () => ({
+  adminRebuildDocIndex,
+  adminGetDocIndexStatus,
+}));
+
+vi.mock("@/api/admin/affiliates", () => {
+  const affiliatesAPI = {
+    listUsers: affiliateListUsers,
+    lookupUsers: affiliateLookupUsers,
+    updateUserSettings: affiliateUpdateUserSettings,
+    clearUserSettings: affiliateClearUserSettings,
+    batchSetRate: affiliateBatchSetRate,
+  };
+  return { affiliatesAPI, default: affiliatesAPI };
+});
 
 vi.mock("@/stores", () => ({
   useAppStore: () => ({
@@ -562,6 +604,7 @@ function mountView() {
     global: {
       stubs: {
         AppLayout: AppLayoutStub,
+        "router-link": { template: "<a><slot /></a>" },
         Select: SelectStub,
         Toggle: ToggleStub,
         Icon: true,
@@ -745,6 +788,31 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("loads and saves the open button visibility for each custom menu", async () => {
+    const menuItems = [
+      { id: "docs", label: "Docs", url: "https://example.com/docs", icon_svg: "", action: "iframe", visibility: "user", sort_order: 0, show_red_dot: false },
+      { id: "help", label: "Help", url: "https://example.com/help", icon_svg: "", action: "iframe", visibility: "user", sort_order: 1, show_red_dot: false, hide_open_button: true },
+    ];
+    getSettings.mockResolvedValue({ ...baseSettingsResponse, custom_menu_items: menuItems });
+    const wrapper = mountView();
+    await flushPromises();
+
+    const toggles = wrapper.findAll<HTMLInputElement>('[data-testid="custom-menu-hide-open-button"]');
+    expect(toggles.map(toggle => toggle.element.checked)).toEqual([false, true]);
+    await toggles[0].setValue(true);
+    await toggles[1].setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      custom_menu_items: [
+        { ...menuItems[0], hide_open_button: true },
+        { ...menuItems[1], hide_open_button: false },
+      ],
+    }));
+    wrapper.unmount();
   });
 
   it("submits the compact home page toggle", async () => {
@@ -1377,6 +1445,7 @@ describe("admin SettingsView payment visible method controls", () => {
       global: {
         stubs: {
           AppLayout: AppLayoutStub,
+          "router-link": { template: "<a><slot /></a>" },
           Select: SelectStub,
           Toggle: ToggleStub,
           Icon: true,
@@ -1678,6 +1747,7 @@ describe("admin SettingsView payment visible method controls", () => {
       global: {
         stubs: {
           AppLayout: AppLayoutStub,
+          "router-link": { template: "<a><slot /></a>" },
           Select: SelectStub,
           Toggle: ToggleStub,
           Icon: true,

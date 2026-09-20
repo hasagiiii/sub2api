@@ -998,9 +998,10 @@ func (s *BatchImagePublicService) selectProviderAndAccountSingle(ctx context.Con
 		if err != nil {
 			return nil, nil, err
 		}
+		// 与普通账号调度一致：priority 数值越小越优先，同优先级按 ID 排序。
 		sort.SliceStable(accounts, func(i, j int) bool {
 			if accounts[i].Priority != accounts[j].Priority {
-				return accounts[i].Priority > accounts[j].Priority
+				return accounts[i].Priority < accounts[j].Priority
 			}
 			return accounts[i].ID < accounts[j].ID
 		})

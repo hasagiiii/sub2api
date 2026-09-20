@@ -8,22 +8,22 @@ import (
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
-	Version                    int                      `json:"version"`
-	APIKeyID                   int64                    `json:"api_key_id"`
-	UserID                     int64                    `json:"user_id"`
-	GroupID                    *int64                   `json:"group_id,omitempty"`
-	FallbackGroupIDs           []int64                  `json:"fallback_group_ids,omitempty"`
-	OrganizationSubscriptionID *int64                   `json:"organization_subscription_id,omitempty"`
+	Version                    int     `json:"version"`
+	APIKeyID                   int64   `json:"api_key_id"`
+	UserID                     int64   `json:"user_id"`
+	GroupID                    *int64  `json:"group_id,omitempty"`
+	FallbackGroupIDs           []int64 `json:"fallback_group_ids,omitempty"`
+	OrganizationSubscriptionID *int64  `json:"organization_subscription_id,omitempty"`
 	// UserSubscriptionID 必须进快照：它决定这把 Key 扣哪一份额度池，漏掉会让缓存
 	// 命中的请求退化成按分组反查，在用户持有多个覆盖该分组的套餐时扣错池子。
-	UserSubscriptionID *int64 `json:"user_subscription_id,omitempty"`
-	PreferCompanyBalance       bool                     `json:"prefer_company_balance"`
-	Name                       string                   `json:"name"`
-	Status                     string                   `json:"status"`
-	IPWhitelist                []string                 `json:"ip_whitelist,omitempty"`
-	IPBlacklist                []string                 `json:"ip_blacklist,omitempty"`
-	User                       APIKeyAuthUserSnapshot   `json:"user"`
-	Group                      *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
+	UserSubscriptionID   *int64                   `json:"user_subscription_id,omitempty"`
+	PreferCompanyBalance bool                     `json:"prefer_company_balance"`
+	Name                 string                   `json:"name"`
+	Status               string                   `json:"status"`
+	IPWhitelist          []string                 `json:"ip_whitelist,omitempty"`
+	IPBlacklist          []string                 `json:"ip_blacklist,omitempty"`
+	User                 APIKeyAuthUserSnapshot   `json:"user"`
+	Group                *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
 
 	// Quota fields for API Key independent quota feature
 	Quota     float64 `json:"quota"`      // Quota limit in USD (0 = unlimited)
