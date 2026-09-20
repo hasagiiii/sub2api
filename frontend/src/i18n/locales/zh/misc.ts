@@ -144,6 +144,7 @@ export default {
     unlimited: '无限制',
     unlimitedDesc: '该订阅无用量限制',
     planQuota: '套餐共享限额',
+    groupUsage: '{group} 分组用量',
     daily: '每日',
     weekly: '每周',
     monthly: '每月',

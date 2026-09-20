@@ -138,6 +138,40 @@
                   </div>
                 </div>
               </div>
+              <template v-if="hasPlanLimits(subscription)">
+                <div
+                  v-for="section in getGroupUsageSections(subscription)"
+                  :key="section.key"
+                  class="space-y-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-dark-600 dark:bg-dark-800/60"
+                >
+                  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                    <span class="h-2 w-1 shrink-0 rounded-full bg-gray-400 dark:bg-dark-400"></span>
+                    <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      {{ section.label }}
+                    </h4>
+                  </div>
+
+                  <div class="space-y-3 px-1 pt-1">
+                    <div v-for="row in section.rows" :key="row.key" class="space-y-2">
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ row.label }}</span>
+                        <span v-if="row.limit !== null" class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
+                          ${{ row.used.toFixed(2) }} / ${{ row.limit.toFixed(2) }}
+                        </span>
+                        <span v-else class="shrink-0 text-sm text-emerald-600 dark:text-emerald-400">
+                          {{ t('userSubscriptions.unlimited') }}
+                        </span>
+                      </div>
+                      <div v-if="row.limit !== null" class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                        <div
+                          class="absolute inset-y-0 left-0 rounded-full bg-gray-500 transition-all duration-300 dark:bg-gray-400"
+                          :style="{ width: getProgressWidth(row.used, row.limit) }"
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
             </div>
 
             <!-- No limits configured - Unlimited badge -->
@@ -345,6 +379,47 @@ function getQuotaSections(subscription: UserSubscription): SubscriptionQuotaSect
   const sections: SubscriptionQuotaSection[] = []
   sections.push(...Array.from(groupSections.values()).filter((section) => section.rows.length > 0))
   return sections
+}
+
+function getGroupUsageSections(subscription: UserSubscription): SubscriptionQuotaSection[] {
+  const groupIDs = subscription.group_ids?.length ? subscription.group_ids : [subscription.group_id]
+  const groupNames = subscription.group_names || []
+  const periods = Object.keys(quotaPeriodConfig) as QuotaPeriod[]
+
+  return groupIDs.map((groupID, index) => ({
+    key: `group-usage-${groupID}`,
+    label: t('userSubscriptions.groupUsage', {
+      group: groupNames[index] || subscription.group?.name || `Group #${groupID}`,
+    }),
+    rows: periods
+      .map((period) => {
+        const config = quotaPeriodConfig[period]
+        const limit = subscription[config.planLimitKey]
+        return {
+          key: `group-usage-${groupID}-${period}`,
+          label: t(`userSubscriptions.${period}`),
+          used: getPlanGroupUsage(subscription, groupID, period),
+          limit: isPositiveLimit(limit) ? limit : null,
+          resetText: null,
+        }
+      })
+      .filter((row) => row.limit !== null),
+  })).filter((section) => section.rows.length > 0)
+}
+
+function getPlanGroupUsage(subscription: UserSubscription, groupID: number, period: QuotaPeriod): number {
+  const usage = subscription.group_usages?.find((item) => item.group_id === groupID)
+  if (usage) {
+    if (period === 'daily') return usage.daily_usage_usd || 0
+    if (period === 'weekly') return usage.weekly_usage_usd || 0
+    return usage.monthly_usage_usd || 0
+  }
+
+  // Legacy single-group subscriptions have no separate row yet. For a
+  // multi-group subscription, missing data must not duplicate the shared total
+  // under every group.
+  if ((subscription.group_ids?.length || 0) > 1) return 0
+  return period === 'daily' ? subscription.daily_usage_usd || 0 : period === 'weekly' ? subscription.weekly_usage_usd || 0 : subscription.monthly_usage_usd || 0
 }
 
 function getOrCreateQuotaSection(

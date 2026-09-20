@@ -147,6 +147,7 @@ export default {
     unlimited: 'Unlimited',
     unlimitedDesc: 'No usage limits on this subscription',
     planQuota: 'Plan shared limits',
+    groupUsage: '{group} group usage',
     daily: 'Daily',
     weekly: 'Weekly',
     monthly: 'Monthly',
