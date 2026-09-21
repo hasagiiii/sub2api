@@ -1811,7 +1811,7 @@ func (r *organizationRepository) AdminResetOrganizationSubscriptionQuota(ctx con
 	var organizationID int64
 	var planID sql.NullInt64
 	var planDaily, planWeekly, planMonthly sql.NullFloat64
-	if err := tx.QueryRowContext(ctx, `SELECT s.organization_id,s.plan_id,p.daily_limit_usd,p.weekly_limit_usd,p.monthly_limit_usd FROM organization_subscriptions s LEFT JOIN subscription_plans p ON p.id=s.plan_id WHERE s.id=$1 AND s.deleted_at IS NULL FOR UPDATE`, subscriptionID).Scan(&organizationID, &planID, &planDaily, &planWeekly, &planMonthly); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, `SELECT s.organization_id,s.plan_id,p.daily_limit_usd,p.weekly_limit_usd,p.monthly_limit_usd FROM organization_subscriptions s LEFT JOIN subscription_plans p ON p.id=s.plan_id WHERE s.id=$1 AND s.deleted_at IS NULL FOR UPDATE OF s`, subscriptionID).Scan(&organizationID, &planID, &planDaily, &planWeekly, &planMonthly); errors.Is(err, sql.ErrNoRows) {
 		return service.ErrOrgSubscriptionNotFound
 	} else if err != nil {
 		return err
@@ -2204,7 +2204,7 @@ func (r *organizationRepository) IncrementOrganizationSubscriptionUsage(ctx cont
 	var organizationID int64
 	var planID sql.NullInt64
 	var planDaily, planWeekly, planMonthly sql.NullFloat64
-	if err := tx.QueryRowContext(ctx, `SELECT s.organization_id,s.plan_id,p.daily_limit_usd,p.weekly_limit_usd,p.monthly_limit_usd FROM organization_subscriptions s LEFT JOIN subscription_plans p ON p.id=s.plan_id WHERE s.id=$1 AND s.deleted_at IS NULL FOR UPDATE`, subscriptionID).Scan(&organizationID, &planID, &planDaily, &planWeekly, &planMonthly); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, `SELECT s.organization_id,s.plan_id,p.daily_limit_usd,p.weekly_limit_usd,p.monthly_limit_usd FROM organization_subscriptions s LEFT JOIN subscription_plans p ON p.id=s.plan_id WHERE s.id=$1 AND s.deleted_at IS NULL FOR UPDATE OF s`, subscriptionID).Scan(&organizationID, &planID, &planDaily, &planWeekly, &planMonthly); errors.Is(err, sql.ErrNoRows) {
 		return service.ErrOrgSubscriptionNotFound
 	} else if err != nil {
 		return err
