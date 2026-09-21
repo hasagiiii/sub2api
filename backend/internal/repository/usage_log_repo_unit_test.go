@@ -78,6 +78,27 @@ func TestUsageLogOrganizationIDPreservesOtherBalanceSources(t *testing.T) {
 	require.EqualValues(t, 5, organizationID)
 }
 
+func TestPrepareUsageLogInsertNormalizesLegacyPersonalSubscriptionSource(t *testing.T) {
+	organizationID := int64(7)
+	legacySource := "personal_subscription"
+	log := &service.UsageLog{
+		UserID:         1,
+		APIKeyID:       2,
+		AccountID:      3,
+		OrganizationID: &organizationID,
+		BalanceSource:  &legacySource,
+	}
+	prepared := prepareUsageLogInsert(log)
+
+	require.NotNil(t, log.BalanceSource)
+	require.Equal(t, service.BalanceSourcePersonalSubscription, *log.BalanceSource)
+	source, ok := prepared.args[64].(sql.NullString)
+	require.True(t, ok)
+	require.True(t, source.Valid)
+	require.Equal(t, service.BalanceSourcePersonalSubscription, source.String)
+	require.LessOrEqual(t, len(source.String), 16)
+}
+
 func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
 	log := &service.UsageLog{
 		UserID:       1,

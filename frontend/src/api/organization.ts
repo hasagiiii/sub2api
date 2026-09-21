@@ -331,9 +331,14 @@ export const organizationAPI = {
 	async setOrganizationStatus(id: number, status: 'active' | 'suspended'): Promise<void> {
 		await apiClient.patch(`/admin/organizations/${id}/status`, { status })
 	},
-	async assignOrganizationSubscription(id: number, groupId: number, validityDays: number, notes = ''): Promise<OrganizationSubscription> {
-		const { data } = await apiClient.post<OrganizationSubscription>(`/admin/organizations/${id}/subscriptions`, {
-			group_id: groupId,
+	async assignOrganizationSubscription(
+		id: number,
+		target: { group_id: number } | { plan_id: number },
+		validityDays: number,
+		notes = '',
+	): Promise<OrganizationSubscription | OrganizationSubscription[]> {
+		const { data } = await apiClient.post<OrganizationSubscription | OrganizationSubscription[]>(`/admin/organizations/${id}/subscriptions`, {
+			...target,
 			validity_days: validityDays,
 			notes,
 		})

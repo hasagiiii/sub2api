@@ -85,6 +85,7 @@ const messages: Record<string, string> = {
 	'organization.balanceSource.self': 'Root balance',
 	'organization.balanceSource.company': 'Company balance',
 	'organization.balanceSource.subscription': 'Enterprise subscription',
+	'organization.balanceSource.personal_sub': 'Subscription plan',
 	'admin.usage.manualVideoBilling': 'Complete video billing manually',
 	'admin.usage.billingPendingManual': 'Manual billing required',
 	'usage.videoCount': 'Video count',
@@ -167,6 +168,8 @@ describe('admin UsageTable balance source', () => {
         data: [
           { request_id: 'balance-source', balance_source: 'company', billing_type: 0 },
           { request_id: 'legacy-subscription', balance_source: null, billing_type: 1 },
+          { request_id: 'misclassified-subscription', balance_source: 'company', billing_type: 1 },
+          { request_id: 'personal-subscription', balance_source: 'personal_sub', billing_type: 1 },
         ],
         loading: false,
         columns: [{ key: 'balance_source', label: 'Balance source' }],
@@ -175,7 +178,8 @@ describe('admin UsageTable balance source', () => {
     })
 
     expect(wrapper.text()).toContain('Company balance')
-    expect(wrapper.text()).toContain('Enterprise subscription')
+    expect(wrapper.text().match(/Enterprise subscription/g)).toHaveLength(2)
+    expect(wrapper.text()).toContain('Subscription plan')
   })
 })
 

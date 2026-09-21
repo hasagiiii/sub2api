@@ -1376,20 +1376,34 @@ func (h *OrganizationHandler) AdminCreateSubscription(c *gin.Context) {
 		return
 	}
 	var req struct {
-		GroupID      int64  `json:"group_id" binding:"required"`
-		ValidityDays int    `json:"validity_days" binding:"required,min=1,max=36500"`
+		GroupID      *int64 `json:"group_id" binding:"omitempty,min=1"`
+		PlanID       *int64 `json:"plan_id" binding:"omitempty,min=1"`
+		ValidityDays int    `json:"validity_days" binding:"omitempty,min=1,max=36500"`
 		Notes        string `json:"notes"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid enterprise subscription")
 		return
 	}
-	subscription, err := h.organization.AdminCreateOrganizationSubscription(c.Request.Context(), actorID, organizationID, req.GroupID, req.ValidityDays, req.Notes)
+	if (req.GroupID == nil) == (req.PlanID == nil) {
+		response.BadRequest(c, "exactly one of group_id or plan_id is required")
+		return
+	}
+	if req.GroupID != nil {
+		subscription, err := h.organization.AdminCreateOrganizationSubscription(c.Request.Context(), actorID, organizationID, *req.GroupID, req.ValidityDays, req.Notes)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		response.Success(c, subscription)
+		return
+	}
+	subscriptions, err := h.organization.AdminCreateOrganizationSubscriptionsByPlan(c.Request.Context(), actorID, organizationID, *req.PlanID, req.ValidityDays, req.Notes)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, subscription)
+	response.Success(c, subscriptions)
 }
 
 func (h *OrganizationHandler) AdminListSubscriptions(c *gin.Context) {

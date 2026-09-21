@@ -52,6 +52,8 @@ const (
 	BalanceSourceLegacyShared = "shared"
 	BalanceSourceCompany      = "company"
 	BalanceSourceSubscription = "subscription"
+	// Keep this value within the legacy balance_source VARCHAR(16) contract.
+	BalanceSourcePersonalSubscription = "personal_sub"
 )
 
 var (
@@ -72,13 +74,14 @@ var (
 	ErrOrganizationSuspended  = infraerrors.Conflict("ORGANIZATION_SUSPENDED", "organization is suspended")
 	ErrIAMFinancialOperation  = infraerrors.Forbidden("IAM_FINANCIAL_OPERATION_DENIED", "IAM users cannot perform this financial operation")
 
-	ErrSubscriptionGroupInvalid  = infraerrors.BadRequest("SUBSCRIPTION_GROUP_INVALID", "the subscription group is invalid or unavailable")
-	ErrOrgSubscriptionExists     = infraerrors.Conflict("ORGANIZATION_SUBSCRIPTION_EXISTS", "an active subscription for this group already exists")
-	ErrOrgSubscriptionNotFound   = infraerrors.NotFound("ORGANIZATION_SUBSCRIPTION_NOT_FOUND", "organization subscription not found")
-	ErrSubscriptionValidityRange = infraerrors.BadRequest("SUBSCRIPTION_VALIDITY_INVALID", "validity days must be between 0 and 3650")
-	ErrSpendLimitInvalid         = infraerrors.BadRequest("ORGANIZATION_SPEND_LIMIT_INVALID", "a positive daily or monthly spend limit is required")
-	ErrSpendLimitExceeded        = infraerrors.Conflict("ORGANIZATION_SPEND_LIMIT_EXCEEDED", "organization spend limit would be exceeded")
-	ErrDailySpendLimitExceeded   = infraerrors.Conflict(
+	ErrSubscriptionGroupInvalid    = infraerrors.BadRequest("SUBSCRIPTION_GROUP_INVALID", "the subscription group is invalid or unavailable")
+	ErrOrgSubscriptionExists       = infraerrors.Conflict("ORGANIZATION_SUBSCRIPTION_EXISTS", "an active subscription for this group already exists")
+	ErrOrgSubscriptionNotFound     = infraerrors.NotFound("ORGANIZATION_SUBSCRIPTION_NOT_FOUND", "organization subscription not found")
+	ErrOrgSubscriptionCannotCancel = infraerrors.Forbidden("ORGANIZATION_SUBSCRIPTION_CANNOT_CANCEL", "paid enterprise subscriptions cannot be cancelled")
+	ErrSubscriptionValidityRange   = infraerrors.BadRequest("SUBSCRIPTION_VALIDITY_INVALID", "validity days must be between 0 and 3650")
+	ErrSpendLimitInvalid           = infraerrors.BadRequest("ORGANIZATION_SPEND_LIMIT_INVALID", "a positive daily or monthly spend limit is required")
+	ErrSpendLimitExceeded          = infraerrors.Conflict("ORGANIZATION_SPEND_LIMIT_EXCEEDED", "organization spend limit would be exceeded")
+	ErrDailySpendLimitExceeded     = infraerrors.Conflict(
 		"ORGANIZATION_DAILY_SPEND_LIMIT_EXCEEDED",
 		"organization daily spend limit would be exceeded",
 	).WithCause(ErrSpendLimitExceeded).WithMetadata(map[string]string{"period": "daily"})
@@ -286,42 +289,55 @@ type FinanceSummary struct {
 }
 
 // OrganizationSubscription is a subscription plan (group) held by a company,
-// independent from any individual user's subscription. Quota limits are read
-// from the referenced group; the usage counters below track the current
-// sliding windows. Enterprise API keys bind to one of these subscriptions.
+// independent from any individual user's subscription. Enterprise API keys
+// bind to one of these group rows. When PlanID references a package with any
+// positive limit, the rows share the package usage pool; otherwise each row's
+// group limits and counters remain independent.
 type OrganizationSubscription struct {
-	ID               int64     `json:"id"`
-	OrganizationID   int64     `json:"organization_id"`
-	OrganizationName string    `json:"organization_name,omitempty"`
-	CompanyID        string    `json:"company_id,omitempty"`
-	GroupID          int64     `json:"group_id"`
-	GroupName        string    `json:"group_name"`
-	Platform         string    `json:"platform"`
-	SubscriptionType string    `json:"subscription_type"`
-	RateMultiplier   float64   `json:"rate_multiplier"`
-	StartsAt         time.Time `json:"starts_at"`
-	ExpiresAt        time.Time `json:"expires_at"`
-	Status           string    `json:"status"`
-	DailyLimitUSD    *string   `json:"daily_limit_usd,omitempty"`
-	WeeklyLimitUSD   *string   `json:"weekly_limit_usd,omitempty"`
-	MonthlyLimitUSD  *string   `json:"monthly_limit_usd,omitempty"`
-	DailyUsageUSD    string    `json:"daily_usage_usd"`
-	WeeklyUsageUSD   string    `json:"weekly_usage_usd"`
-	MonthlyUsageUSD  string    `json:"monthly_usage_usd"`
-	Notes            string    `json:"notes,omitempty"`
-	AssignedBy       *int64    `json:"assigned_by,omitempty"`
-	AssignedAt       time.Time `json:"assigned_at"`
-	CreatedAt        time.Time `json:"created_at"`
+	ID                  int64     `json:"id"`
+	OrganizationID      int64     `json:"organization_id"`
+	OrganizationName    string    `json:"organization_name,omitempty"`
+	CompanyID           string    `json:"company_id,omitempty"`
+	GroupID             int64     `json:"group_id"`
+	PlanID              *int64    `json:"plan_id,omitempty"`
+	GroupName           string    `json:"group_name"`
+	Platform            string    `json:"platform"`
+	SubscriptionType    string    `json:"subscription_type"`
+	RateMultiplier      float64   `json:"rate_multiplier"`
+	StartsAt            time.Time `json:"starts_at"`
+	ExpiresAt           time.Time `json:"expires_at"`
+	Status              string    `json:"status"`
+	DailyLimitUSD       *string   `json:"daily_limit_usd,omitempty"`
+	WeeklyLimitUSD      *string   `json:"weekly_limit_usd,omitempty"`
+	MonthlyLimitUSD     *string   `json:"monthly_limit_usd,omitempty"`
+	PlanDailyLimitUSD   *string   `json:"plan_daily_limit_usd,omitempty"`
+	PlanWeeklyLimitUSD  *string   `json:"plan_weekly_limit_usd,omitempty"`
+	PlanMonthlyLimitUSD *string   `json:"plan_monthly_limit_usd,omitempty"`
+	DailyUsageUSD       string    `json:"daily_usage_usd"`
+	WeeklyUsageUSD      string    `json:"weekly_usage_usd"`
+	MonthlyUsageUSD     string    `json:"monthly_usage_usd"`
+	// Group usage stays separate from the effective package usage. For a
+	// package with a shared quota, the three usage fields above are the shared
+	// pool while these fields retain the usage of this bound group.
+	GroupDailyUsageUSD   string    `json:"group_daily_usage_usd,omitempty"`
+	GroupWeeklyUsageUSD  string    `json:"group_weekly_usage_usd,omitempty"`
+	GroupMonthlyUsageUSD string    `json:"group_monthly_usage_usd,omitempty"`
+	Notes                string    `json:"notes,omitempty"`
+	AssignedBy           *int64    `json:"assigned_by,omitempty"`
+	AssignedAt           time.Time `json:"assigned_at"`
+	CreatedAt            time.Time `json:"created_at"`
 }
 
 // OrgSubscriptionRuntime is the internal, billing-oriented view of a company
 // subscription. It mirrors UserSubscription's rolling-window semantics
 // (daily = 24h, weekly = 7*24h, monthly = 30*24h) so enterprise API keys behave
-// consistently with personal subscriptions. Limits are resolved from the group.
+// consistently with personal subscriptions. Limits are resolved from the
+// package when configured, otherwise from the bound group.
 type OrgSubscriptionRuntime struct {
 	ID             int64
 	OrganizationID int64
 	GroupID        int64
+	PlanID         *int64
 	Status         string
 	StartsAt       time.Time
 	ExpiresAt      time.Time
@@ -337,6 +353,7 @@ type OrgSubscriptionRuntime struct {
 	DailyLimitUSD   *float64
 	WeeklyLimitUSD  *float64
 	MonthlyLimitUSD *float64
+	PlanLimits      SubscriptionLimits
 }
 
 // IsActive reports whether the subscription is usable right now.
@@ -383,9 +400,17 @@ func hasOrgSpendLimit(limit *float64) bool {
 func (s *OrgSubscriptionRuntime) CheckAllLimits(additionalCost float64) (daily, weekly, monthly bool) {
 	now := time.Now()
 	du, wu, mu := s.effectiveUsage(now)
-	daily = !hasOrgSpendLimit(s.DailyLimitUSD) || du+additionalCost <= *s.DailyLimitUSD
-	weekly = !hasOrgSpendLimit(s.WeeklyLimitUSD) || wu+additionalCost <= *s.WeeklyLimitUSD
-	monthly = !hasOrgSpendLimit(s.MonthlyLimitUSD) || mu+additionalCost <= *s.MonthlyLimitUSD
+	limits := SubscriptionLimits{
+		DailyLimitUSD:   s.DailyLimitUSD,
+		WeeklyLimitUSD:  s.WeeklyLimitUSD,
+		MonthlyLimitUSD: s.MonthlyLimitUSD,
+	}
+	if !s.PlanLimits.IsZero() {
+		limits = s.PlanLimits
+	}
+	daily = !hasOrgSpendLimit(limits.DailyLimitUSD) || du+additionalCost <= *limits.DailyLimitUSD
+	weekly = !hasOrgSpendLimit(limits.WeeklyLimitUSD) || wu+additionalCost <= *limits.WeeklyLimitUSD
+	monthly = !hasOrgSpendLimit(limits.MonthlyLimitUSD) || mu+additionalCost <= *limits.MonthlyLimitUSD
 	return
 }
 
@@ -659,6 +684,7 @@ type OrganizationRepository interface {
 	DepositToCompany(ctx context.Context, ownerID int64, amount, idempotencyKey string, withdraw bool) error
 	CreateOrganizationSubscription(ctx context.Context, userID, groupID int64, validityDays int, notes string) (*OrganizationSubscription, error)
 	AdminCreateOrganizationSubscription(ctx context.Context, actorID, organizationID, groupID int64, validityDays int, notes string) (*OrganizationSubscription, error)
+	AdminCreateOrganizationSubscriptionsByPlan(ctx context.Context, actorID, organizationID, planID int64, validityDays int, notes string) ([]OrganizationSubscription, error)
 	AdminListOrganizationSubscriptions(ctx context.Context, actorID int64, page, pageSize int, groupID *int64, status, platform, sortBy, sortOrder string) ([]OrganizationSubscription, int64, error)
 	AdminExtendOrganizationSubscription(ctx context.Context, actorID, subscriptionID int64, days int) error
 	AdminResetOrganizationSubscriptionQuota(ctx context.Context, actorID, subscriptionID int64) error
@@ -668,6 +694,7 @@ type OrganizationRepository interface {
 	// company (orgID) rather than resolving an owner, and is idempotent on
 	// orderID so webhook retries do not double-provision.
 	AssignOrExtendOrganizationSubscription(ctx context.Context, orgID, groupID int64, validityDays int, orderID int64) error
+	AssignOrExtendOrganizationSubscriptionByPlan(ctx context.Context, orgID, groupID, planID int64, validityDays int, orderID int64) error
 	ListOrganizationSubscriptions(ctx context.Context, userID int64) ([]OrganizationSubscription, error)
 	CancelOrganizationSubscription(ctx context.Context, userID, subscriptionID int64) error
 	// ListActiveOrganizationSubscriptionsForMember returns the active, non-expired
@@ -988,6 +1015,16 @@ func (s *OrganizationService) AdminCreateOrganizationSubscription(ctx context.Co
 		return nil, infraerrors.BadRequest("SUBSCRIPTION_VALIDITY_INVALID", "validity days must be between 1 and 36500")
 	}
 	return s.repo.AdminCreateOrganizationSubscription(ctx, actorID, organizationID, groupID, validityDays, strings.TrimSpace(notes))
+}
+
+func (s *OrganizationService) AdminCreateOrganizationSubscriptionsByPlan(ctx context.Context, actorID, organizationID, planID int64, validityDays int, notes string) ([]OrganizationSubscription, error) {
+	if validityDays < 0 || validityDays > 36500 {
+		return nil, infraerrors.BadRequest("SUBSCRIPTION_VALIDITY_INVALID", "validity days must be between 1 and 36500 when provided")
+	}
+	if planID <= 0 {
+		return nil, infraerrors.BadRequest("SUBSCRIPTION_PLAN_INVALID", "subscription plan is required")
+	}
+	return s.repo.AdminCreateOrganizationSubscriptionsByPlan(ctx, actorID, organizationID, planID, validityDays, strings.TrimSpace(notes))
 }
 
 func (s *OrganizationService) AdminListOrganizationSubscriptions(ctx context.Context, actorID int64, page, pageSize int, groupID *int64, status, platform, sortBy, sortOrder string) ([]OrganizationSubscription, int64, error) {
@@ -1638,13 +1675,20 @@ func (s *OrganizationService) FulfillOrganizationSubscriptionOrder(ctx context.C
 	return s.repo.AssignOrExtendOrganizationSubscription(ctx, orgID, groupID, validityDays, orderID)
 }
 
-// CancelOrganizationSubscription cancels (soft-deletes) a company subscription.
-// Owner-only (enforced in the repository).
+// FulfillOrganizationSubscriptionPlanOrder is the package-aware enterprise
+// fulfillment path. Rows for the package's groups retain their individual API
+// key bindings but share package usage whenever the package has a limit.
+func (s *OrganizationService) FulfillOrganizationSubscriptionPlanOrder(ctx context.Context, orgID, groupID, planID int64, validityDays int, orderID int64) error {
+	return s.repo.AssignOrExtendOrganizationSubscriptionByPlan(ctx, orgID, groupID, planID, validityDays, orderID)
+}
+
+// CancelOrganizationSubscription is retained for API compatibility, but paid
+// enterprise subscriptions cannot be cancelled after fulfillment.
 func (s *OrganizationService) CancelOrganizationSubscription(ctx context.Context, userID, subscriptionID int64) error {
 	if subscriptionID <= 0 {
 		return ErrOrgSubscriptionNotFound
 	}
-	return s.repo.CancelOrganizationSubscription(ctx, userID, subscriptionID)
+	return ErrOrgSubscriptionCannotCancel
 }
 
 func (s *OrganizationService) ListUsage(ctx context.Context, userID int64, filter OrganizationUsageFilter) ([]OrganizationUsageRow, int64, error) {

@@ -1338,6 +1338,26 @@ func usageLogOrganizationID(organizationID *int64, balanceSource *string) *int64
 	return organizationID
 }
 
+// normalizeUsageLogBalanceSource keeps usage-log writes compatible with the
+// legacy VARCHAR(16) balance_source column. Older application instances used
+// the descriptive personal_subscription value, which is longer than the
+// column allows. In-flight records can still reach this repository after a
+// rolling deployment, so normalize the legacy alias at the final write
+// boundary as well as at the billing source.
+func normalizeUsageLogBalanceSource(source *string) *string {
+	if source == nil {
+		return nil
+	}
+	normalized := strings.TrimSpace(*source)
+	if normalized == "personal_subscription" {
+		normalized = service.BalanceSourcePersonalSubscription
+	}
+	if normalized == "" {
+		return nil
+	}
+	return &normalized
+}
+
 func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	createdAt := log.CreatedAt
 	if createdAt.IsZero() {
@@ -1383,7 +1403,12 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	upstreamModel := nullString(log.UpstreamModel)
 	upstreamResponseModel := nullString(log.UpstreamResponseModel)
 	upstreamModelMismatch := nullBool(log.UpstreamModelMismatch)
-	organizationID := usageLogOrganizationID(log.OrganizationID, log.BalanceSource)
+	balanceSource := normalizeUsageLogBalanceSource(log.BalanceSource)
+	if log.BalanceSource != nil && balanceSource != nil && *log.BalanceSource != *balanceSource {
+		logger.LegacyPrintf("repository.usage_log", "normalized legacy balance source %q to %q", *log.BalanceSource, *balanceSource)
+		log.BalanceSource = balanceSource
+	}
+	organizationID := usageLogOrganizationID(log.OrganizationID, balanceSource)
 
 	var requestIDArg any
 	if requestID != "" {
@@ -1460,7 +1485,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			log.KiroCredits,
 			nullInt64(organizationID),
 			nullInt64(log.PayerUserID),
-			nullString(log.BalanceSource),
+			nullString(balanceSource),
 			nullInt64(log.AuthzGeneration),
 			upstreamRequestID, // upstream_request_id
 			sessionID,         // session_id

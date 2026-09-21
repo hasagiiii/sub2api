@@ -253,29 +253,35 @@
           </template>
 
           <template #cell-usage="{ row }">
-            <div class="min-w-[280px] space-y-2">
+            <div class="min-w-[300px] space-y-3">
               <!-- Daily Usage -->
-              <div v-if="rowLimit(row, 'daily')" class="usage-row">
-                <div class="flex items-center gap-2">
-                  <span class="usage-label">{{ t('admin.subscriptions.daily') }}</span>
-                  <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+              <div v-if="rowLimit(row, 'daily')" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                  <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
+                  <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.daily') }}</h4>
+                </div>
+                <div class="space-y-2 px-1 pt-1">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.subscriptions.usage') }}</span>
+                    <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
+                      ${{ row.daily_usage_usd?.toFixed(2) || '0.00' }}
+                      <span class="text-gray-400">/</span>
+                      ${{ rowLimit(row, 'daily')?.toFixed(2) }}
+                    </span>
+                  </div>
+                  <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
-                      class="h-1.5 rounded-full transition-all"
+                      class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
                       :class="getProgressClass(row.daily_usage_usd, rowLimit(row, 'daily'))"
                       :style="{
                         width: getProgressWidth(row.daily_usage_usd, rowLimit(row, 'daily'))
                       }"
                     ></div>
                   </div>
-                  <span class="usage-amount">
-                    ${{ row.daily_usage_usd?.toFixed(2) || '0.00' }}
-                    <span class="text-gray-400">/</span>
-                    ${{ rowLimit(row, 'daily')?.toFixed(2) }}
-                  </span>
                 </div>
-                <div class="reset-info" v-if="row.daily_window_start">
+                <div class="flex items-center gap-1 px-1 text-xs text-blue-600 dark:text-blue-400" v-if="row.daily_window_start">
                   <svg
-                    class="h-3 w-3"
+                    class="h-3 w-3 shrink-0"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -292,27 +298,33 @@
               </div>
 
               <!-- Weekly Usage -->
-              <div v-if="rowLimit(row, 'weekly')" class="usage-row">
-                <div class="flex items-center gap-2">
-                  <span class="usage-label">{{ t('admin.subscriptions.weekly') }}</span>
-                  <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+              <div v-if="rowLimit(row, 'weekly')" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                  <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
+                  <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.weekly') }}</h4>
+                </div>
+                <div class="space-y-2 px-1 pt-1">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.subscriptions.usage') }}</span>
+                    <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
+                      ${{ row.weekly_usage_usd?.toFixed(2) || '0.00' }}
+                      <span class="text-gray-400">/</span>
+                      ${{ rowLimit(row, 'weekly')?.toFixed(2) }}
+                    </span>
+                  </div>
+                  <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
-                      class="h-1.5 rounded-full transition-all"
+                      class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
                       :class="getProgressClass(row.weekly_usage_usd, rowLimit(row, 'weekly'))"
                       :style="{
                         width: getProgressWidth(row.weekly_usage_usd, rowLimit(row, 'weekly'))
                       }"
                     ></div>
                   </div>
-                  <span class="usage-amount">
-                    ${{ row.weekly_usage_usd?.toFixed(2) || '0.00' }}
-                    <span class="text-gray-400">/</span>
-                    ${{ rowLimit(row, 'weekly')?.toFixed(2) }}
-                  </span>
                 </div>
-                <div class="reset-info" v-if="row.weekly_window_start">
+                <div class="flex items-center gap-1 px-1 text-xs text-blue-600 dark:text-blue-400" v-if="row.weekly_window_start">
                   <svg
-                    class="h-3 w-3"
+                    class="h-3 w-3 shrink-0"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -329,27 +341,33 @@
               </div>
 
               <!-- Monthly Usage -->
-              <div v-if="rowLimit(row, 'monthly')" class="usage-row">
-                <div class="flex items-center gap-2">
-                  <span class="usage-label">{{ t('admin.subscriptions.monthly') }}</span>
-                  <div class="h-1.5 flex-1 rounded-full bg-gray-200 dark:bg-dark-600">
+              <div v-if="rowLimit(row, 'monthly')" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                  <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
+                  <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.monthly') }}</h4>
+                </div>
+                <div class="space-y-2 px-1 pt-1">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.subscriptions.usage') }}</span>
+                    <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
+                      ${{ row.monthly_usage_usd?.toFixed(2) || '0.00' }}
+                      <span class="text-gray-400">/</span>
+                      ${{ rowLimit(row, 'monthly')?.toFixed(2) }}
+                    </span>
+                  </div>
+                  <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
-                      class="h-1.5 rounded-full transition-all"
+                      class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
                       :class="getProgressClass(row.monthly_usage_usd, rowLimit(row, 'monthly'))"
                       :style="{
                         width: getProgressWidth(row.monthly_usage_usd, rowLimit(row, 'monthly'))
                       }"
                     ></div>
                   </div>
-                  <span class="usage-amount">
-                    ${{ row.monthly_usage_usd?.toFixed(2) || '0.00' }}
-                    <span class="text-gray-400">/</span>
-                    ${{ rowLimit(row, 'monthly')?.toFixed(2) }}
-                  </span>
                 </div>
-                <div class="reset-info" v-if="row.monthly_window_start">
+                <div class="flex items-center gap-1 px-1 text-xs text-blue-600 dark:text-blue-400" v-if="row.monthly_window_start">
                   <svg
-                    class="h-3 w-3"
+                    class="h-3 w-3 shrink-0"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -365,6 +383,43 @@
                 </div>
               </div>
 
+              <!-- A package row has one shared quota above and one contribution
+                   bar per covered group below it. The denominator is the
+                   package limit so the bars explain how the shared pool is
+                   being consumed without presenting independent quotas. -->
+              <div
+                v-if="isSharedPlan(row)"
+                class="mt-3 space-y-3 border-t border-gray-200 pt-3 dark:border-dark-600"
+              >
+                <div class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {{ t('admin.subscriptions.groupUsage') }}
+                </div>
+                <div
+                  v-for="group in sharedPlanGroupProgress(row)"
+                  :key="group.group_id"
+                  class="space-y-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-dark-600 dark:bg-dark-800/60"
+                >
+                  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                    <span class="h-2 w-1 shrink-0 rounded-full bg-gray-400 dark:bg-dark-400" />
+                    <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300">{{ group.name }}</h4>
+                  </div>
+                  <div class="space-y-3 px-1 pt-1">
+                    <div v-for="progress in group.progress" :key="progress.window" class="space-y-2">
+                      <div class="flex items-center justify-between gap-3">
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t(`admin.subscriptions.${progress.window}`) }}</span>
+                        <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">${{ progress.used.toFixed(2) }} / ${{ progress.limit.toFixed(2) }}</span>
+                      </div>
+                      <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                        <div
+                          class="absolute inset-y-0 left-0 rounded-full bg-gray-500 transition-all duration-300 dark:bg-gray-400"
+                          :style="{ width: getProgressWidth(progress.used, progress.limit) }"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- No Limits - Unlimited badge -->
               <div
                 v-if="
@@ -372,12 +427,15 @@
                   !rowLimit(row, 'weekly') &&
                   !rowLimit(row, 'monthly')
                 "
-                class="flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-2 dark:from-emerald-900/20 dark:to-teal-900/20"
+                class="flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 py-6 dark:from-emerald-900/20 dark:to-teal-900/20"
               >
-                <span class="text-lg text-emerald-600 dark:text-emerald-400">∞</span>
-                <span class="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                  {{ t('admin.subscriptions.unlimited') }}
-                </span>
+                <div class="flex items-center gap-3">
+                  <span class="text-4xl text-emerald-600 dark:text-emerald-400">∞</span>
+                  <div>
+                    <p class="text-sm font-medium text-emerald-700 dark:text-emerald-300">{{ t('admin.subscriptions.unlimited') }}</p>
+                    <p class="text-xs text-emerald-600/70 dark:text-emerald-400/70">{{ t('admin.subscriptions.unlimitedDesc') }}</p>
+                  </div>
+                </div>
               </div>
             </div>
           </template>
@@ -508,7 +566,7 @@
         @submit.prevent="handleAssignSubscription"
         class="space-y-5"
       >
-        <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <label v-if="assignTarget === 'user'" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
           <input v-model="batchAssignEnabled" type="checkbox" :disabled="submitting" @change="resetAssignUsers" />
           {{ t('admin.subscriptions.batchAssign.enable') }}
         </label>
@@ -602,12 +660,8 @@
             :disabled="organizationsLoading"
           />
         </div>
-        <!--
-          分配来源。按套餐分配得到的订阅与用户自行购买完全同构：一条覆盖套餐全部
-          分组、共享套餐的一份限额。企业订阅是另一套模型（限额取自各自分组），因此
-          只在个人用户下提供这个切换。
-        -->
-        <div v-if="assignTarget === 'user'">
+        <!-- 按套餐分配企业时，会按套餐覆盖的每个分组各创建一条企业订阅。 -->
+        <div>
           <label class="input-label">{{ t('admin.subscriptions.form.assignSource') }}</label>
           <div class="inline-flex rounded-md border border-gray-300 p-0.5 dark:border-dark-600">
             <button type="button" class="rounded px-3 py-1.5 text-sm" :class="assignSource === 'group' ? 'bg-primary-600 text-white' : 'text-gray-600 dark:text-gray-300'" @click="assignSource = 'group'">
@@ -618,7 +672,7 @@
             </button>
           </div>
         </div>
-        <div v-if="assignTarget === 'user' && assignSource === 'plan'">
+        <div v-if="assignSource === 'plan'">
           <label class="input-label">{{ t('admin.subscriptions.form.plan') }}</label>
           <Select
             v-model="assignForm.plan_id"
@@ -1077,6 +1131,7 @@ const statusOptions = computed(() => [
 type AdminSubscriptionRow = UserSubscription & {
   subject_type?: 'user' | 'organization'
   organization?: { id: number; name: string; company_id?: string }
+  shared_subscription_ids?: number[]
 }
 
 const subscriptions = ref<AdminSubscriptionRow[]>([])
@@ -1176,15 +1231,20 @@ const assignForm = reactive({
   validity_days: 30
 })
 
-// 分配来源：按分组给一条手动订阅，或按套餐给一条与用户自行购买完全同构的订阅
-// （覆盖套餐全部分组、共享套餐的一份限额）。
-// 企业订阅是另一套模型（限额取自各自分组），不支持按套餐分配。
+// 分配来源：按分组给一条手动订阅，或按套餐给套餐覆盖的全部权益。
 const assignSource = ref<'group' | 'plan'>('group')
 const plans = ref<SubscriptionPlan[]>([])
 const plansLoading = ref(false)
 
 watch(assignTarget, target => {
-  if (target === 'organization') assignSource.value = 'group'
+  if (target === 'organization') {
+    // Batch assignment only applies to personal users; discard hidden selections
+    // so switching back cannot unexpectedly reuse the previous batch.
+    batchAssignEnabled.value = false
+    assignUsers.value = []
+    batchAssignResult.value = null
+    assignForm.user_id = null
+  }
 })
 
 // 切换来源时清掉另一种来源的选择，避免提交时两者同时带上（后端会拒绝）。
@@ -1315,9 +1375,22 @@ type UsageWindow = 'daily' | 'weekly' | 'monthly'
  * 未设置窗口为不限额，不能再回退到主分组限额。套餐订阅的额度是整个额度池共享的一份，
  * 直接读主分组的限额会算出错误的进度——分组没配限额时甚至会把有套餐限额的订阅显示成
  * "无限制"。
- * 企业订阅行来自另一个接口、没有这些字段，此时回退到分组限额。
+ * 没有套餐额度的行才回退到分组限额。
  */
 const rowLimit = (row: AdminSubscriptionRow, window: UsageWindow): number | null => {
+  const planLimit =
+    window === 'daily'
+      ? row.plan_daily_limit_usd
+      : window === 'weekly'
+        ? row.plan_weekly_limit_usd
+        : row.plan_monthly_limit_usd
+  const hasPlanLimits = [
+    row.plan_daily_limit_usd,
+    row.plan_weekly_limit_usd,
+    row.plan_monthly_limit_usd,
+  ].some((limit) => typeof limit === 'number' && limit > 0)
+  if (hasPlanLimits) return planLimit ?? null
+
   const resolved =
     window === 'daily'
       ? row.daily_limit_usd
@@ -1325,12 +1398,6 @@ const rowLimit = (row: AdminSubscriptionRow, window: UsageWindow): number | null
         ? row.weekly_limit_usd
         : row.monthly_limit_usd
   if (resolved != null) return resolved
-  const hasPlanLimits = [
-    row.plan_daily_limit_usd,
-    row.plan_weekly_limit_usd,
-    row.plan_monthly_limit_usd,
-  ].some((limit) => typeof limit === 'number' && limit > 0)
-  if (hasPlanLimits) return null
   const group = row.group
   if (!group) return null
   const fallback =
@@ -1340,6 +1407,38 @@ const rowLimit = (row: AdminSubscriptionRow, window: UsageWindow): number | null
         ? group.weekly_limit_usd
         : group.monthly_limit_usd
   return fallback ?? null
+}
+
+const isSharedPlan = (row: AdminSubscriptionRow): boolean =>
+  (row.subject_type === 'organization' || row.subject_type === 'user') && row.plan_id != null && hasPositivePlanLimit(row)
+
+const sharedPlanGroupProgress = (row: AdminSubscriptionRow) => {
+  if (!isSharedPlan(row)) return []
+  const groupIDs = row.group_ids?.length ? row.group_ids : [row.group_id]
+  const groupNames = row.group_names || []
+  const periods: UsageWindow[] = ['daily', 'weekly', 'monthly']
+  return groupIDs.map((groupID, index) => {
+    const usage = row.group_usages?.find((item) => item.group_id === groupID)
+    const progress = periods
+      .map((window) => {
+        const limit = rowLimit(row, window)
+        if (limit == null || limit <= 0) return null
+        const used = usage
+          ? window === 'daily'
+            ? usage.daily_usage_usd
+            : window === 'weekly'
+              ? usage.weekly_usage_usd
+              : usage.monthly_usage_usd
+          : 0
+        return { window, used: used || 0, limit }
+      })
+      .filter((item): item is { window: UsageWindow; used: number; limit: number } => item !== null)
+    return {
+      group_id: groupID,
+      name: groupNames[index] || groupName(groupID),
+      progress,
+    }
+  }).filter((group) => group.progress.length > 0)
 }
 
 const applyFilters = () => {
@@ -1370,7 +1469,7 @@ const loadSubscriptions = async () => {
       ? []
       : await loadAllOrganizationSubscriptionRows(commonFilters, signal)
     if (signal.aborted || abortController !== requestController) return
-    const rows = [...userRows, ...organizationRows].sort(compareSubscriptionRows)
+    const rows = mergeSharedPlanRows([...userRows, ...organizationRows]).sort(compareSubscriptionRows)
     const offset = (pagination.page - 1) * pagination.page_size
     subscriptions.value = rows.slice(offset, offset + pagination.page_size)
     pagination.total = rows.length
@@ -1455,7 +1554,91 @@ function organizationSubscriptionRow(item: OrganizationSubscription): AdminSubsc
       weekly_limit_usd: item.weekly_limit_usd ? Number(item.weekly_limit_usd) : null,
       monthly_limit_usd: item.monthly_limit_usd ? Number(item.monthly_limit_usd) : null,
     } as Group,
+    plan_id: item.plan_id,
+    plan_daily_limit_usd: item.plan_daily_limit_usd ? Number(item.plan_daily_limit_usd) : null,
+    plan_weekly_limit_usd: item.plan_weekly_limit_usd ? Number(item.plan_weekly_limit_usd) : null,
+    plan_monthly_limit_usd: item.plan_monthly_limit_usd ? Number(item.plan_monthly_limit_usd) : null,
+    group_ids: [item.group_id],
+    group_names: [item.group_name],
+    group_limits: [{
+      group_id: item.group_id,
+      name: item.group_name,
+      daily_limit_usd: item.daily_limit_usd ? Number(item.daily_limit_usd) : null,
+      weekly_limit_usd: item.weekly_limit_usd ? Number(item.weekly_limit_usd) : null,
+      monthly_limit_usd: item.monthly_limit_usd ? Number(item.monthly_limit_usd) : null,
+    }],
+    group_usages: [{
+      group_id: item.group_id,
+      daily_usage_usd: Number(item.group_daily_usage_usd ?? item.daily_usage_usd),
+      weekly_usage_usd: Number(item.group_weekly_usage_usd ?? item.weekly_usage_usd),
+      monthly_usage_usd: Number(item.group_monthly_usage_usd ?? item.monthly_usage_usd),
+    }],
   }
+}
+
+function hasPositivePlanLimit(row: AdminSubscriptionRow): boolean {
+  return [row.plan_daily_limit_usd, row.plan_weekly_limit_usd, row.plan_monthly_limit_usd]
+    .some((limit) => typeof limit === 'number' && limit > 0)
+}
+
+/**
+ * Enterprise plan assignment creates one bindable row per covered group. The
+ * admin table should show one shared quota block for that plan and list each
+ * group's own usage underneath it. Plans without any quota remain separate
+ * rows because their group counters and limits are independent.
+ */
+function mergeSharedPlanRows(rows: AdminSubscriptionRow[]): AdminSubscriptionRow[] {
+  const merged: AdminSubscriptionRow[] = []
+  const planRows = new Map<string, AdminSubscriptionRow>()
+
+  for (const row of rows) {
+    if ((row.subject_type !== 'organization' && row.subject_type !== 'user') || row.plan_id == null || !hasPositivePlanLimit(row)) {
+      merged.push(row)
+      continue
+    }
+
+    const subjectKey = row.subject_type === 'organization'
+      ? `organization:${row.organization?.id ?? 0}`
+      : `user:${row.user_id}`
+    const key = `${subjectKey}:${row.plan_id}`
+    const existing = planRows.get(key)
+    if (!existing) {
+      const first = {
+        ...row,
+        shared_subscription_ids: [row.id],
+        group_ids: [...(row.group_ids || [])],
+        group_names: [...(row.group_names || [])],
+        group_limits: [...(row.group_limits || [])],
+        group_usages: [...(row.group_usages || [])],
+      }
+      planRows.set(key, first)
+      merged.push(first)
+      continue
+    }
+
+    existing.shared_subscription_ids = [
+      ...(existing.shared_subscription_ids || [existing.id]),
+      row.id,
+    ]
+    for (const groupID of row.group_ids || [row.group_id]) {
+      if (!existing.group_ids?.includes(groupID)) existing.group_ids?.push(groupID)
+    }
+    for (const name of row.group_names || []) {
+      if (!existing.group_names?.includes(name)) existing.group_names?.push(name)
+    }
+    for (const limit of row.group_limits || []) {
+      if (!existing.group_limits?.some((item) => item.group_id === limit.group_id)) {
+        existing.group_limits?.push(limit)
+      }
+    }
+    for (const usage of row.group_usages || []) {
+      if (!existing.group_usages?.some((item) => item.group_id === usage.group_id)) {
+        existing.group_usages?.push(usage)
+      }
+    }
+  }
+
+  return merged
 }
 
 const loadGroups = async () => {
@@ -1633,7 +1816,7 @@ const handleAssignSubscription = async () => {
     appStore.showError(t('admin.subscriptions.pleaseSelectEnterprise'))
     return
   }
-  const byPlan = assignTarget.value === 'user' && assignSource.value === 'plan'
+  const byPlan = assignSource.value === 'plan'
   if (byPlan && !assignForm.plan_id) {
     appStore.showError(t('admin.subscriptions.pleaseSelectPlan'))
     return
@@ -1650,7 +1833,11 @@ const handleAssignSubscription = async () => {
   submitting.value = true
   try {
     if (assignTarget.value === 'organization') {
-      await organizationAPI.assignOrganizationSubscription(assignForm.organization_id!, assignForm.group_id!, assignForm.validity_days)
+      await organizationAPI.assignOrganizationSubscription(
+        assignForm.organization_id!,
+        byPlan ? { plan_id: assignForm.plan_id! } : { group_id: assignForm.group_id! },
+        assignForm.validity_days
+      )
     } else {
       // group_id 与 plan_id 必须互斥地发出：后端拒绝同时收到两者，因为各自带一套
       // 分组集合与有效期，偏向任何一方都会让另一方看起来也生效了。
@@ -1699,7 +1886,13 @@ const handleExtendSubscription = async () => {
   submitting.value = true
   try {
     if (extendingSubscription.value.subject_type === 'organization') {
-      await organizationAPI.extendAdminOrganizationSubscription(extendingSubscription.value.id, extendForm.days)
+      for (const subscriptionID of sharedSubscriptionIds(extendingSubscription.value)) {
+        await organizationAPI.extendAdminOrganizationSubscription(subscriptionID, extendForm.days)
+      }
+    } else if (extendingSubscription.value.shared_subscription_ids?.length) {
+      for (const subscriptionID of sharedSubscriptionIds(extendingSubscription.value)) {
+        await adminAPI.subscriptions.extend(subscriptionID, { days: extendForm.days })
+      }
     } else {
       await adminAPI.subscriptions.extend(extendingSubscription.value.id, { days: extendForm.days })
     }
@@ -1724,7 +1917,13 @@ const confirmRevoke = async () => {
 
   try {
     if (revokingSubscription.value.subject_type === 'organization') {
-      await organizationAPI.revokeAdminOrganizationSubscription(revokingSubscription.value.id)
+      for (const subscriptionID of sharedSubscriptionIds(revokingSubscription.value)) {
+        await organizationAPI.revokeAdminOrganizationSubscription(subscriptionID)
+      }
+    } else if (revokingSubscription.value.shared_subscription_ids?.length) {
+      for (const subscriptionID of sharedSubscriptionIds(revokingSubscription.value)) {
+        await adminAPI.subscriptions.revoke(subscriptionID)
+      }
     } else {
       await adminAPI.subscriptions.revoke(revokingSubscription.value.id)
     }
@@ -1770,6 +1969,11 @@ const confirmResetQuota = async () => {
   try {
     if (resettingSubscription.value.subject_type === 'organization') {
       await organizationAPI.resetAdminOrganizationSubscriptionQuota(resettingSubscription.value.id)
+      // One enterprise reset clears the shared package pool and all bound rows.
+    } else if (resettingSubscription.value.shared_subscription_ids?.length) {
+      for (const subscriptionID of sharedSubscriptionIds(resettingSubscription.value)) {
+        await adminAPI.subscriptions.resetQuota(subscriptionID, { daily: true, weekly: true, monthly: true })
+      }
     } else {
       await adminAPI.subscriptions.resetQuota(resettingSubscription.value.id, { daily: true, weekly: true, monthly: true })
     }
@@ -1792,6 +1996,11 @@ const subscriptionSubjectName = (subscription: AdminSubscriptionRow | null): str
     ? subscription.organization?.name || `#${subscription.organization?.id || subscription.id}`
     : subscription.user?.email || `#${subscription.user_id}`
 }
+
+const sharedSubscriptionIds = (subscription: AdminSubscriptionRow): number[] =>
+  subscription.shared_subscription_ids?.length
+    ? subscription.shared_subscription_ids
+    : [subscription.id]
 
 const getDaysRemaining = (expiresAt: string): number | null => {
   const now = new Date()
@@ -1924,21 +2133,3 @@ onUnmounted(() => {
   }
 })
 </script>
-
-<style scoped>
-.usage-row {
-  @apply space-y-1;
-}
-
-.usage-label {
-  @apply w-10 flex-shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400;
-}
-
-.usage-amount {
-  @apply whitespace-nowrap text-xs tabular-nums text-gray-600 dark:text-gray-300;
-}
-
-.reset-info {
-  @apply flex items-center gap-1 pl-12 text-[10px] text-blue-600 dark:text-blue-400;
-}
-</style>

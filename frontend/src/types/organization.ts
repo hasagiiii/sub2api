@@ -135,6 +135,7 @@ export interface OrganizationSubscription {
   organization_name?: string
   company_id?: string
   group_id: number
+  plan_id?: number
   group_name: string
   platform: string
   subscription_type: string
@@ -145,9 +146,15 @@ export interface OrganizationSubscription {
   daily_limit_usd?: string
   weekly_limit_usd?: string
   monthly_limit_usd?: string
+  plan_daily_limit_usd?: string
+  plan_weekly_limit_usd?: string
+  plan_monthly_limit_usd?: string
   daily_usage_usd: string
   weekly_usage_usd: string
   monthly_usage_usd: string
+  group_daily_usage_usd?: string
+  group_weekly_usage_usd?: string
+  group_monthly_usage_usd?: string
   notes?: string
   assigned_by?: number
   assigned_at: string
@@ -227,7 +234,7 @@ export interface OrganizationUsageRow {
   first_token_ms?: number | null
   duration_ms?: number
   created_at: string
-  balance_source?: 'self' | 'allocated' | 'shared' | 'company' | 'subscription'
+  balance_source?: 'self' | 'allocated' | 'shared' | 'company' | 'subscription' | 'personal_sub'
   /**
    * task_id：关联 async_video_tasks.id。仅视频计费行会有值。
    * 使用记录里视频行点"详情"按钮时用它调 /user/video-models/tasks/by-id/:id。

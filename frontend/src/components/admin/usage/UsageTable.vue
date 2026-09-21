@@ -880,7 +880,12 @@ const getRequestTypeLabel = (row: AdminUsageLog): string => {
 }
 
 const balanceSourceLabel = (row: AdminUsageLog): string => {
-  const source = row.balance_source || (row.billing_type === 1 ? 'subscription' : 'self')
+  // billing_type is the authoritative charge path. Keep subscription rows
+  // labeled as such even when older records captured the organization wallet
+  // as balance_source during settlement.
+  const source = row.balance_source === 'personal_sub'
+    ? 'personal_sub'
+    : (row.billing_type === 1 ? 'subscription' : (row.balance_source || 'self'))
   const key = `organization.balanceSource.${source}`
   const translated = t(key)
   return translated === key ? source : translated

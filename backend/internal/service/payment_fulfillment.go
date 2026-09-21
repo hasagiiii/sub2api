@@ -709,8 +709,8 @@ func (s *PaymentService) doSub(ctx context.Context, o *dbent.PaymentOrder, lease
 	// 份额度池。绝不能按分组各发一条——限额是套餐级的，每组一条会让用户用一份
 	// 钱拿到分组数倍的额度。
 	//
-	// 企业订阅是另一套模型（organization_subscriptions 的限额仍取自各自分组），
-	// 保持按分组逐条发放不变。
+	// 企业订阅是另一套模型：仍按分组逐条发放以保留 API Key 绑定入口，但带
+	// plan_id 的行会按套餐限额规则共享套餐额度；完全未配置套餐限额时才按分组独立。
 	if o.OrganizationID != nil {
 		for _, gid := range groupIDs {
 			if err := s.ensurePaymentOrganizationSubscriptionAssigned(ctx, o, *o.OrganizationID, gid, days); err != nil {
@@ -745,7 +745,11 @@ func (s *PaymentService) ensurePaymentOrganizationSubscriptionAssigned(ctx conte
 		slog.Info("organization subscription already assigned for order, skipping", "orderID", o.ID, "orgID", orgID, "groupID", groupID)
 		return nil
 	}
-	if err := s.orgSubFulfiller.FulfillOrganizationSubscriptionOrder(ctx, orgID, groupID, days, o.ID); err != nil {
+	if planFulfiller, ok := s.orgSubFulfiller.(OrganizationSubscriptionPlanFulfiller); ok && o.PlanID != nil && *o.PlanID > 0 {
+		if err := planFulfiller.FulfillOrganizationSubscriptionPlanOrder(ctx, orgID, groupID, *o.PlanID, days, o.ID); err != nil {
+			return fmt.Errorf("assign organization subscription plan: %w", err)
+		}
+	} else if err := s.orgSubFulfiller.FulfillOrganizationSubscriptionOrder(ctx, orgID, groupID, days, o.ID); err != nil {
 		return fmt.Errorf("assign organization subscription: %w", err)
 	}
 	detail, _ := json.Marshal(map[string]any{

@@ -4,10 +4,11 @@ import { defineComponent } from 'vue'
 
 import SubscriptionsView from '../SubscriptionsView.vue'
 
-const { listSubscriptions, getAllGroups, assignSubscription, getPlans, searchUsers, listUsers, listAdminOrganizationSubscriptions, listOrganizations } = vi.hoisted(() => ({
+const { listSubscriptions, getAllGroups, assignSubscription, assignOrganizationSubscription, getPlans, searchUsers, listUsers, listAdminOrganizationSubscriptions, listOrganizations } = vi.hoisted(() => ({
   listSubscriptions: vi.fn(),
   getAllGroups: vi.fn(),
   assignSubscription: vi.fn(),
+  assignOrganizationSubscription: vi.fn(),
   getPlans: vi.fn(),
   searchUsers: vi.fn(),
   listUsers: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/api/organization', () => ({
   organizationAPI: {
+    assignOrganizationSubscription,
     listOrganizations,
     listAdminOrganizationSubscriptions
   }
@@ -129,7 +131,7 @@ describe('admin subscription assignment by plan', () => {
     localStorage.clear()
     listSubscriptions.mockResolvedValue({ items: [], total: 0, pages: 0 })
     listAdminOrganizationSubscriptions.mockResolvedValue({ items: [], total: 0, pages: 0 })
-    listOrganizations.mockResolvedValue({ items: [], total: 0 })
+    listOrganizations.mockResolvedValue({ items: [{ id: 1, name: 'Acme', company_id: 'c1', account_id: 'a1' }], total: 1 })
     searchUsers.mockResolvedValue([{ id: 42, email: 'reader@example.com', username: 'Reader' }])
     listUsers.mockResolvedValue({ items: [{ id: 42, email: 'reader@example.com', username: 'Reader' }] })
     getAllGroups.mockResolvedValue([
@@ -137,6 +139,7 @@ describe('admin subscription assignment by plan', () => {
       { id: 4, name: 'Beta', platform: 'gemini', status: 'active', subscription_type: 'subscription', rate_multiplier: 1 }
     ])
     assignSubscription.mockResolvedValue({})
+    assignOrganizationSubscription.mockResolvedValue([])
     getPlans.mockResolvedValue({
       data: [{
         id: 77,
@@ -209,6 +212,29 @@ describe('admin subscription assignment by plan', () => {
     expect(payload.plan_id).toBeUndefined()
   })
 
+  it('submits only the plan id when assigning to an enterprise', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+    const assignButton = wrapper.findAll('button').find(button => button.text().includes('assignSubscription'))
+    await assignButton!.trigger('click')
+    await flushPromises()
+
+    const enterpriseButton = wrapper.findAll('button').find(button => button.text().includes('enterprise'))
+    await enterpriseButton!.trigger('click')
+    const form = wrapper.find('#assign-subscription-form')
+    const selects = form.findAll('select')
+    await selects[0].setValue('1')
+    const byPlanButton = form.findAll('button').find(button => button.text().includes('byPlan'))
+    await byPlanButton!.trigger('click')
+    const planSelect = form.findAll('select').at(-1)!
+    await planSelect.setValue('77')
+    await form.trigger('submit')
+    await flushPromises()
+
+    expect(assignOrganizationSubscription).toHaveBeenCalledTimes(1)
+    expect(assignOrganizationSubscription).toHaveBeenCalledWith(1, { plan_id: 77 }, 90)
+  })
+
   // 套餐订阅是一条覆盖多个分组的订阅，列表只显示主分组会让管理员以为它只作用于
   // 一个分组。
   it('lists every group a subscription covers', async () => {
@@ -249,5 +275,87 @@ describe('admin subscription assignment by plan', () => {
     const usage = wrapper.find('[data-usage-cell]').text()
     expect(usage).toContain('$20.00')
     expect(usage).not.toContain('unlimited')
+  })
+
+  it('merges enterprise plan groups into one shared quota row with per-group usage', async () => {
+    const organizationRow = (overrides: Record<string, unknown>) => ({
+      id: 101,
+      organization_id: 8,
+      organization_name: 'Acme',
+      group_id: 3,
+      plan_id: 77,
+      group_name: 'Alpha',
+      platform: 'openai',
+      subscription_type: 'subscription',
+      rate_multiplier: 1,
+      starts_at: '2026-01-01T00:00:00Z',
+      expires_at: '2026-12-01T00:00:00Z',
+      status: 'active',
+      plan_daily_limit_usd: '10',
+      daily_usage_usd: '8',
+      weekly_usage_usd: '0',
+      monthly_usage_usd: '0',
+      group_daily_usage_usd: '6',
+      assigned_at: '2026-01-01T00:00:00Z',
+      created_at: '2026-01-01T00:00:00Z',
+      ...overrides
+    })
+    listAdminOrganizationSubscriptions.mockResolvedValue({
+      items: [
+        organizationRow({}),
+        organizationRow({ id: 102, group_id: 4, group_name: 'Beta', platform: 'gemini', group_daily_usage_usd: '2' })
+      ],
+      total: 2,
+      pages: 1
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-row]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-group-badge]').map(badge => badge.text())).toEqual(['Alpha', 'Beta'])
+    const usage = wrapper.find('[data-usage-cell]').text()
+    expect(usage).toContain('$8.00 / $10.00')
+    expect(usage).toContain('Alpha')
+    expect(usage).toContain('$6.00 / $10.00')
+    expect(usage).toContain('Beta')
+    expect(usage).toContain('$2.00 / $10.00')
+  })
+
+  it('merges legacy personal plan rows in the admin subscription list', async () => {
+    listSubscriptions.mockResolvedValue({
+      items: [
+        subscriptionRow({
+          id: 201,
+          plan_id: 77,
+          group_id: 3,
+          group_ids: [3],
+          group_names: ['Alpha'],
+          plan_daily_limit_usd: 10,
+          daily_usage_usd: 8,
+          group_usages: [{ group_id: 3, daily_usage_usd: 6, weekly_usage_usd: 0, monthly_usage_usd: 0 }],
+          group: { id: 3, name: 'Alpha', platform: 'openai' }
+        }),
+        subscriptionRow({
+          id: 202,
+          plan_id: 77,
+          group_id: 4,
+          group_ids: [4],
+          group_names: ['Beta'],
+          plan_daily_limit_usd: 10,
+          daily_usage_usd: 8,
+          group_usages: [{ group_id: 4, daily_usage_usd: 2, weekly_usage_usd: 0, monthly_usage_usd: 0 }],
+          group: { id: 4, name: 'Beta', platform: 'gemini' }
+        })
+      ],
+      total: 2,
+      pages: 1
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-row]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-group-badge]').map(badge => badge.text())).toEqual(['Alpha', 'Beta'])
   })
 })

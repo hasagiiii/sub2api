@@ -380,7 +380,7 @@
         {{ t('organization.subscriptions.empty') }}
       </div>
       <div v-else class="card overflow-x-auto">
-        <table class="w-full min-w-[820px] text-sm">
+        <table class="w-full min-w-[760px] text-sm">
           <thead class="bg-gray-50 text-left text-xs font-medium uppercase text-gray-500 dark:bg-dark-800 dark:text-dark-400">
             <tr>
               <th class="p-3">{{ t('organization.subscriptions.group') }}</th>
@@ -388,25 +388,92 @@
               <th class="p-3">{{ t('organization.subscriptions.status') }}</th>
               <th class="p-3">{{ t('organization.subscriptions.usage') }}</th>
               <th class="p-3">{{ t('organization.subscriptions.expiresAt') }}</th>
-              <th v-if="canManageSubscriptions" class="p-3">{{ t('common.actions') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-200 bg-white text-sm text-gray-900 dark:divide-dark-700 dark:bg-dark-900 dark:text-white">
-            <tr v-for="item in subscriptions" :key="item.id" class="border-t border-gray-100 dark:border-dark-700">
+            <tr v-for="item in organizationSubscriptionRows" :key="item.id" class="border-t border-gray-100 dark:border-dark-700">
               <td class="p-3">
-                <div class="font-medium">{{ item.group_name }}</div>
-                <div class="text-xs text-gray-500">{{ item.platform }} · {{ item.subscription_type }}</div>
+                <template v-if="item.shared_plan">
+                  <div class="font-medium">{{ item.display_groups.map(group => group.group_name).join('、') }}</div>
+                  <div class="text-xs text-gray-500">{{ t('organization.subscriptions.sharedPlan') }}</div>
+                </template>
+                <template v-else>
+                  <div class="font-medium">{{ item.group_name }}</div>
+                  <div class="text-xs text-gray-500">{{ item.platform }} · {{ item.subscription_type }}</div>
+                </template>
               </td>
               <td class="p-3 whitespace-nowrap">{{ item.rate_multiplier }}x</td>
               <td class="p-3"><span :class="subscriptionStatusClass(item.status)">{{ t(`organization.subscriptions.statuses.${item.status}`) }}</span></td>
-              <td class="p-3 text-xs">
-                <div>{{ t('organization.subscriptions.daily') }}: {{ formatMoney(item.daily_usage_usd) }}<template v-if="item.daily_limit_usd"> / {{ formatMoney(item.daily_limit_usd) }}</template></div>
-                <div>{{ t('organization.subscriptions.monthly') }}: {{ formatMoney(item.monthly_usage_usd) }}<template v-if="item.monthly_limit_usd"> / {{ formatMoney(item.monthly_limit_usd) }}</template></div>
+              <td class="p-3 align-top text-xs">
+                <template v-if="item.shared_plan">
+                  <div class="space-y-3">
+                    <div v-for="period in organizationPlanPeriods(item)" :key="period" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                      <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                        <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
+                        <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t(`organization.subscriptions.${period}`) }}</h4>
+                      </div>
+                      <div class="space-y-2 px-1 pt-1">
+                        <div class="flex items-center justify-between gap-3">
+                          <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('organization.subscriptions.usage') }}</span>
+                          <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatMoney(organizationSubscriptionUsage(item, period)) }} / {{ formatMoney(organizationSubscriptionLimit(item, period)) }}</span>
+                        </div>
+                        <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                          <div class="absolute inset-y-0 left-0 rounded-full bg-primary-500 transition-all duration-300" :style="{ width: organizationProgressWidth(organizationSubscriptionUsage(item, period), organizationSubscriptionLimit(item, period)) }" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mt-3 space-y-3 border-t border-gray-200 pt-3 dark:border-dark-600">
+                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('organization.subscriptions.groupUsage') }}</div>
+                    <div v-for="group in item.display_groups" :key="group.id" class="space-y-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-dark-600 dark:bg-dark-800/60">
+                      <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                        <span class="h-2 w-1 shrink-0 rounded-full bg-gray-400 dark:bg-dark-400" />
+                        <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300">{{ group.group_name }}</h4>
+                      </div>
+                      <div class="space-y-3 px-1 pt-1">
+                        <div v-for="period in organizationPlanPeriods(item)" :key="`${group.id}-${period}`" class="space-y-2">
+                          <div class="flex items-center justify-between gap-3">
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t(`organization.subscriptions.${period}`) }}</span>
+                            <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatMoney(organizationGroupUsage(group, period)) }} / {{ formatMoney(organizationSubscriptionLimit(item, period)) }}</span>
+                          </div>
+                          <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                            <div class="absolute inset-y-0 left-0 rounded-full bg-gray-500 transition-all duration-300 dark:bg-gray-400" :style="{ width: organizationProgressWidth(organizationGroupUsage(group, period), organizationSubscriptionLimit(item, period)) }" />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+                <template v-else>
+                  <div v-if="organizationPlanPeriods(item).length > 0" class="space-y-3">
+                    <div v-for="period in organizationPlanPeriods(item)" :key="period" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                      <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                        <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
+                        <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t(`organization.subscriptions.${period}`) }}</h4>
+                      </div>
+                      <div class="space-y-2 px-1 pt-1">
+                        <div class="flex items-center justify-between gap-3">
+                          <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('organization.subscriptions.usage') }}</span>
+                          <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatMoney(organizationSubscriptionUsage(item, period)) }} / {{ formatMoney(subscriptionLimit(item, period)) }}</span>
+                        </div>
+                        <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                          <div class="absolute inset-y-0 left-0 rounded-full bg-primary-500 transition-all duration-300" :style="{ width: organizationProgressWidth(organizationSubscriptionUsage(item, period), subscriptionLimit(item, period)) }" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-else class="flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 py-6 dark:from-emerald-900/20 dark:to-teal-900/20">
+                    <div class="flex items-center gap-3">
+                      <span class="text-4xl text-emerald-600 dark:text-emerald-400">∞</span>
+                      <div>
+                        <p class="text-sm font-medium text-emerald-700 dark:text-emerald-300">{{ t('organization.subscriptions.unlimited') }}</p>
+                        <p class="text-xs text-emerald-600/70 dark:text-emerald-400/70">{{ t('organization.subscriptions.unlimitedDesc') }}</p>
+                      </div>
+                    </div>
+                  </div>
+                </template>
               </td>
               <td class="p-3 whitespace-nowrap">{{ formatSubscriptionDate(item.expires_at) }}</td>
-              <td v-if="canManageSubscriptions" class="p-3">
-                <button class="btn btn-ghost btn-sm text-red-600" :disabled="item.status !== 'active' || operationKey !== ''" @click="cancelSubscription(item)">{{ t('organization.subscriptions.cancel') }}</button>
-              </td>
             </tr>
           </tbody>
         </table>
@@ -1206,6 +1273,34 @@ const showPurchase = ref(false)
 // 使其直接进入该套餐的付款确认页，而非再展示一次套餐列表。
 const selectedPlanId = ref<number | null>(null)
 
+type OrganizationSubscriptionDisplay = OrganizationSubscription & {
+  shared_plan: boolean
+  display_groups: OrganizationSubscription[]
+}
+
+const organizationSubscriptionRows = computed<OrganizationSubscriptionDisplay[]>(() => {
+  const rows: OrganizationSubscriptionDisplay[] = []
+  const shared = new Map<string, OrganizationSubscriptionDisplay>()
+  for (const item of subscriptions.value) {
+    const hasPlanLimits = [item.plan_daily_limit_usd, item.plan_weekly_limit_usd, item.plan_monthly_limit_usd]
+      .some((limit) => Number(limit ?? 0) > 0)
+    if (item.plan_id == null || !hasPlanLimits) {
+      rows.push({ ...item, shared_plan: false, display_groups: [item] })
+      continue
+    }
+    const key = `${item.organization_id}:${item.plan_id}`
+    const existing = shared.get(key)
+    if (existing) {
+      existing.display_groups.push(item)
+      continue
+    }
+    const display = { ...item, shared_plan: true, display_groups: [item] }
+    shared.set(key, display)
+    rows.push(display)
+  }
+  return rows
+})
+
 const isOwner = computed(() => organization.value?.role === 'owner')
 const actions = computed(() => organization.value?.actions || [])
 const canViewCompanyFinance = computed(() => isOwner.value || actions.value.includes('organization.finance.balance.read') || actions.value.includes('organization.balance.allocate') || actions.value.includes('organization.spend_limit.manage') || actions.value.includes('organization.subscription.manage'))
@@ -1340,6 +1435,49 @@ function formatMoney(value: string | number | null | undefined): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(amount)
+}
+
+function subscriptionLimit(item: OrganizationSubscription, window: 'daily' | 'weekly' | 'monthly'): string | undefined {
+  const planLimits = [item.plan_daily_limit_usd, item.plan_weekly_limit_usd, item.plan_monthly_limit_usd]
+  const hasPlanLimits = planLimits.some((limit) => Number(limit ?? 0) > 0)
+  const positive = (limit: string | undefined): string | undefined => Number(limit ?? 0) > 0 ? limit : undefined
+  if (hasPlanLimits) {
+    if (window === 'daily') return positive(item.plan_daily_limit_usd)
+    if (window === 'weekly') return positive(item.plan_weekly_limit_usd)
+    return positive(item.plan_monthly_limit_usd)
+  }
+  if (window === 'daily') return positive(item.daily_limit_usd)
+  if (window === 'weekly') return positive(item.weekly_limit_usd)
+  return positive(item.monthly_limit_usd)
+}
+
+function organizationSubscriptionLimit(item: OrganizationSubscription, period: string): string | undefined {
+  if (period === 'daily' || period === 'weekly' || period === 'monthly') return subscriptionLimit(item, period)
+  return undefined
+}
+
+function organizationPlanPeriods(item: OrganizationSubscription): Array<'daily' | 'weekly' | 'monthly'> {
+  return (['daily', 'weekly', 'monthly'] as const)
+    .filter((period) => Number(organizationSubscriptionLimit(item, period) ?? 0) > 0)
+}
+
+function organizationSubscriptionUsage(item: OrganizationSubscription, period: string): string {
+  if (period === 'daily') return item.daily_usage_usd
+  if (period === 'weekly') return item.weekly_usage_usd
+  return item.monthly_usage_usd
+}
+
+function organizationGroupUsage(item: OrganizationSubscription, period: string): string {
+  if (period === 'daily') return item.group_daily_usage_usd || item.daily_usage_usd
+  if (period === 'weekly') return item.group_weekly_usage_usd || item.weekly_usage_usd
+  return item.group_monthly_usage_usd || item.monthly_usage_usd
+}
+
+function organizationProgressWidth(used: string | number | undefined, limit: string | undefined): string {
+  const denominator = Number(limit || 0)
+  if (!Number.isFinite(denominator) || denominator <= 0) return '0%'
+  const numerator = Math.max(0, Number(used || 0))
+  return `${Math.min((Number.isFinite(numerator) ? numerator : 0) / denominator * 100, 100)}%`
 }
 
 function formatSpendUsage(used: string, limit?: string): string {
@@ -1548,19 +1686,6 @@ function onPurchaseFulfilled() {
   showPurchase.value = false
   selectedPlanId.value = null
   void loadSubscriptions()
-}
-
-async function cancelSubscription(item: OrganizationSubscription) {
-  operationKey.value = `subscription:${item.id}`
-  error.value = ''
-  try {
-    await organizationAPI.cancelSubscription(item.id)
-    await loadSubscriptions()
-  } catch (cause) {
-    error.value = errorMessage(cause)
-  } finally {
-    operationKey.value = ''
-  }
 }
 
 function isBusy(member: IAMMember): boolean {

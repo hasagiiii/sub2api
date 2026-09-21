@@ -288,6 +288,34 @@ func TestOrganizationServiceAdminCreateOrganizationSubscriptionRejectsInvalidVal
 	require.Zero(t, repo.adminActorID)
 }
 
+func TestOrgSubscriptionRuntimeUsesPackageLimitsForEveryWindow(t *testing.T) {
+	planDaily, groupDaily, groupWeekly := 10.0, 3.0, 4.0
+	runtime := &OrgSubscriptionRuntime{
+		DailyUsageUSD:  9,
+		WeeklyUsageUSD: 9,
+		DailyLimitUSD:  &groupDaily,
+		WeeklyLimitUSD: &groupWeekly,
+		PlanLimits:     SubscriptionLimits{DailyLimitUSD: &planDaily},
+	}
+
+	daily, weekly, monthly := runtime.CheckAllLimits(1)
+	require.True(t, daily, "package daily limit should replace the group daily limit")
+	require.True(t, weekly, "an unconfigured package window should be unlimited")
+	require.True(t, monthly, "an unconfigured package window should be unlimited")
+}
+
+func TestOrgSubscriptionRuntimeWithoutPackageLimitsUsesGroupLimits(t *testing.T) {
+	groupDaily := 10.0
+	runtime := &OrgSubscriptionRuntime{DailyUsageUSD: 9, DailyLimitUSD: &groupDaily}
+
+	daily, weekly, monthly := runtime.CheckAllLimits(1)
+	require.True(t, daily)
+	require.True(t, weekly)
+	require.True(t, monthly)
+	daily, _, _ = runtime.CheckAllLimits(1.1)
+	require.False(t, daily)
+}
+
 func TestOrganizationServiceAuthenticateIAMParsesCanonicalPrincipal(t *testing.T) {
 	validPassword := "correct-password"
 	hash, err := bcrypt.GenerateFromPassword([]byte(validPassword), bcrypt.MinCost)
@@ -410,6 +438,13 @@ func TestOrganizationServiceRejectsInvalidSpendLimitConfiguration(t *testing.T) 
 	require.ErrorIs(t, err, ErrSpendLimitThreshold)
 	_, err = svc.UpsertSpendLimitRules(context.Background(), 1, nil, &daily, nil, true, 80, []string{"not-an-email"})
 	require.Error(t, err)
+}
+
+func TestOrganizationServiceRejectsPaidSubscriptionCancellation(t *testing.T) {
+	svc := NewOrganizationService(&organizationRepoStub{}, &organizationUserRepoStub{}, companyTestConfig())
+
+	require.ErrorIs(t, svc.CancelOrganizationSubscription(context.Background(), 1, 42), ErrOrgSubscriptionCannotCancel)
+	require.ErrorIs(t, svc.CancelOrganizationSubscription(context.Background(), 1, 0), ErrOrgSubscriptionNotFound)
 }
 
 func TestBillingContextResolverChecksOnlyCompanySponsoredSources(t *testing.T) {

@@ -49,7 +49,7 @@ func TestEnterpriseSubscriptionSnapshotsUsageBalanceSource(t *testing.T) {
 	organizationSubscriptionID := int64(501)
 	usageLog := &UsageLog{}
 	resolved := &BillingContext{BalanceSource: "allocated"}
-	snapshotEnterpriseSubscriptionSource(usageLog, &postUsageBillingParams{
+	snapshotSubscriptionBalanceSource(usageLog, &postUsageBillingParams{
 		IsSubscriptionBill: true,
 		APIKey:             &APIKey{OrganizationSubscriptionID: &organizationSubscriptionID},
 	}, resolved)
@@ -57,4 +57,18 @@ func TestEnterpriseSubscriptionSnapshotsUsageBalanceSource(t *testing.T) {
 	require.Equal(t, "subscription", resolved.BalanceSource)
 	require.NotNil(t, usageLog.BalanceSource)
 	require.Equal(t, "subscription", *usageLog.BalanceSource)
+}
+
+func TestPersonalSubscriptionSnapshotsUsageBalanceSourceWhenOrganizationWalletIsPreferred(t *testing.T) {
+	usageLog := &UsageLog{}
+	resolved := &BillingContext{BalanceSource: BalanceSourceCompany}
+	snapshotSubscriptionBalanceSource(usageLog, &postUsageBillingParams{
+		IsSubscriptionBill: true,
+		APIKey:             &APIKey{Group: &Group{SubscriptionType: SubscriptionTypeSubscription}},
+		Subscription:       &UserSubscription{ID: 9},
+	}, resolved)
+
+	require.Equal(t, BalanceSourcePersonalSubscription, resolved.BalanceSource)
+	require.NotNil(t, usageLog.BalanceSource)
+	require.Equal(t, BalanceSourcePersonalSubscription, *usageLog.BalanceSource)
 }

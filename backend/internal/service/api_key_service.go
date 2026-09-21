@@ -707,17 +707,25 @@ func (s *APIKeyService) ValidateEnterpriseSubscription(ctx context.Context, apiK
 		}
 		return now.Sub(*t).String()
 	}
+	fmtPlanID := func(p *int64) string {
+		if p == nil {
+			return "nil"
+		}
+		return fmt.Sprintf("%d", *p)
+	}
 	logger.LegacyPrintf(
 		"service.api_key",
-		"DIAG_ENTERPRISE_LIMIT stage=snapshot api_key_id=%d org_sub_id=%d org_id=%d group_id=%d status=%s starts_at=%s expires_at=%s now=%s "+
+		"DIAG_ENTERPRISE_LIMIT stage=snapshot api_key_id=%d org_sub_id=%d org_id=%d group_id=%d plan_id=%s status=%s starts_at=%s expires_at=%s now=%s "+
 			"daily_usage=%f daily_limit=%s daily_window_start=%s daily_window_age=%s "+
 			"weekly_usage=%f weekly_limit=%s weekly_window_start=%s weekly_window_age=%s "+
-			"monthly_usage=%f monthly_limit=%s monthly_window_start=%s monthly_window_age=%s",
-		apiKey.ID, rt.ID, rt.OrganizationID, rt.GroupID, rt.Status,
+			"monthly_usage=%f monthly_limit=%s monthly_window_start=%s monthly_window_age=%s "+
+			"plan_limits={daily:%s weekly:%s monthly:%s}",
+		apiKey.ID, rt.ID, rt.OrganizationID, rt.GroupID, fmtPlanID(rt.PlanID), rt.Status,
 		rt.StartsAt.Format(time.RFC3339), rt.ExpiresAt.Format(time.RFC3339), now.Format(time.RFC3339),
 		rt.DailyUsageUSD, fmtLimit(rt.DailyLimitUSD), fmtWin(rt.DailyWindowStart), winAge(rt.DailyWindowStart),
 		rt.WeeklyUsageUSD, fmtLimit(rt.WeeklyLimitUSD), fmtWin(rt.WeeklyWindowStart), winAge(rt.WeeklyWindowStart),
 		rt.MonthlyUsageUSD, fmtLimit(rt.MonthlyLimitUSD), fmtWin(rt.MonthlyWindowStart), winAge(rt.MonthlyWindowStart),
+		fmtLimit(rt.PlanLimits.DailyLimitUSD), fmtLimit(rt.PlanLimits.WeeklyLimitUSD), fmtLimit(rt.PlanLimits.MonthlyLimitUSD),
 	)
 	if !rt.IsActive() {
 		logger.LegacyPrintf(

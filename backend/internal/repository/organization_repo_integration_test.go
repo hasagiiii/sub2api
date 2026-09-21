@@ -651,6 +651,57 @@ func TestAdminCreateOrganizationSubscription(t *testing.T) {
 	require.NotEmpty(t, items[0].OrganizationName)
 }
 
+func TestOrganizationSubscriptionPlanQuotaIsSharedAcrossGroups(t *testing.T) {
+	isolateOrganizationIntegrationTest(t)
+	ctx := context.Background()
+	repo := NewOrganizationRepository(integrationDB)
+	admin := createOrganizationRoot(t, integrationEntClient, 100, service.RoleAdmin)
+	owner := createOrganizationRoot(t, integrationEntClient, 100, service.RoleUser)
+	organizationID := createActiveOrganization(t, owner, 20)
+	groupIDs := make([]int64, 0, 2)
+	for _, name := range []string{"orgsub-shared-a-" + uuid.NewString(), "orgsub-shared-b-" + uuid.NewString()} {
+		var groupID int64
+		require.NoError(t, integrationDB.QueryRowContext(ctx,
+			`INSERT INTO groups(name,status,platform,subscription_type,default_validity_days,daily_limit_usd,rate_multiplier) VALUES($1,'active','codex','subscription',30,100,0.2) RETURNING id`, name).Scan(&groupID))
+		groupIDs = append(groupIDs, groupID)
+	}
+	var planID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO subscription_plans(group_id,group_ids,name,price,validity_days,daily_limit_usd) VALUES($1,$2::jsonb,$3,10,30,10) RETURNING id`, groupIDs[0], fmt.Sprintf("[%d,%d]", groupIDs[0], groupIDs[1]), "org-shared-plan-"+uuid.NewString()).Scan(&planID))
+
+	assigned, err := repo.AdminCreateOrganizationSubscriptionsByPlan(ctx, admin.ID, organizationID, planID, 30, "shared")
+	require.NoError(t, err)
+	require.Len(t, assigned, 2)
+
+	require.NoError(t, repo.IncrementOrganizationSubscriptionUsage(ctx, assigned[0].ID, 6))
+	runtime, err := repo.GetOrganizationSubscriptionForBilling(ctx, assigned[1].ID)
+	require.NoError(t, err)
+	require.InDelta(t, 6, runtime.DailyUsageUSD, 0.000001)
+	daily, _, _ := runtime.CheckAllLimits(4)
+	require.True(t, daily)
+	daily, _, _ = runtime.CheckAllLimits(4.1)
+	require.False(t, daily, "the second group must consume the same package quota")
+
+	require.NoError(t, repo.IncrementOrganizationSubscriptionUsage(ctx, assigned[1].ID, 2))
+	runtime, err = repo.GetOrganizationSubscriptionForBilling(ctx, assigned[0].ID)
+	require.NoError(t, err)
+	require.InDelta(t, 8, runtime.DailyUsageUSD, 0.000001)
+
+	items, total, err := repo.AdminListOrganizationSubscriptions(ctx, admin.ID, 1, 20, nil, service.SubscriptionStatusActive, "", "created_at", "desc")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), total)
+	require.Len(t, items, 2)
+	groupUsage := make(map[int64]float64, len(items))
+	for _, item := range items {
+		require.NotNil(t, item.PlanID)
+		require.Equal(t, planID, *item.PlanID)
+		require.InDelta(t, 8, mustParseFloat(t, item.DailyUsageUSD), 0.000001)
+		groupUsage[item.GroupID] = mustParseFloat(t, item.GroupDailyUsageUSD)
+	}
+	require.InDelta(t, 6, groupUsage[groupIDs[0]], 0.000001)
+	require.InDelta(t, 2, groupUsage[groupIDs[1]], 0.000001)
+}
+
 // 过期的企业订阅必须能被重新分配。
 //
 // 唯一索引只看 deleted_at，过期行会一直占着 (organization_id, group_id)；若在冲突时
@@ -964,6 +1015,33 @@ func TestOrganizationUsageFiltersCannotCrossOrganizationAndHistoricalNullsRemain
 	require.NoError(t, err)
 	require.Nil(t, historical.OrganizationID)
 	require.Nil(t, historical.PayerUserID)
+}
+
+func TestOrganizationUsageDistinguishesPersonalSubscriptionFromEnterpriseSubscription(t *testing.T) {
+	isolateOrganizationIntegrationTest(t)
+	ctx := context.Background()
+	repo := NewOrganizationRepository(integrationDB)
+	owner := createOrganizationRoot(t, integrationEntClient, 100, service.RoleUser)
+	organizationID := createActiveOrganization(t, owner, 20)
+	memberID := createIAMMemberForOrganizationTest(t, owner.ID, "usage-personal-subscription")
+	apiKey := mustCreateApiKey(t, integrationEntClient, &service.APIKey{UserID: memberID})
+	account := mustCreateAccount(t, integrationEntClient, &service.Account{Name: "organization-personal-subscription-account"})
+	requestID := "personal-subscription-" + uuid.NewString()
+	t.Cleanup(func() {
+		_, _ = integrationDB.ExecContext(context.Background(), `DELETE FROM usage_logs WHERE request_id=$1`, requestID)
+	})
+
+	_, err := integrationDB.ExecContext(ctx, `
+		INSERT INTO usage_logs(user_id,organization_id,api_key_id,account_id,request_id,model,billing_type,balance_source,total_cost,actual_cost,created_at)
+		VALUES($1,$2,$3,$4,$5,'personal-subscription-test',$6,'subscription',1,1,NOW())`,
+		memberID, organizationID, apiKey.ID, account.ID, requestID, service.BillingTypeSubscription)
+	require.NoError(t, err)
+
+	rows, total, err := repo.ListUsage(ctx, owner.ID, service.OrganizationUsageFilter{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, rows, 1)
+	require.Equal(t, service.BalanceSourcePersonalSubscription, rows[0].BalanceSource)
 }
 
 func TestOrganizationUsageWritesSelfBalanceWithoutOrganizationWithEnterpriseAPIKey(t *testing.T) {

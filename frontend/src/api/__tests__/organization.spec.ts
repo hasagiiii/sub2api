@@ -46,7 +46,7 @@ describe('organization API', () => {
   it('assigns an enterprise subscription through the admin organization route', async () => {
     post.mockResolvedValue({ data: { id: 9, organization_id: 4, group_id: 7 } })
 
-    await organizationAPI.assignOrganizationSubscription(4, 7, 30, 'admin grant')
+	await organizationAPI.assignOrganizationSubscription(4, { group_id: 7 }, 30, 'admin grant')
 
     expect(post).toHaveBeenCalledWith('/admin/organizations/4/subscriptions', {
       group_id: 7,
@@ -137,5 +137,17 @@ describe('organization API', () => {
 		expect(post).toHaveBeenNthCalledWith(1, '/organization/recovery-email/send-code', { email: 'iam@example.com' })
 		expect(post).toHaveBeenNthCalledWith(2, '/organization/recovery-email/verify', { email: 'iam@example.com', code: '123456' })
 		expect(patch).toHaveBeenCalledWith('/admin/organizations/8/status', { status: 'suspended' })
+	})
+
+	it('assigns an enterprise subscription by plan without a group id', async () => {
+		post.mockResolvedValue({ data: [{ id: 9, organization_id: 4, group_id: 7 }] })
+
+		await organizationAPI.assignOrganizationSubscription(4, { plan_id: 12 }, 90)
+
+		expect(post).toHaveBeenCalledWith('/admin/organizations/4/subscriptions', {
+			plan_id: 12,
+			validity_days: 90,
+			notes: '',
+		})
 	})
 })

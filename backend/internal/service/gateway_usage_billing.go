@@ -406,7 +406,7 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 			return false, err
 		}
 	}
-	snapshotEnterpriseSubscriptionSource(usageLog, p, resolved)
+	snapshotSubscriptionBalanceSource(usageLog, p, resolved)
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
 		postUsageBilling(ctx, p, deps, resolved)
@@ -448,11 +448,22 @@ func usageBillingInt64Ptr(value int64) *int64 { return &value }
 
 func usageBillingStringPtr(value string) *string { return &value }
 
-func snapshotEnterpriseSubscriptionSource(usageLog *UsageLog, p *postUsageBillingParams, resolved *BillingContext) {
-	if p == nil || resolved == nil || !p.IsSubscriptionBill || p.APIKey == nil || p.APIKey.OrganizationSubscriptionID == nil {
+func snapshotSubscriptionBalanceSource(usageLog *UsageLog, p *postUsageBillingParams, resolved *BillingContext) {
+	// IsSubscriptionBill is authoritative for the request's charge path. This
+	// includes personal subscription keys as well as enterprise keys. Keep the
+	// two sources distinct for usage reporting. The billing-context resolver
+	// may otherwise prefer an organization's wallet and leak BalanceSourceCompany
+	// into the usage record even though the request was charged to a subscription.
+	if p == nil || resolved == nil || !p.IsSubscriptionBill {
 		return
 	}
-	resolved.BalanceSource = BalanceSourceSubscription
+	source := BalanceSourceSubscription
+	if p.APIKey == nil || p.APIKey.OrganizationSubscriptionID == nil {
+		// A personal subscription has no organization subscription binding. Keep
+		// it distinct so usage views do not present it as an enterprise plan.
+		source = BalanceSourcePersonalSubscription
+	}
+	resolved.BalanceSource = source
 	if usageLog != nil {
 		usageLog.BalanceSource = usageBillingStringPtr(resolved.BalanceSource)
 	}

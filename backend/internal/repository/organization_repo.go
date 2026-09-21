@@ -1357,6 +1357,7 @@ const orgSubscriptionProvisionSQL = `INSERT INTO organization_subscriptions(orga
 VALUES($1,$2,NOW(),NOW()+($3::int * INTERVAL '1 day'),'active',$4,NOW(),NULLIF($5,''))
 ON CONFLICT (organization_id,group_id) WHERE deleted_at IS NULL
 DO UPDATE SET
+    plan_id=NULL,
     starts_at=NOW(),
     expires_at=NOW()+($3::int * INTERVAL '1 day'),
     status='active',
@@ -1366,6 +1367,30 @@ DO UPDATE SET
         WHEN NULLIF($5,'') IS NULL THEN organization_subscriptions.notes
         WHEN COALESCE(organization_subscriptions.notes,'')='' THEN $5
         ELSE organization_subscriptions.notes||E'\n'||$5 END,
+    daily_usage_usd=0,
+    weekly_usage_usd=0,
+    monthly_usage_usd=0,
+    daily_window_start=NULL,
+    weekly_window_start=NULL,
+    monthly_window_start=NULL,
+    updated_at=NOW()
+WHERE organization_subscriptions.status='expired' OR organization_subscriptions.expires_at<=NOW()
+RETURNING id,starts_at,expires_at,status,assigned_at,created_at`
+
+const orgSubscriptionPlanProvisionSQL = `INSERT INTO organization_subscriptions(organization_id,group_id,plan_id,starts_at,expires_at,status,assigned_by,assigned_at,notes)
+VALUES($1,$2,$3,NOW(),NOW()+($4::int * INTERVAL '1 day'),'active',$5,NOW(),NULLIF($6,''))
+ON CONFLICT (organization_id,group_id) WHERE deleted_at IS NULL
+DO UPDATE SET
+    plan_id=$3,
+    starts_at=NOW(),
+    expires_at=NOW()+($4::int * INTERVAL '1 day'),
+    status='active',
+    assigned_by=$5,
+    assigned_at=NOW(),
+    notes=CASE
+        WHEN NULLIF($6,'') IS NULL THEN organization_subscriptions.notes
+        WHEN COALESCE(organization_subscriptions.notes,'')='' THEN $6
+        ELSE organization_subscriptions.notes||E'\n'||$6 END,
     daily_usage_usd=0,
     weekly_usage_usd=0,
     monthly_usage_usd=0,
@@ -1519,6 +1544,135 @@ func (r *organizationRepository) AdminCreateOrganizationSubscription(ctx context
 	}, nil
 }
 
+// AdminCreateOrganizationSubscriptionsByPlan provisions one enterprise
+// subscription per group covered by a plan. All validation and provisioning is
+// deliberately kept in one transaction so a partially invalid plan cannot
+// leave an organization with only some of its entitlements.
+func (r *organizationRepository) AdminCreateOrganizationSubscriptionsByPlan(ctx context.Context, actorID, organizationID, planID int64, validityDays int, notes string) (_ []service.OrganizationSubscription, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := requireActiveAdminDB(ctx, tx, actorID); err != nil {
+		return nil, err
+	}
+	var organizationStatus string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM organizations WHERE id=$1 FOR UPDATE`, organizationID).Scan(&organizationStatus); errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrCompanyNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if organizationStatus != service.OrganizationStatusActive {
+		return nil, service.ErrOrganizationSuspended
+	}
+
+	var primaryGroupID int64
+	var rawGroupIDs []byte
+	var planValidityDays int
+	var planDailyLimit, planWeeklyLimit, planMonthlyLimit sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT group_id,group_ids,validity_days,daily_limit_usd::text,weekly_limit_usd::text,monthly_limit_usd::text FROM subscription_plans WHERE id=$1`, planID).Scan(&primaryGroupID, &rawGroupIDs, &planValidityDays, &planDailyLimit, &planWeeklyLimit, &planMonthlyLimit); errors.Is(err, sql.ErrNoRows) {
+		return nil, service.ErrSubscriptionPlanNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if validityDays == 0 {
+		validityDays = planValidityDays
+	}
+	if validityDays < 1 || validityDays > 36500 {
+		return nil, infraerrors.BadRequest("SUBSCRIPTION_VALIDITY_INVALID", "subscription plan validity days must be between 1 and 36500")
+	}
+	var groupIDs []int64
+	if len(rawGroupIDs) > 0 {
+		if err := json.Unmarshal(rawGroupIDs, &groupIDs); err != nil {
+			return nil, fmt.Errorf("decode subscription plan groups: %w", err)
+		}
+	}
+	if len(groupIDs) == 0 && primaryGroupID > 0 {
+		groupIDs = []int64{primaryGroupID}
+	}
+	seen := make(map[int64]struct{}, len(groupIDs))
+	groups := make([]struct {
+		id                                            int64
+		groupName, platform, subscriptionType, status string
+		rateMultiplier                                float64
+		dailyLimit, weeklyLimit, monthlyLimit         sql.NullString
+	}, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			continue
+		}
+		if _, ok := seen[groupID]; ok {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		var group struct {
+			id                                            int64
+			groupName, platform, subscriptionType, status string
+			rateMultiplier                                float64
+			dailyLimit, weeklyLimit, monthlyLimit         sql.NullString
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT id,name,platform,subscription_type,status,rate_multiplier,daily_limit_usd::text,weekly_limit_usd::text,monthly_limit_usd::text FROM groups WHERE id=$1 AND deleted_at IS NULL`, groupID).
+			Scan(&group.id, &group.groupName, &group.platform, &group.subscriptionType, &group.status, &group.rateMultiplier, &group.dailyLimit, &group.weeklyLimit, &group.monthlyLimit); errors.Is(err, sql.ErrNoRows) {
+			return nil, service.ErrSubscriptionGroupInvalid
+		} else if err != nil {
+			return nil, err
+		}
+		if group.subscriptionType != service.SubscriptionTypeSubscription {
+			return nil, service.ErrSubscriptionGroupInvalid
+		}
+		if group.status != "active" {
+			return nil, service.ErrSubscriptionGroupInvalid
+		}
+		groups = append(groups, group)
+	}
+	if len(groups) == 0 {
+		return nil, service.ErrSubscriptionPlanNoGroup
+	}
+	var planHasActiveRows bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organization_subscriptions WHERE organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL AND status='active' AND expires_at>NOW())`, organizationID, planID).Scan(&planHasActiveRows); err != nil {
+		return nil, err
+	}
+	if !planHasActiveRows {
+		if _, err := tx.ExecContext(ctx, `UPDATE organization_subscription_plan_usages SET daily_usage_usd=0,weekly_usage_usd=0,monthly_usage_usd=0,daily_window_start=NULL,weekly_window_start=NULL,monthly_window_start=NULL,updated_at=NOW() WHERE organization_id=$1 AND plan_id=$2`, organizationID, planID); err != nil {
+			return nil, err
+		}
+	}
+
+	result := make([]service.OrganizationSubscription, 0, len(groups))
+	for _, group := range groups {
+		var id int64
+		var startsAt, expiresAt, assignedAt, createdAt time.Time
+		var status string
+		insertErr := tx.QueryRowContext(ctx, orgSubscriptionPlanProvisionSQL, organizationID, group.id, planID, validityDays, actorID, notes).
+			Scan(&id, &startsAt, &expiresAt, &status, &assignedAt, &createdAt)
+		if errors.Is(insertErr, sql.ErrNoRows) {
+			return nil, service.ErrOrgSubscriptionExists
+		} else if isUniqueViolation(insertErr) {
+			return nil, service.ErrOrgSubscriptionExists
+		} else if insertErr != nil {
+			return nil, insertErr
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO organization_audit_events(organization_id,actor_user_id,action,result,correlation_id,metadata) VALUES($1,$2,'organization.subscription.admin_assign_plan','success',$3,jsonb_build_object('plan_id',$4::bigint,'group_id',$5::bigint,'subscription_id',$6::bigint,'validity_days',$7::int))`, organizationID, actorID, organizationCorrelationID(ctx), planID, group.id, id, validityDays); err != nil {
+			return nil, err
+		}
+		assignedBy := actorID
+		plan := planID
+		result = append(result, service.OrganizationSubscription{
+			ID: id, OrganizationID: organizationID, GroupID: group.id, PlanID: &plan, GroupName: group.groupName, Platform: group.platform,
+			SubscriptionType: group.subscriptionType, RateMultiplier: group.rateMultiplier, StartsAt: startsAt, ExpiresAt: expiresAt, Status: status,
+			DailyLimitUSD: organizationNullStringPtr(group.dailyLimit), WeeklyLimitUSD: organizationNullStringPtr(group.weeklyLimit), MonthlyLimitUSD: organizationNullStringPtr(group.monthlyLimit),
+			PlanDailyLimitUSD: organizationNullStringPtr(planDailyLimit), PlanWeeklyLimitUSD: organizationNullStringPtr(planWeeklyLimit), PlanMonthlyLimitUSD: organizationNullStringPtr(planMonthlyLimit),
+			DailyUsageUSD: "0", WeeklyUsageUSD: "0", MonthlyUsageUSD: "0", Notes: notes,
+			AssignedBy: &assignedBy, AssignedAt: assignedAt, CreatedAt: createdAt,
+		})
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (r *organizationRepository) AdminListOrganizationSubscriptions(ctx context.Context, actorID int64, page, pageSize int, groupID *int64, status, platform, sortBy, sortOrder string) ([]service.OrganizationSubscription, int64, error) {
 	if err := requireActiveAdminDB(ctx, r.db, actorID); err != nil {
 		return nil, 0, err
@@ -1564,10 +1718,21 @@ func (r *organizationRepository) AdminListOrganizationSubscriptions(ctx context.
 		direction = "ASC"
 	}
 	args = append(args, pageSize, (page-1)*pageSize)
-	query := `SELECT s.id,s.organization_id,o.name,COALESCE(o.company_id,''),s.group_id,g.name,g.platform,g.subscription_type,g.rate_multiplier,
+	query := `SELECT s.id,s.organization_id,o.name,COALESCE(o.company_id,''),s.group_id,s.plan_id,g.name,g.platform,g.subscription_type,g.rate_multiplier,
 		s.starts_at,s.expires_at,s.status,g.daily_limit_usd::text,g.weekly_limit_usd::text,g.monthly_limit_usd::text,
-		s.daily_usage_usd::text,s.weekly_usage_usd::text,s.monthly_usage_usd::text,COALESCE(s.notes,''),s.assigned_by,s.assigned_at,s.created_at
-		FROM organization_subscriptions s JOIN organizations o ON o.id=s.organization_id JOIN groups g ON g.id=s.group_id` + where +
+		p.daily_limit_usd::text,p.weekly_limit_usd::text,p.monthly_limit_usd::text,
+		CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0)
+			THEN COALESCE(pu.daily_usage_usd, (SELECT COALESCE(SUM(s2.daily_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL))
+			ELSE s.daily_usage_usd END::text,
+		CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0)
+			THEN COALESCE(pu.weekly_usage_usd, (SELECT COALESCE(SUM(s2.weekly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL))
+			ELSE s.weekly_usage_usd END::text,
+		CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0)
+			THEN COALESCE(pu.monthly_usage_usd, (SELECT COALESCE(SUM(s2.monthly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL))
+			ELSE s.monthly_usage_usd END::text,
+		s.daily_usage_usd::text,s.weekly_usage_usd::text,s.monthly_usage_usd::text,
+		COALESCE(s.notes,''),s.assigned_by,s.assigned_at,s.created_at
+		FROM organization_subscriptions s JOIN organizations o ON o.id=s.organization_id JOIN groups g ON g.id=s.group_id LEFT JOIN subscription_plans p ON p.id=s.plan_id LEFT JOIN organization_subscription_plan_usages pu ON pu.organization_id=s.organization_id AND pu.plan_id=s.plan_id` + where +
 		fmt.Sprintf(" ORDER BY %s %s LIMIT $%d OFFSET $%d", sortField, direction, len(args)-1, len(args))
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -1577,15 +1742,18 @@ func (r *organizationRepository) AdminListOrganizationSubscriptions(ctx context.
 	items := make([]service.OrganizationSubscription, 0, pageSize)
 	for rows.Next() {
 		var item service.OrganizationSubscription
-		var dailyLimit, weeklyLimit, monthlyLimit sql.NullString
-		if err := rows.Scan(&item.ID, &item.OrganizationID, &item.OrganizationName, &item.CompanyID, &item.GroupID, &item.GroupName, &item.Platform, &item.SubscriptionType,
-			&item.RateMultiplier, &item.StartsAt, &item.ExpiresAt, &item.Status, &dailyLimit, &weeklyLimit, &monthlyLimit, &item.DailyUsageUSD, &item.WeeklyUsageUSD, &item.MonthlyUsageUSD,
+		var dailyLimit, weeklyLimit, monthlyLimit, planDailyLimit, planWeeklyLimit, planMonthlyLimit sql.NullString
+		if err := rows.Scan(&item.ID, &item.OrganizationID, &item.OrganizationName, &item.CompanyID, &item.GroupID, &item.PlanID, &item.GroupName, &item.Platform, &item.SubscriptionType,
+			&item.RateMultiplier, &item.StartsAt, &item.ExpiresAt, &item.Status, &dailyLimit, &weeklyLimit, &monthlyLimit, &planDailyLimit, &planWeeklyLimit, &planMonthlyLimit, &item.DailyUsageUSD, &item.WeeklyUsageUSD, &item.MonthlyUsageUSD, &item.GroupDailyUsageUSD, &item.GroupWeeklyUsageUSD, &item.GroupMonthlyUsageUSD,
 			&item.Notes, &item.AssignedBy, &item.AssignedAt, &item.CreatedAt); err != nil {
 			return nil, 0, err
 		}
 		item.DailyLimitUSD = organizationNullStringPtr(dailyLimit)
 		item.WeeklyLimitUSD = organizationNullStringPtr(weeklyLimit)
 		item.MonthlyLimitUSD = organizationNullStringPtr(monthlyLimit)
+		item.PlanDailyLimitUSD = organizationNullStringPtr(planDailyLimit)
+		item.PlanWeeklyLimitUSD = organizationNullStringPtr(planWeeklyLimit)
+		item.PlanMonthlyLimitUSD = organizationNullStringPtr(planMonthlyLimit)
 		if item.Status == service.SubscriptionStatusActive && !item.ExpiresAt.After(time.Now()) {
 			item.Status = service.SubscriptionStatusExpired
 		}
@@ -1641,10 +1809,42 @@ func (r *organizationRepository) AdminResetOrganizationSubscriptionQuota(ctx con
 		return err
 	}
 	var organizationID int64
-	if err := tx.QueryRowContext(ctx, `UPDATE organization_subscriptions SET daily_usage_usd=0,weekly_usage_usd=0,monthly_usage_usd=0,daily_window_start=NOW(),weekly_window_start=NOW(),monthly_window_start=NOW(),updated_at=NOW() WHERE id=$1 AND deleted_at IS NULL RETURNING organization_id`, subscriptionID).Scan(&organizationID); errors.Is(err, sql.ErrNoRows) {
+	var planID sql.NullInt64
+	var planDaily, planWeekly, planMonthly sql.NullFloat64
+	if err := tx.QueryRowContext(ctx, `SELECT s.organization_id,s.plan_id,p.daily_limit_usd,p.weekly_limit_usd,p.monthly_limit_usd FROM organization_subscriptions s LEFT JOIN subscription_plans p ON p.id=s.plan_id WHERE s.id=$1 AND s.deleted_at IS NULL FOR UPDATE`, subscriptionID).Scan(&organizationID, &planID, &planDaily, &planWeekly, &planMonthly); errors.Is(err, sql.ErrNoRows) {
 		return service.ErrOrgSubscriptionNotFound
 	} else if err != nil {
 		return err
+	}
+	resetWhere := `id=$1`
+	resetArgs := []any{subscriptionID}
+	planHasLimits := planID.Valid && ((planDaily.Valid && planDaily.Float64 > 0) || (planWeekly.Valid && planWeekly.Float64 > 0) || (planMonthly.Valid && planMonthly.Float64 > 0))
+	if planHasLimits {
+		resetWhere = `organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL`
+		resetArgs = []any{organizationID, planID.Int64}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE organization_subscriptions SET daily_usage_usd=0,weekly_usage_usd=0,monthly_usage_usd=0,daily_window_start=NOW(),weekly_window_start=NOW(),monthly_window_start=NOW(),updated_at=NOW() WHERE `+resetWhere, resetArgs...); err != nil {
+		return err
+	}
+	if planHasLimits {
+		if _, err := tx.ExecContext(ctx, `UPDATE organization_subscription_plan_usages SET daily_usage_usd=0,weekly_usage_usd=0,monthly_usage_usd=0,daily_window_start=NOW(),weekly_window_start=NOW(),monthly_window_start=NOW(),updated_at=NOW() WHERE organization_id=$1 AND plan_id=$2`, organizationID, planID.Int64); err != nil {
+			return err
+		}
+	} else if planID.Valid {
+		// Unlimited packages still retain a package-level shadow counter so a
+		// later limit change takes effect immediately. Resetting one group must
+		// therefore rebuild that shadow from the remaining group counters.
+		if _, err := tx.ExecContext(ctx, `UPDATE organization_subscription_plan_usages pu SET
+			daily_usage_usd=COALESCE((SELECT SUM(s.daily_usage_usd) FROM organization_subscriptions s WHERE s.organization_id=pu.organization_id AND s.plan_id=pu.plan_id AND s.deleted_at IS NULL),0),
+			weekly_usage_usd=COALESCE((SELECT SUM(s.weekly_usage_usd) FROM organization_subscriptions s WHERE s.organization_id=pu.organization_id AND s.plan_id=pu.plan_id AND s.deleted_at IS NULL),0),
+			monthly_usage_usd=COALESCE((SELECT SUM(s.monthly_usage_usd) FROM organization_subscriptions s WHERE s.organization_id=pu.organization_id AND s.plan_id=pu.plan_id AND s.deleted_at IS NULL),0),
+			daily_window_start=(SELECT MIN(s.daily_window_start) FROM organization_subscriptions s WHERE s.organization_id=pu.organization_id AND s.plan_id=pu.plan_id AND s.deleted_at IS NULL),
+			weekly_window_start=(SELECT MIN(s.weekly_window_start) FROM organization_subscriptions s WHERE s.organization_id=pu.organization_id AND s.plan_id=pu.plan_id AND s.deleted_at IS NULL),
+			monthly_window_start=(SELECT MIN(s.monthly_window_start) FROM organization_subscriptions s WHERE s.organization_id=pu.organization_id AND s.plan_id=pu.plan_id AND s.deleted_at IS NULL),
+			updated_at=NOW()
+			WHERE pu.organization_id=$1 AND pu.plan_id=$2`, organizationID, planID.Int64); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO organization_audit_events(organization_id,actor_user_id,action,result,correlation_id,metadata) VALUES($1,$2,'organization.subscription.admin_reset_quota','success',$3,jsonb_build_object('subscription_id',$4::bigint))`, organizationID, actorID, organizationCorrelationID(ctx), subscriptionID); err != nil {
 		return err
@@ -1684,6 +1884,14 @@ func (r *organizationRepository) AdminRevokeOrganizationSubscription(ctx context
 //     (from the later of now / current expiry) and append the order note.
 //   - Otherwise we insert a fresh subscription.
 func (r *organizationRepository) AssignOrExtendOrganizationSubscription(ctx context.Context, orgID, groupID int64, validityDays int, orderID int64) (err error) {
+	return r.assignOrExtendOrganizationSubscription(ctx, orgID, groupID, nil, validityDays, orderID)
+}
+
+func (r *organizationRepository) AssignOrExtendOrganizationSubscriptionByPlan(ctx context.Context, orgID, groupID, planID int64, validityDays int, orderID int64) error {
+	return r.assignOrExtendOrganizationSubscription(ctx, orgID, groupID, &planID, validityDays, orderID)
+}
+
+func (r *organizationRepository) assignOrExtendOrganizationSubscription(ctx context.Context, orgID, groupID int64, planID *int64, validityDays int, orderID int64) (err error) {
 	if validityDays <= 0 {
 		validityDays = 30
 	}
@@ -1703,6 +1911,17 @@ func (r *organizationRepository) AssignOrExtendOrganizationSubscription(ctx cont
 	if groupStatus != "active" {
 		return service.ErrSubscriptionGroupInvalid
 	}
+	if planID != nil {
+		var planHasActiveRows bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organization_subscriptions WHERE organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL AND status='active' AND expires_at>NOW())`, orgID, *planID).Scan(&planHasActiveRows); err != nil {
+			return err
+		}
+		if !planHasActiveRows {
+			if _, err := tx.ExecContext(ctx, `UPDATE organization_subscription_plan_usages SET daily_usage_usd=0,weekly_usage_usd=0,monthly_usage_usd=0,daily_window_start=NULL,weekly_window_start=NULL,monthly_window_start=NULL,updated_at=NOW() WHERE organization_id=$1 AND plan_id=$2`, orgID, *planID); err != nil {
+				return err
+			}
+		}
+	}
 
 	var (
 		existingID    int64
@@ -1716,11 +1935,11 @@ func (r *organizationRepository) AssignOrExtendOrganizationSubscription(ctx cont
 		if existingNotes.Valid && organizationNotesContainLine(existingNotes.String, orderNote) {
 			return tx.Commit()
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE organization_subscriptions SET expires_at=GREATEST(expires_at,NOW())+($1::int * INTERVAL '1 day'),status='active',notes=CASE WHEN COALESCE(notes,'')='' THEN $2 ELSE notes||E'\n'||$2 END,updated_at=NOW() WHERE id=$3`, validityDays, orderNote, existingID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE organization_subscriptions SET plan_id=COALESCE($4,plan_id),expires_at=GREATEST(expires_at,NOW())+($1::int * INTERVAL '1 day'),status='active',notes=CASE WHEN COALESCE(notes,'')='' THEN $2 ELSE notes||E'\n'||$2 END,updated_at=NOW() WHERE id=$3`, validityDays, orderNote, existingID, planID); err != nil {
 			return err
 		}
 	case errors.Is(lookupErr, sql.ErrNoRows):
-		if _, err := tx.ExecContext(ctx, `INSERT INTO organization_subscriptions(organization_id,group_id,starts_at,expires_at,status,assigned_at,notes) VALUES($1,$2,NOW(),NOW()+($3::int * INTERVAL '1 day'),'active',NOW(),$4)`, orgID, groupID, validityDays, orderNote); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO organization_subscriptions(organization_id,group_id,plan_id,starts_at,expires_at,status,assigned_at,notes) VALUES($1,$2,$3,NOW(),NOW()+($4::int * INTERVAL '1 day'),'active',NOW(),$5)`, orgID, groupID, planID, validityDays, orderNote); err != nil {
 			if isUniqueViolation(err) {
 				// A concurrent fulfillment inserted first; treat as success.
 				return tx.Commit()
@@ -1748,7 +1967,7 @@ func (r *organizationRepository) ListOrganizationSubscriptions(ctx context.Conte
 	if !org.Owner() && !org.HasAction(service.ActionFinanceBalanceRead) && !org.HasAction(service.ActionSubscriptionManage) {
 		return nil, service.ErrOrganizationPermission
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+organizationSubscriptionSelectColumns+` FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id WHERE s.organization_id=$1 AND s.deleted_at IS NULL ORDER BY s.created_at DESC`, org.OrganizationID)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+organizationSubscriptionSelectColumns+` FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id LEFT JOIN subscription_plans p ON p.id=s.plan_id LEFT JOIN organization_subscription_plan_usages pu ON pu.organization_id=s.organization_id AND pu.plan_id=s.plan_id WHERE s.organization_id=$1 AND s.deleted_at IS NULL ORDER BY s.created_at DESC`, org.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -1789,20 +2008,34 @@ func (r *organizationRepository) CancelOrganizationSubscription(ctx context.Cont
 	return tx.Commit()
 }
 
-const organizationSubscriptionSelectColumns = `s.id,s.organization_id,s.group_id,g.name,g.platform,g.subscription_type,g.rate_multiplier,s.starts_at,s.expires_at,s.status,g.daily_limit_usd::text,g.weekly_limit_usd::text,g.monthly_limit_usd::text,s.daily_usage_usd::text,s.weekly_usage_usd::text,s.monthly_usage_usd::text,COALESCE(s.notes,''),s.assigned_by,s.assigned_at,s.created_at`
+const organizationSubscriptionSelectColumns = `s.id,s.organization_id,s.group_id,s.plan_id,g.name,g.platform,g.subscription_type,g.rate_multiplier,s.starts_at,s.expires_at,s.status,g.daily_limit_usd::text,g.weekly_limit_usd::text,g.monthly_limit_usd::text,
+	p.daily_limit_usd::text,p.weekly_limit_usd::text,p.monthly_limit_usd::text,
+	CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0) THEN COALESCE(pu.daily_usage_usd,(SELECT COALESCE(SUM(s2.daily_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL)) ELSE s.daily_usage_usd END::text,
+	CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0) THEN COALESCE(pu.weekly_usage_usd,(SELECT COALESCE(SUM(s2.weekly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL)) ELSE s.weekly_usage_usd END::text,
+		CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0) THEN COALESCE(pu.monthly_usage_usd,(SELECT COALESCE(SUM(s2.monthly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL)) ELSE s.monthly_usage_usd END::text,
+	s.daily_usage_usd::text,s.weekly_usage_usd::text,s.monthly_usage_usd::text,
+	COALESCE(s.notes,''),s.assigned_by,s.assigned_at,s.created_at`
 
 func scanOrganizationSubscription(scan func(dest ...any) error) (service.OrganizationSubscription, error) {
 	var (
-		s                                     service.OrganizationSubscription
-		dailyLimit, weeklyLimit, monthlyLimit sql.NullString
-		assignedBy                            sql.NullInt64
+		s                                                                                        service.OrganizationSubscription
+		dailyLimit, weeklyLimit, monthlyLimit, planDailyLimit, planWeeklyLimit, planMonthlyLimit sql.NullString
+		assignedBy                                                                               sql.NullInt64
 	)
-	if err := scan(&s.ID, &s.OrganizationID, &s.GroupID, &s.GroupName, &s.Platform, &s.SubscriptionType, &s.RateMultiplier, &s.StartsAt, &s.ExpiresAt, &s.Status, &dailyLimit, &weeklyLimit, &monthlyLimit, &s.DailyUsageUSD, &s.WeeklyUsageUSD, &s.MonthlyUsageUSD, &s.Notes, &assignedBy, &s.AssignedAt, &s.CreatedAt); err != nil {
+	var planID sql.NullInt64
+	if err := scan(&s.ID, &s.OrganizationID, &s.GroupID, &planID, &s.GroupName, &s.Platform, &s.SubscriptionType, &s.RateMultiplier, &s.StartsAt, &s.ExpiresAt, &s.Status, &dailyLimit, &weeklyLimit, &monthlyLimit, &planDailyLimit, &planWeeklyLimit, &planMonthlyLimit, &s.DailyUsageUSD, &s.WeeklyUsageUSD, &s.MonthlyUsageUSD, &s.GroupDailyUsageUSD, &s.GroupWeeklyUsageUSD, &s.GroupMonthlyUsageUSD, &s.Notes, &assignedBy, &s.AssignedAt, &s.CreatedAt); err != nil {
 		return service.OrganizationSubscription{}, err
+	}
+	if planID.Valid {
+		v := planID.Int64
+		s.PlanID = &v
 	}
 	s.DailyLimitUSD = organizationNullStringPtr(dailyLimit)
 	s.WeeklyLimitUSD = organizationNullStringPtr(weeklyLimit)
 	s.MonthlyLimitUSD = organizationNullStringPtr(monthlyLimit)
+	s.PlanDailyLimitUSD = organizationNullStringPtr(planDailyLimit)
+	s.PlanWeeklyLimitUSD = organizationNullStringPtr(planWeeklyLimit)
+	s.PlanMonthlyLimitUSD = organizationNullStringPtr(planMonthlyLimit)
 	if assignedBy.Valid {
 		by := assignedBy.Int64
 		s.AssignedBy = &by
@@ -1819,7 +2052,7 @@ func (r *organizationRepository) ListActiveOrganizationSubscriptionsForMember(ct
 	if err != nil || !org.Active() {
 		return []service.OrganizationSubscription{}, nil
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT `+organizationSubscriptionSelectColumns+` FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id WHERE s.organization_id=$1 AND s.deleted_at IS NULL AND s.status='active' AND s.expires_at > NOW() AND g.status='active' AND g.deleted_at IS NULL ORDER BY s.created_at DESC`, org.OrganizationID)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+organizationSubscriptionSelectColumns+` FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id LEFT JOIN subscription_plans p ON p.id=s.plan_id LEFT JOIN organization_subscription_plan_usages pu ON pu.organization_id=s.organization_id AND pu.plan_id=s.plan_id WHERE s.organization_id=$1 AND s.deleted_at IS NULL AND s.status='active' AND s.expires_at > NOW() AND g.status='active' AND g.deleted_at IS NULL ORDER BY s.created_at DESC`, org.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -1844,7 +2077,7 @@ func (r *organizationRepository) GetActiveOrganizationSubscriptionForMember(ctx 
 		return nil, service.ErrOrganizationPermission
 	}
 	s, err := scanOrganizationSubscription(func(dest ...any) error {
-		return r.db.QueryRowContext(ctx, `SELECT `+organizationSubscriptionSelectColumns+` FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id WHERE s.id=$1 AND s.organization_id=$2 AND s.deleted_at IS NULL AND s.status='active' AND s.expires_at > NOW() AND g.status='active' AND g.deleted_at IS NULL`, subscriptionID, org.OrganizationID).Scan(dest...)
+		return r.db.QueryRowContext(ctx, `SELECT `+organizationSubscriptionSelectColumns+` FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id LEFT JOIN subscription_plans p ON p.id=s.plan_id LEFT JOIN organization_subscription_plan_usages pu ON pu.organization_id=s.organization_id AND pu.plan_id=s.plan_id WHERE s.id=$1 AND s.organization_id=$2 AND s.deleted_at IS NULL AND s.status='active' AND s.expires_at > NOW() AND g.status='active' AND g.deleted_at IS NULL`, subscriptionID, org.OrganizationID).Scan(dest...)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrOrgSubscriptionNotFound
@@ -1878,12 +2111,14 @@ func (r *organizationRepository) GetOrganizationSubscriptionOrganizationID(ctx c
 // windows, counters and group limits for request-time validation and billing.
 func (r *organizationRepository) GetOrganizationSubscriptionForBilling(ctx context.Context, subscriptionID int64) (*service.OrgSubscriptionRuntime, error) {
 	var (
-		rt                     service.OrgSubscriptionRuntime
-		dWin, wWin, mWin       sql.NullTime
-		dLimit, wLimit, mLimit sql.NullFloat64
+		rt                                 service.OrgSubscriptionRuntime
+		dWin, wWin, mWin                   sql.NullTime
+		dLimit, wLimit, mLimit             sql.NullFloat64
+		planID                             sql.NullInt64
+		planDaily, planWeekly, planMonthly sql.NullFloat64
 	)
-	err := r.db.QueryRowContext(ctx, `SELECT s.id,s.organization_id,s.group_id,s.status,s.starts_at,s.expires_at,s.daily_window_start,s.weekly_window_start,s.monthly_window_start,s.daily_usage_usd,s.weekly_usage_usd,s.monthly_usage_usd,g.daily_limit_usd,g.weekly_limit_usd,g.monthly_limit_usd FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id WHERE s.id=$1 AND s.deleted_at IS NULL`, subscriptionID).
-		Scan(&rt.ID, &rt.OrganizationID, &rt.GroupID, &rt.Status, &rt.StartsAt, &rt.ExpiresAt, &dWin, &wWin, &mWin, &rt.DailyUsageUSD, &rt.WeeklyUsageUSD, &rt.MonthlyUsageUSD, &dLimit, &wLimit, &mLimit)
+	err := r.db.QueryRowContext(ctx, `SELECT s.id,s.organization_id,s.group_id,s.plan_id,s.status,s.starts_at,s.expires_at,s.daily_window_start,s.weekly_window_start,s.monthly_window_start,s.daily_usage_usd,s.weekly_usage_usd,s.monthly_usage_usd,g.daily_limit_usd,g.weekly_limit_usd,g.monthly_limit_usd,p.daily_limit_usd,p.weekly_limit_usd,p.monthly_limit_usd FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id LEFT JOIN subscription_plans p ON p.id=s.plan_id WHERE s.id=$1 AND s.deleted_at IS NULL`, subscriptionID).
+		Scan(&rt.ID, &rt.OrganizationID, &rt.GroupID, &planID, &rt.Status, &rt.StartsAt, &rt.ExpiresAt, &dWin, &wWin, &mWin, &rt.DailyUsageUSD, &rt.WeeklyUsageUSD, &rt.MonthlyUsageUSD, &dLimit, &wLimit, &mLimit, &planDaily, &planWeekly, &planMonthly)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrOrgSubscriptionNotFound
 	} else if err != nil {
@@ -1910,6 +2145,46 @@ func (r *organizationRepository) GetOrganizationSubscriptionForBilling(ctx conte
 		v := mLimit.Float64
 		rt.MonthlyLimitUSD = &v
 	}
+	if planID.Valid {
+		v := planID.Int64
+		rt.PlanID = &v
+		if planDaily.Valid {
+			v := planDaily.Float64
+			rt.PlanLimits.DailyLimitUSD = &v
+		}
+		if planWeekly.Valid {
+			v := planWeekly.Float64
+			rt.PlanLimits.WeeklyLimitUSD = &v
+		}
+		if planMonthly.Valid {
+			v := planMonthly.Float64
+			rt.PlanLimits.MonthlyLimitUSD = &v
+		}
+		if !rt.PlanLimits.IsZero() {
+			// Package rows are independently bindable to API keys, but one package
+			// quota is shared by all of them. Read the dedicated package counter;
+			// the SUM fallback preserves counters written before migration 249.
+			var aggregate struct {
+				daily, weekly, monthly                   float64
+				dailyWindow, weeklyWindow, monthlyWindow sql.NullTime
+			}
+			err = r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(pu.daily_usage_usd),COALESCE(SUM(s.daily_usage_usd),0)),COALESCE(MAX(pu.weekly_usage_usd),COALESCE(SUM(s.weekly_usage_usd),0)),COALESCE(MAX(pu.monthly_usage_usd),COALESCE(SUM(s.monthly_usage_usd),0)),COALESCE(MIN(pu.daily_window_start),MIN(s.daily_window_start)),COALESCE(MIN(pu.weekly_window_start),MIN(s.weekly_window_start)),COALESCE(MIN(pu.monthly_window_start),MIN(s.monthly_window_start)) FROM organization_subscriptions s LEFT JOIN organization_subscription_plan_usages pu ON pu.organization_id=s.organization_id AND pu.plan_id=s.plan_id WHERE s.organization_id=$1 AND s.plan_id=$2 AND s.deleted_at IS NULL`, rt.OrganizationID, planID.Int64).
+				Scan(&aggregate.daily, &aggregate.weekly, &aggregate.monthly, &aggregate.dailyWindow, &aggregate.weeklyWindow, &aggregate.monthlyWindow)
+			if err != nil {
+				return nil, err
+			}
+			rt.DailyUsageUSD, rt.WeeklyUsageUSD, rt.MonthlyUsageUSD = aggregate.daily, aggregate.weekly, aggregate.monthly
+			if aggregate.dailyWindow.Valid {
+				rt.DailyWindowStart = &aggregate.dailyWindow.Time
+			}
+			if aggregate.weeklyWindow.Valid {
+				rt.WeeklyWindowStart = &aggregate.weeklyWindow.Time
+			}
+			if aggregate.monthlyWindow.Valid {
+				rt.MonthlyWindowStart = &aggregate.monthlyWindow.Time
+			}
+		}
+	}
 	return &rt, nil
 }
 
@@ -1921,7 +2196,32 @@ func (r *organizationRepository) IncrementOrganizationSubscriptionUsage(ctx cont
 	if costUSD == 0 {
 		return nil
 	}
-	_, err := r.db.ExecContext(ctx, `UPDATE organization_subscriptions SET
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var organizationID int64
+	var planID sql.NullInt64
+	var planDaily, planWeekly, planMonthly sql.NullFloat64
+	if err := tx.QueryRowContext(ctx, `SELECT s.organization_id,s.plan_id,p.daily_limit_usd,p.weekly_limit_usd,p.monthly_limit_usd FROM organization_subscriptions s LEFT JOIN subscription_plans p ON p.id=s.plan_id WHERE s.id=$1 AND s.deleted_at IS NULL FOR UPDATE`, subscriptionID).Scan(&organizationID, &planID, &planDaily, &planWeekly, &planMonthly); errors.Is(err, sql.ErrNoRows) {
+		return service.ErrOrgSubscriptionNotFound
+	} else if err != nil {
+		return err
+	}
+	planHasLimits := planID.Valid && ((planDaily.Valid && planDaily.Float64 > 0) || (planWeekly.Valid && planWeekly.Float64 > 0) || (planMonthly.Valid && planMonthly.Float64 > 0))
+	if planHasLimits {
+		// A plan may have been unlimited when its rows accumulated usage and
+		// later receive a limit. Seed the shared row from those legacy counters
+		// before adding this request's cost, then increment it below.
+		if _, err := tx.ExecContext(ctx, `INSERT INTO organization_subscription_plan_usages(organization_id,plan_id,daily_window_start,weekly_window_start,monthly_window_start,daily_usage_usd,weekly_usage_usd,monthly_usage_usd)
+			SELECT organization_id,plan_id,MIN(daily_window_start),MIN(weekly_window_start),MIN(monthly_window_start),COALESCE(SUM(daily_usage_usd),0),COALESCE(SUM(weekly_usage_usd),0),COALESCE(SUM(monthly_usage_usd),0)
+			FROM organization_subscriptions WHERE organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL GROUP BY organization_id,plan_id
+			ON CONFLICT (organization_id,plan_id) DO NOTHING`, organizationID, planID.Int64); err != nil {
+			return err
+		}
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE organization_subscriptions SET
         daily_usage_usd = CASE WHEN daily_window_start IS NULL OR NOW() - daily_window_start >= INTERVAL '24 hours' THEN $2 ELSE daily_usage_usd + $2 END,
         daily_window_start = CASE WHEN daily_window_start IS NULL OR NOW() - daily_window_start >= INTERVAL '24 hours' THEN NOW() ELSE daily_window_start END,
         weekly_usage_usd = CASE WHEN weekly_window_start IS NULL OR NOW() - weekly_window_start >= INTERVAL '7 days' THEN $2 ELSE weekly_usage_usd + $2 END,
@@ -1929,8 +2229,44 @@ func (r *organizationRepository) IncrementOrganizationSubscriptionUsage(ctx cont
         monthly_usage_usd = CASE WHEN monthly_window_start IS NULL OR NOW() - monthly_window_start >= INTERVAL '30 days' THEN $2 ELSE monthly_usage_usd + $2 END,
         monthly_window_start = CASE WHEN monthly_window_start IS NULL OR NOW() - monthly_window_start >= INTERVAL '30 days' THEN NOW() ELSE monthly_window_start END,
         updated_at = NOW()
-        WHERE id = $1 AND deleted_at IS NULL`, subscriptionID, costUSD)
-	return err
+		WHERE id = $1 AND deleted_at IS NULL`, subscriptionID, costUSD)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return service.ErrOrgSubscriptionNotFound
+	}
+	if planHasLimits {
+		_, err = tx.ExecContext(ctx, `INSERT INTO organization_subscription_plan_usages(organization_id,plan_id,daily_usage_usd,weekly_usage_usd,monthly_usage_usd,daily_window_start,weekly_window_start,monthly_window_start)
+			VALUES($1,$2,$3,$3,$3,NOW(),NOW(),NOW())
+			ON CONFLICT (organization_id,plan_id) DO UPDATE SET
+				daily_usage_usd=CASE WHEN organization_subscription_plan_usages.daily_window_start IS NULL OR NOW()-organization_subscription_plan_usages.daily_window_start >= INTERVAL '24 hours' THEN EXCLUDED.daily_usage_usd ELSE organization_subscription_plan_usages.daily_usage_usd+EXCLUDED.daily_usage_usd END,
+				daily_window_start=CASE WHEN organization_subscription_plan_usages.daily_window_start IS NULL OR NOW()-organization_subscription_plan_usages.daily_window_start >= INTERVAL '24 hours' THEN NOW() ELSE organization_subscription_plan_usages.daily_window_start END,
+				weekly_usage_usd=CASE WHEN organization_subscription_plan_usages.weekly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.weekly_window_start >= INTERVAL '7 days' THEN EXCLUDED.weekly_usage_usd ELSE organization_subscription_plan_usages.weekly_usage_usd+EXCLUDED.weekly_usage_usd END,
+				weekly_window_start=CASE WHEN organization_subscription_plan_usages.weekly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.weekly_window_start >= INTERVAL '7 days' THEN NOW() ELSE organization_subscription_plan_usages.weekly_window_start END,
+				monthly_usage_usd=CASE WHEN organization_subscription_plan_usages.monthly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.monthly_window_start >= INTERVAL '30 days' THEN EXCLUDED.monthly_usage_usd ELSE organization_subscription_plan_usages.monthly_usage_usd+EXCLUDED.monthly_usage_usd END,
+				monthly_window_start=CASE WHEN organization_subscription_plan_usages.monthly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.monthly_window_start >= INTERVAL '30 days' THEN NOW() ELSE organization_subscription_plan_usages.monthly_window_start END,
+				updated_at=NOW()`, organizationID, planID.Int64, costUSD)
+		if err != nil {
+			return err
+		}
+	} else if planID.Valid {
+		// Unlimited packages still retain a shadow total so a later package
+		// limit change can take effect without discarding existing usage. Rebuild
+		// it from the per-group rows because their windows may be independent.
+		_, err = tx.ExecContext(ctx, `INSERT INTO organization_subscription_plan_usages(organization_id,plan_id,daily_window_start,weekly_window_start,monthly_window_start,daily_usage_usd,weekly_usage_usd,monthly_usage_usd)
+			SELECT organization_id,plan_id,MIN(daily_window_start),MIN(weekly_window_start),MIN(monthly_window_start),COALESCE(SUM(daily_usage_usd),0),COALESCE(SUM(weekly_usage_usd),0),COALESCE(SUM(monthly_usage_usd),0)
+			FROM organization_subscriptions WHERE organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL GROUP BY organization_id,plan_id
+			ON CONFLICT (organization_id,plan_id) DO UPDATE SET
+				daily_window_start=EXCLUDED.daily_window_start,weekly_window_start=EXCLUDED.weekly_window_start,monthly_window_start=EXCLUDED.monthly_window_start,
+				daily_usage_usd=EXCLUDED.daily_usage_usd,weekly_usage_usd=EXCLUDED.weekly_usage_usd,monthly_usage_usd=EXCLUDED.monthly_usage_usd,updated_at=NOW()`, organizationID, planID.Int64)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ListAuditEvents returns paginated audit records for the organization used by
@@ -2365,8 +2701,14 @@ func (r *organizationRepository) ListUsage(ctx context.Context, userID int64, fi
 		       l.video_count,l.video_resolution,l.video_duration_seconds,
 		       COALESCE(l.image_urls,'[]'::jsonb),COALESCE(l.cos_url,'[]'::jsonb),COALESCE(l.ip_address,''),COALESCE(l.user_agent,''),
 		       COALESCE(l.billing_status,'charged'),l.first_token_ms,l.duration_ms,l.created_at,
-		       CASE WHEN l.balance_source='subscription' OR (l.balance_source IS NULL AND l.billing_type=1 AND k.organization_subscription_id IS NOT NULL)
-		            THEN 'subscription' ELSE COALESCE(l.balance_source,'self') END,
+		       CASE
+		            WHEN l.billing_type=1 AND k.organization_subscription_id IS NULL
+		                 AND (l.balance_source='subscription' OR l.balance_source IS NULL)
+			              THEN 'personal_sub'
+		            WHEN l.balance_source='subscription' OR (l.balance_source IS NULL AND l.billing_type=1 AND k.organization_subscription_id IS NOT NULL)
+		              THEN 'subscription'
+		            ELSE COALESCE(l.balance_source,'self')
+		       END,
 		       l.task_id
 		FROM usage_logs l JOIN users u ON u.id=l.user_id LEFT JOIN api_keys k ON k.id=l.api_key_id LEFT JOIN groups g ON g.id=l.group_id
 		WHERE %s ORDER BY l.created_at DESC,l.id DESC LIMIT $%d OFFSET $%d`, where, len(args)-1, len(args)), args...)
@@ -3268,7 +3610,7 @@ func (r *organizationRepository) ListFallbackCandidateSubscriptions(ctx context.
 		return nil, err
 	}
 	query := `SELECT ` + organizationSubscriptionSelectColumns + `
-		FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id
+		FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id LEFT JOIN subscription_plans p ON p.id=s.plan_id LEFT JOIN organization_subscription_plan_usages pu ON pu.organization_id=s.organization_id AND pu.plan_id=s.plan_id
 		WHERE s.organization_id=$1 AND s.id <> $2 AND s.deleted_at IS NULL
 		  AND s.status='active' AND s.expires_at > NOW()
 		  AND g.status='active' AND g.deleted_at IS NULL`
