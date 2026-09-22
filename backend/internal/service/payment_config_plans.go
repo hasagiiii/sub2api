@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
@@ -224,11 +225,13 @@ func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req Upd
 		return nil, err
 	}
 	u := s.entClient.SubscriptionPlan.UpdateOneID(id)
+	var syncedGroupIDs []int64
 	if groupIDs, touched := req.ResolvedGroupIDs(); touched {
 		if err := s.validatePlanGroupsExist(ctx, groupIDs); err != nil {
 			return nil, err
 		}
 		u.SetGroupIds(groupIDs).SetGroupID(groupIDs[0])
+		syncedGroupIDs = groupIDs
 	}
 	if req.Name != nil {
 		u.SetName(*req.Name)
@@ -289,7 +292,16 @@ func (s *PaymentConfigService) UpdatePlan(ctx context.Context, id int64, req Upd
 			u.ClearMonthlyLimitUsd()
 		}
 	}
-	return u.Save(ctx)
+	plan, err := u.Save(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(syncedGroupIDs) > 0 {
+		if err := s.syncAssignedPlanGroups(ctx, id, syncedGroupIDs); err != nil {
+			return nil, err
+		}
+	}
+	return plan, nil
 }
 
 func (s *PaymentConfigService) DeletePlan(ctx context.Context, id int64) error {
@@ -311,4 +323,91 @@ func (s *PaymentConfigService) GetPlan(ctx context.Context, id int64) (*dbent.Su
 		return nil, infraerrors.NotFound("PLAN_NOT_FOUND", "subscription plan not found")
 	}
 	return plan, nil
+}
+
+func (s *PaymentConfigService) syncAssignedPlanGroups(ctx context.Context, planID int64, groupIDs []int64) error {
+	if s == nil || s.sqlDB == nil || planID <= 0 || len(groupIDs) == 0 {
+		return nil
+	}
+	tx, err := s.sqlDB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM user_subscriptions WHERE plan_id=$1 AND deleted_at IS NULL`, planID)
+	if err != nil {
+		return err
+	}
+	var subscriptionIDs []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		subscriptionIDs = append(subscriptionIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	_ = rows.Close()
+	for _, subscriptionID := range subscriptionIDs {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM user_subscription_groups WHERE subscription_id=$1`, subscriptionID); err != nil {
+			return err
+		}
+		for i, groupID := range groupIDs {
+			if groupID <= 0 {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO user_subscription_groups(subscription_id, group_id, sort_order) VALUES($1,$2,$3) ON CONFLICT (subscription_id, group_id) DO UPDATE SET sort_order=EXCLUDED.sort_order`, subscriptionID, groupID, i); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO user_subscription_group_usages(subscription_id, group_id) VALUES($1,$2) ON CONFLICT (subscription_id, group_id) DO NOTHING`, subscriptionID, groupID); err != nil {
+				return err
+			}
+		}
+	}
+
+	orgRows, err := tx.QueryContext(ctx, `SELECT DISTINCT organization_id FROM organization_subscriptions WHERE plan_id=$1 AND deleted_at IS NULL AND status='active' AND expires_at>NOW()`, planID)
+	if err != nil {
+		return err
+	}
+	var organizationIDs []int64
+	for orgRows.Next() {
+		var id int64
+		if err := orgRows.Scan(&id); err != nil {
+			_ = orgRows.Close()
+			return err
+		}
+		organizationIDs = append(organizationIDs, id)
+	}
+	if err := orgRows.Err(); err != nil {
+		_ = orgRows.Close()
+		return err
+	}
+	_ = orgRows.Close()
+	for _, organizationID := range organizationIDs {
+		var startsAt, expiresAt time.Time
+		if err := tx.QueryRowContext(ctx, `SELECT MIN(starts_at), MAX(expires_at) FROM organization_subscriptions WHERE organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL AND status='active' AND expires_at>NOW()`, organizationID, planID).Scan(&startsAt, &expiresAt); err != nil {
+			return err
+		}
+		for _, groupID := range groupIDs {
+			if groupID <= 0 {
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO organization_subscriptions(organization_id,group_id,plan_id,starts_at,expires_at,status,assigned_at)
+				VALUES($1,$2,$3,$4,$5,'active',NOW())
+				ON CONFLICT (organization_id, group_id) WHERE deleted_at IS NULL DO UPDATE SET
+					plan_id=EXCLUDED.plan_id,
+					status='active',
+					expires_at=GREATEST(organization_subscriptions.expires_at, EXCLUDED.expires_at),
+					updated_at=NOW()
+				WHERE organization_subscriptions.plan_id IS NULL OR organization_subscriptions.plan_id=EXCLUDED.plan_id`, organizationID, groupID, planID, startsAt, expiresAt); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
 }

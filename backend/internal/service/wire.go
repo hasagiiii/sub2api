@@ -1123,11 +1123,14 @@ func ProvideUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache
 // 同时注入 RechargePromoActivityService —— 充值赠送配置已迁移到独立活动表。
 func ProvidePaymentConfigService(
 	entClient *dbent.Client,
+	sqlDB *sql.DB,
 	settingRepo SettingRepository,
 	key payment.EncryptionKey,
 	activitySvc *RechargePromoActivityService,
 ) *PaymentConfigService {
-	return NewPaymentConfigService(entClient, settingRepo, []byte(key), activitySvc)
+	svc := NewPaymentConfigService(entClient, settingRepo, []byte(key), activitySvc)
+	svc.SetSQLDB(sqlDB)
+	return svc
 }
 
 // ProvideBalanceNotifyService creates BalanceNotifyService

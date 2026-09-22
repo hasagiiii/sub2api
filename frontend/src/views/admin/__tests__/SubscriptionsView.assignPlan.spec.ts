@@ -284,6 +284,7 @@ describe('admin subscription assignment by plan', () => {
       organization_name: 'Acme',
       group_id: 3,
       plan_id: 77,
+      plan_name: 'Shared Plan',
       group_name: 'Alpha',
       platform: 'openai',
       subscription_type: 'subscription',
@@ -313,13 +314,16 @@ describe('admin subscription assignment by plan', () => {
     await flushPromises()
 
     expect(wrapper.findAll('[data-row]')).toHaveLength(1)
-    expect(wrapper.findAll('[data-group-badge]').map(badge => badge.text())).toEqual(['Alpha', 'Beta'])
+    expect(wrapper.find('[data-group-cell]').text()).toContain('Shared Plan')
+    expect(wrapper.findAll('[data-group-badge]')).toHaveLength(0)
     const usage = wrapper.find('[data-usage-cell]').text()
-    expect(usage).toContain('$8.00 / $10.00')
+    expect(usage).toContain('$8.00')
+    expect(usage).toContain('$10.00')
     expect(usage).toContain('Alpha')
-    expect(usage).toContain('$6.00 / $10.00')
+    expect(usage).toContain('$6.00')
     expect(usage).toContain('Beta')
-    expect(usage).toContain('$2.00 / $10.00')
+    expect(usage).toContain('$2.00')
+    expect(wrapper.find('[data-usage-cell] .overflow-y-auto').exists()).toBe(true)
   })
 
   it('merges legacy personal plan rows in the admin subscription list', async () => {
@@ -328,6 +332,7 @@ describe('admin subscription assignment by plan', () => {
         subscriptionRow({
           id: 201,
           plan_id: 77,
+          plan_name: 'Shared Plan',
           group_id: 3,
           group_ids: [3],
           group_names: ['Alpha'],
@@ -339,6 +344,7 @@ describe('admin subscription assignment by plan', () => {
         subscriptionRow({
           id: 202,
           plan_id: 77,
+          plan_name: 'Shared Plan',
           group_id: 4,
           group_ids: [4],
           group_names: ['Beta'],
@@ -356,6 +362,15 @@ describe('admin subscription assignment by plan', () => {
     await flushPromises()
 
     expect(wrapper.findAll('[data-row]')).toHaveLength(1)
-    expect(wrapper.findAll('[data-group-badge]').map(badge => badge.text())).toEqual(['Alpha', 'Beta'])
+    expect(wrapper.find('[data-group-cell]').text()).toContain('Shared Plan')
+    expect(wrapper.findAll('[data-group-badge]')).toHaveLength(0)
+    const usage = wrapper.find('[data-usage-cell]').text()
+    expect(usage).toContain('$8.00')
+    expect(usage).toContain('$10.00')
+    expect(usage).toContain('Alpha')
+    expect(usage).toContain('$6.00')
+    expect(usage).toContain('Beta')
+    expect(usage).toContain('$2.00')
+    expect(wrapper.find('[data-usage-cell] .overflow-y-auto').exists()).toBe(true)
   })
 })

@@ -359,8 +359,38 @@ func (r *userSubscriptionRepository) ListByUserID(ctx context.Context, userID in
 	return r.entitiesToServiceHydrated(ctx, subs)
 }
 
+func syncUserSubscriptionPlanGroups(ctx context.Context, client *dbent.Client, userID int64) error {
+	_, err := client.ExecContext(ctx, `
+		INSERT INTO user_subscription_groups(subscription_id, group_id, sort_order)
+		SELECT s.id, group_id.value::bigint, group_id.ordinality - 1
+		FROM user_subscriptions s
+		JOIN subscription_plans p ON p.id = s.plan_id
+		CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(p.group_ids, '[]'::jsonb)) WITH ORDINALITY AS group_id(value, ordinality)
+		JOIN groups g ON g.id = group_id.value::bigint AND g.deleted_at IS NULL AND g.status = 'active'
+		WHERE s.user_id = $1
+		  AND s.deleted_at IS NULL
+		  AND s.status = 'active'
+		  AND s.expires_at > NOW()
+		  AND group_id.value ~ '^[1-9][0-9]*$'
+		ON CONFLICT (subscription_id, group_id) DO UPDATE SET sort_order = EXCLUDED.sort_order`, userID)
+	if err != nil {
+		return err
+	}
+	_, err = client.ExecContext(ctx, `
+		INSERT INTO user_subscription_group_usages(subscription_id, group_id)
+		SELECT sg.subscription_id, sg.group_id
+		FROM user_subscription_groups sg
+		JOIN user_subscriptions s ON s.id = sg.subscription_id
+		WHERE s.user_id = $1 AND s.deleted_at IS NULL
+		ON CONFLICT (subscription_id, group_id) DO NOTHING`, userID)
+	return err
+}
+
 func (r *userSubscriptionRepository) ListActiveByUserID(ctx context.Context, userID int64) ([]service.UserSubscription, error) {
 	client := clientFromContext(ctx, r.client)
+	if err := syncUserSubscriptionPlanGroups(ctx, client, userID); err != nil {
+		return nil, err
+	}
 	subs, err := client.UserSubscription.Query().
 		Where(
 			usersubscription.UserIDEQ(userID),

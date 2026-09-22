@@ -666,8 +666,9 @@ func TestOrganizationSubscriptionPlanQuotaIsSharedAcrossGroups(t *testing.T) {
 		groupIDs = append(groupIDs, groupID)
 	}
 	var planID int64
+	planName := "org-shared-plan-" + uuid.NewString()
 	require.NoError(t, integrationDB.QueryRowContext(ctx,
-		`INSERT INTO subscription_plans(group_id,group_ids,name,price,validity_days,daily_limit_usd) VALUES($1,$2::jsonb,$3,10,30,10) RETURNING id`, groupIDs[0], fmt.Sprintf("[%d,%d]", groupIDs[0], groupIDs[1]), "org-shared-plan-"+uuid.NewString()).Scan(&planID))
+		`INSERT INTO subscription_plans(group_id,group_ids,name,price,validity_days,daily_limit_usd) VALUES($1,$2::jsonb,$3,10,30,10) RETURNING id`, groupIDs[0], fmt.Sprintf("[%d,%d]", groupIDs[0], groupIDs[1]), planName).Scan(&planID))
 
 	assigned, err := repo.AdminCreateOrganizationSubscriptionsByPlan(ctx, admin.ID, organizationID, planID, 30, "shared")
 	require.NoError(t, err)
@@ -695,6 +696,7 @@ func TestOrganizationSubscriptionPlanQuotaIsSharedAcrossGroups(t *testing.T) {
 	for _, item := range items {
 		require.NotNil(t, item.PlanID)
 		require.Equal(t, planID, *item.PlanID)
+		require.Equal(t, planName, item.PlanName)
 		require.InDelta(t, 8, mustParseFloat(t, item.DailyUsageUSD), 0.000001)
 		groupUsage[item.GroupID] = mustParseFloat(t, item.GroupDailyUsageUSD)
 	}

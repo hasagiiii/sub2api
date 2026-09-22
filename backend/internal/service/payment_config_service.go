@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math"
 	"os"
@@ -239,6 +240,7 @@ func (r UpdatePlanRequest) ResolvedGroupIDs() ([]int64, bool) {
 // provider instances, channels, and subscription plans.
 type PaymentConfigService struct {
 	entClient     *dbent.Client
+	sqlDB         *sql.DB
 	settingRepo   SettingRepository
 	encryptionKey []byte
 	// activitySvc 是充值赠送活动表的访问层；payment 配置中
@@ -258,6 +260,15 @@ func NewPaymentConfigService(
 		settingRepo:   settingRepo,
 		encryptionKey: encryptionKey,
 		activitySvc:   activitySvc,
+	}
+}
+
+// SetSQLDB enables plan edits to sync already assigned personal and enterprise
+// subscriptions. Existing callers keep the original constructor so tests that
+// only exercise configuration do not need a database.
+func (s *PaymentConfigService) SetSQLDB(db *sql.DB) {
+	if s != nil {
+		s.sqlDB = db
 	}
 }
 

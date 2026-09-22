@@ -136,6 +136,7 @@ export interface OrganizationSubscription {
   company_id?: string
   group_id: number
   plan_id?: number
+  plan_name?: string
   group_name: string
   platform: string
   subscription_type: string

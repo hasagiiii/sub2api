@@ -240,7 +240,10 @@
               套餐订阅是一条覆盖多个分组的订阅，必须把覆盖的分组都列出来：只显示
               主分组会让管理员以为它只作用于一个分组。
             -->
-            <div v-if="rowGroupIds(row).length > 0" class="flex flex-wrap items-center gap-1">
+            <div v-if="isSharedPlan(row)" class="flex items-center gap-2">
+              <span class="font-medium text-gray-900 dark:text-white">{{ row.plan_name || groupName(row.group_id) }}</span>
+            </div>
+            <div v-else-if="rowGroupIds(row).length > 0" class="flex flex-wrap items-center gap-1">
               <GroupBadge
                 v-for="groupId in rowGroupIds(row)"
                 :key="groupId"
@@ -254,6 +257,63 @@
 
           <template #cell-usage="{ row }">
             <div class="min-w-[300px] space-y-3">
+              <template v-if="isSharedPlan(row)">
+                <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                    <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
+                    <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.usage') }}</h4>
+                  </div>
+                  <div class="grid grid-cols-3 gap-2 px-1 pt-1">
+                    <div v-for="window in (['daily', 'weekly', 'monthly'] as const)" :key="window" class="min-w-0 space-y-1">
+                      <div class="flex items-center justify-between gap-1 text-[11px] text-gray-500 dark:text-dark-400">
+                        <span>{{ t(`admin.subscriptions.${window}`) }}</span>
+                        <span class="shrink-0">${{ rowUsage(row, window).toFixed(2) }}</span>
+                      </div>
+                      <div class="truncate text-[11px] text-gray-400 dark:text-dark-500">
+                        {{ rowLimit(row, window) ? `$${rowLimit(row, window)?.toFixed(2)}` : t('admin.subscriptions.unlimited') }}
+                      </div>
+                      <div class="relative h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                        <div
+                          class="absolute inset-y-0 left-0 rounded-full"
+                          :class="rowLimit(row, window) ? getProgressClass(rowUsage(row, window), rowLimit(row, window)) : 'bg-emerald-500'"
+                          :style="{ width: rowLimit(row, window) ? getProgressWidth(rowUsage(row, window), rowLimit(row, window)) : '0%' }"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="space-y-2">
+                  <div class="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    {{ t('admin.subscriptions.groupUsage') }}
+                  </div>
+                  <div class="max-h-[6.75rem] space-y-2 overflow-y-auto pr-1">
+                    <div
+                      v-for="group in sharedPlanGroupProgress(row)"
+                      :key="group.group_id"
+                      class="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800/60"
+                    >
+                      <div class="mb-1.5 truncate text-sm font-medium text-gray-700 dark:text-gray-300">{{ group.name }}</div>
+                      <div class="grid grid-cols-3 gap-2">
+                        <div v-for="window in (['daily', 'weekly', 'monthly'] as const)" :key="window" class="min-w-0 space-y-1">
+                          <div class="flex items-center justify-between gap-1 text-[11px] text-gray-500 dark:text-dark-400">
+                            <span>{{ t(`admin.subscriptions.${window}`) }}</span>
+                            <span class="shrink-0">${{ groupUsage(group, window).toFixed(2) }}</span>
+                          </div>
+                          <div class="relative h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                            <div
+                              class="absolute inset-y-0 left-0 rounded-full bg-gray-500 dark:bg-gray-400"
+                              :style="{ width: rowLimit(row, window) ? getProgressWidth(groupUsage(group, window), rowLimit(row, window)) : '0%' }"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
+              <template v-else>
               <!-- Daily Usage -->
               <div v-if="rowLimit(row, 'daily')" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
                 <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
@@ -383,43 +443,6 @@
                 </div>
               </div>
 
-              <!-- A package row has one shared quota above and one contribution
-                   bar per covered group below it. The denominator is the
-                   package limit so the bars explain how the shared pool is
-                   being consumed without presenting independent quotas. -->
-              <div
-                v-if="isSharedPlan(row)"
-                class="mt-3 space-y-3 border-t border-gray-200 pt-3 dark:border-dark-600"
-              >
-                <div class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.subscriptions.groupUsage') }}
-                </div>
-                <div
-                  v-for="group in sharedPlanGroupProgress(row)"
-                  :key="group.group_id"
-                  class="space-y-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-dark-600 dark:bg-dark-800/60"
-                >
-                  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
-                    <span class="h-2 w-1 shrink-0 rounded-full bg-gray-400 dark:bg-dark-400" />
-                    <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300">{{ group.name }}</h4>
-                  </div>
-                  <div class="space-y-3 px-1 pt-1">
-                    <div v-for="progress in group.progress" :key="progress.window" class="space-y-2">
-                      <div class="flex items-center justify-between gap-3">
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t(`admin.subscriptions.${progress.window}`) }}</span>
-                        <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">${{ progress.used.toFixed(2) }} / ${{ progress.limit.toFixed(2) }}</span>
-                      </div>
-                      <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                        <div
-                          class="absolute inset-y-0 left-0 rounded-full bg-gray-500 transition-all duration-300 dark:bg-gray-400"
-                          :style="{ width: getProgressWidth(progress.used, progress.limit) }"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               <!-- No Limits - Unlimited badge -->
               <div
                 v-if="
@@ -437,6 +460,7 @@
                   </div>
                 </div>
               </div>
+              </template>
             </div>
           </template>
 
@@ -1377,6 +1401,15 @@ type UsageWindow = 'daily' | 'weekly' | 'monthly'
  * "无限制"。
  * 没有套餐额度的行才回退到分组限额。
  */
+const rowUsage = (row: AdminSubscriptionRow, window: UsageWindow): number => {
+  const value = window === 'daily'
+    ? row.daily_usage_usd
+    : window === 'weekly'
+      ? row.weekly_usage_usd
+      : row.monthly_usage_usd
+  return Number(value || 0)
+}
+
 const rowLimit = (row: AdminSubscriptionRow, window: UsageWindow): number | null => {
   const planLimit =
     window === 'daily'
@@ -1411,6 +1444,11 @@ const rowLimit = (row: AdminSubscriptionRow, window: UsageWindow): number | null
 
 const isSharedPlan = (row: AdminSubscriptionRow): boolean =>
   (row.subject_type === 'organization' || row.subject_type === 'user') && row.plan_id != null && hasPositivePlanLimit(row)
+
+const groupUsage = (
+  group: { progress: Array<{ window: UsageWindow; used: number; limit: number }> },
+  window: UsageWindow,
+): number => group.progress.find((item) => item.window === window)?.used || 0
 
 const sharedPlanGroupProgress = (row: AdminSubscriptionRow) => {
   if (!isSharedPlan(row)) return []
@@ -1555,6 +1593,7 @@ function organizationSubscriptionRow(item: OrganizationSubscription): AdminSubsc
       monthly_limit_usd: item.monthly_limit_usd ? Number(item.monthly_limit_usd) : null,
     } as Group,
     plan_id: item.plan_id,
+    plan_name: item.plan_name,
     plan_daily_limit_usd: item.plan_daily_limit_usd ? Number(item.plan_daily_limit_usd) : null,
     plan_weekly_limit_usd: item.plan_weekly_limit_usd ? Number(item.plan_weekly_limit_usd) : null,
     plan_monthly_limit_usd: item.plan_monthly_limit_usd ? Number(item.plan_monthly_limit_usd) : null,

@@ -394,7 +394,7 @@
             <tr v-for="item in organizationSubscriptionRows" :key="item.id" class="border-t border-gray-100 dark:border-dark-700">
               <td class="p-3">
                 <template v-if="item.shared_plan">
-                  <div class="font-medium">{{ item.display_groups.map(group => group.group_name).join('、') }}</div>
+                  <div class="font-medium">{{ item.plan_name || item.display_groups.map(group => group.group_name).join('、') }}</div>
                   <div class="text-xs text-gray-500">{{ t('organization.subscriptions.sharedPlan') }}</div>
                 </template>
                 <template v-else>
@@ -406,38 +406,48 @@
               <td class="p-3"><span :class="subscriptionStatusClass(item.status)">{{ t(`organization.subscriptions.statuses.${item.status}`) }}</span></td>
               <td class="p-3 align-top text-xs">
                 <template v-if="item.shared_plan">
-                  <div class="space-y-3">
-                    <div v-for="period in organizationPlanPeriods(item)" :key="period" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
-                      <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                  <div class="min-w-[280px] space-y-3">
+                    <div class="rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                      <div class="mb-2 flex items-center gap-2 border-b border-gray-200 pb-2 dark:border-dark-600">
                         <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
-                        <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t(`organization.subscriptions.${period}`) }}</h4>
+                        <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('organization.subscriptions.usage') }}</h4>
                       </div>
-                      <div class="space-y-2 px-1 pt-1">
-                        <div class="flex items-center justify-between gap-3">
-                          <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('organization.subscriptions.usage') }}</span>
-                          <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatMoney(organizationSubscriptionUsage(item, period)) }} / {{ formatMoney(organizationSubscriptionLimit(item, period)) }}</span>
-                        </div>
-                        <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                          <div class="absolute inset-y-0 left-0 rounded-full bg-primary-500 transition-all duration-300" :style="{ width: organizationProgressWidth(organizationSubscriptionUsage(item, period), organizationSubscriptionLimit(item, period)) }" />
+                      <div class="grid grid-cols-3 gap-2">
+                        <div v-for="period in (['daily', 'weekly', 'monthly'] as const)" :key="period" class="min-w-0 space-y-1">
+                          <div class="flex items-center justify-between gap-1 text-[11px] text-gray-500 dark:text-dark-400">
+                            <span>{{ t(`organization.subscriptions.${period}`) }}</span>
+                            <span class="shrink-0">{{ formatMoney(organizationSubscriptionUsage(item, period)) }}</span>
+                          </div>
+                          <div class="truncate text-[11px] text-gray-400 dark:text-dark-500">
+                            {{ organizationSubscriptionLimit(item, period) ? formatMoney(organizationSubscriptionLimit(item, period)) : t('organization.subscriptions.unlimited') }}
+                          </div>
+                          <div class="relative h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                            <div
+                              class="absolute inset-y-0 left-0 rounded-full bg-primary-500"
+                              :style="{ width: organizationSubscriptionLimit(item, period) ? organizationProgressWidth(organizationSubscriptionUsage(item, period), organizationSubscriptionLimit(item, period)) : '0%' }"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                  <div class="mt-3 space-y-3 border-t border-gray-200 pt-3 dark:border-dark-600">
-                    <div class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('organization.subscriptions.groupUsage') }}</div>
-                    <div v-for="group in item.display_groups" :key="group.id" class="space-y-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-dark-600 dark:bg-dark-800/60">
-                      <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
-                        <span class="h-2 w-1 shrink-0 rounded-full bg-gray-400 dark:bg-dark-400" />
-                        <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300">{{ group.group_name }}</h4>
-                      </div>
-                      <div class="space-y-3 px-1 pt-1">
-                        <div v-for="period in organizationPlanPeriods(item)" :key="`${group.id}-${period}`" class="space-y-2">
-                          <div class="flex items-center justify-between gap-3">
-                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t(`organization.subscriptions.${period}`) }}</span>
-                            <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatMoney(organizationGroupUsage(group, period)) }} / {{ formatMoney(organizationSubscriptionLimit(item, period)) }}</span>
-                          </div>
-                          <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                            <div class="absolute inset-y-0 left-0 rounded-full bg-gray-500 transition-all duration-300 dark:bg-gray-400" :style="{ width: organizationProgressWidth(organizationGroupUsage(group, period), organizationSubscriptionLimit(item, period)) }" />
+                    <div class="space-y-2">
+                      <div class="text-xs font-medium text-gray-500 dark:text-dark-400">{{ t('organization.subscriptions.groupUsage') }}</div>
+                      <div class="max-h-[6.75rem] space-y-2 overflow-y-auto pr-1">
+                        <div v-for="group in item.display_groups" :key="group.id" class="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800/60">
+                          <div class="mb-1.5 truncate text-sm font-medium text-gray-700 dark:text-gray-300">{{ group.group_name }}</div>
+                          <div class="grid grid-cols-3 gap-2">
+                            <div v-for="period in (['daily', 'weekly', 'monthly'] as const)" :key="`${group.id}-${period}`" class="min-w-0 space-y-1">
+                              <div class="flex items-center justify-between gap-1 text-[11px] text-gray-500 dark:text-dark-400">
+                                <span>{{ t(`organization.subscriptions.${period}`) }}</span>
+                                <span class="shrink-0">{{ formatMoney(organizationGroupUsage(group, period)) }}</span>
+                              </div>
+                              <div class="relative h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                                <div
+                                  class="absolute inset-y-0 left-0 rounded-full bg-gray-500 dark:bg-gray-400"
+                                  :style="{ width: organizationSubscriptionLimit(item, period) ? organizationProgressWidth(organizationGroupUsage(group, period), organizationSubscriptionLimit(item, period)) : '0%' }"
+                                />
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>

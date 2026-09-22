@@ -168,14 +168,14 @@
                   :name="row.group.name"
                   :platform="row.group.platform"
                   :subscription-type="row.group.subscription_type"
+                  :subscription-label-override="row.organization_subscription_id ? t('keys.orgSubscriptionLabel') : undefined"
                   :rate-multiplier="row.group.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[row.group.id]"
                   :peak-rate-enabled="row.group.peak_rate_enabled"
                   :peak-start="row.group.peak_start"
                   :peak-end="row.group.peak_end"
                   :peak-rate-multiplier="row.group.peak_rate_multiplier"
-                  :subscription-label-override="row.organization_subscription_id ? t('keys.orgSubscriptionLabel') : undefined"
-                />
+                                  />
                 <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
                   t('keys.noGroup')
                 }}</span>
@@ -266,8 +266,7 @@
                                 :platform="row.group.platform"
                                 :subscription-type="row.group.subscription_type"
                                 :rate-multiplier="row.group.rate_multiplier"
-                                :subscription-label-override="t('keys.orgSubscriptionLabel')"
-                              />
+                                                              />
                               <span v-else class="break-all">{{ `#${row.organization_subscription_id}` }}</span>
                             </span>
                           </li>
@@ -285,8 +284,7 @@
                                 :platform="candidate.platform"
                                 :subscription-type="candidate.subscription_type"
                                 :rate-multiplier="candidate.rate_multiplier"
-                                :subscription-label-override="t('keys.orgSubscriptionLabel')"
-                              />
+                                                              />
                             </span>
                           </li>
                           <li
@@ -668,8 +666,7 @@
                 subscription-type="subscription"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
                 :always-show-rate="true"
-                :subscription-label-override="t('keys.orgSubscriptionLabel')"
-              />
+                              />
               <span v-else class="text-gray-400">{{ t('keys.orgSubscriptionNone') }}</span>
             </template>
             <template #option="{ option, selected }">
@@ -721,8 +718,7 @@
                     :platform="editFallbackCurrentGroup.platform"
                     :subscription-type="editFallbackCurrentGroup.subscription_type"
                     :rate-multiplier="editFallbackCurrentGroup.rate_multiplier"
-                    :subscription-label-override="t('keys.orgSubscriptionLabel')"
-                  />
+                                      />
                   <span v-else class="break-all">{{ `#${formData.organization_subscription_id}` }}</span>
                 </span>
               </li>
@@ -740,8 +736,7 @@
                     :platform="candidate.platform"
                     :subscription-type="candidate.subscription_type"
                     :rate-multiplier="candidate.rate_multiplier"
-                    :subscription-label-override="t('keys.orgSubscriptionLabel')"
-                  />
+                                      />
                 </span>
               </li>
               <li
@@ -2361,7 +2356,7 @@ const orgSubscriptionOptions = computed(() => {
       label: `${sub.group_name} · ${typeLabel}`,
       description: sub.notes || undefined,
       rate: sub.rate_multiplier,
-      platform: sub.platform || 'composite',
+      platform: (sub.platform || 'composite') as GroupPlatform,
       userRate: null,
     }
   })
@@ -2416,14 +2411,14 @@ const quickGroupOptions = computed(() => [
   ...orgSubscriptionOptions.value.map(option => ({
     ...option,
     value: `org:${option.value}`,
-    platform: 'composite' as const,
+    platform: option.platform,
     rate: option.rate,
     userRate: undefined,
     peakRateEnabled: false,
     peakStart: undefined,
     peakEnd: undefined,
     peakRateMultiplier: undefined,
-    subscriptionType: undefined,
+    subscriptionType: 'subscription' as const,
     kind: 'org' as KeyBindingKind,
     isEnterprise: true,
   })),

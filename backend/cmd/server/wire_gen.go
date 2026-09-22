@@ -270,7 +270,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		return nil, err
 	}
 	rechargePromoActivityService := service.NewRechargePromoActivityService(client)
-	paymentConfigService := service.ProvidePaymentConfigService(client, settingRepository, encryptionKey, rechargePromoActivityService)
+	paymentConfigService := service.ProvidePaymentConfigService(client, db, settingRepository, encryptionKey, rechargePromoActivityService)
 	registry := payment.ProvideRegistry()
 	defaultLoadBalancer := payment.ProvideDefaultLoadBalancer(client, encryptionKey)
 	paymentService := service.ProvidePaymentService(client, registry, defaultLoadBalancer, redeemService, subscriptionService, paymentConfigService, userRepository, groupRepository, affiliateService, notificationEmailService, organizationService, costCenterService)

@@ -300,6 +300,7 @@ type OrganizationSubscription struct {
 	CompanyID           string    `json:"company_id,omitempty"`
 	GroupID             int64     `json:"group_id"`
 	PlanID              *int64    `json:"plan_id,omitempty"`
+	PlanName            string    `json:"plan_name,omitempty"`
 	GroupName           string    `json:"group_name"`
 	Platform            string    `json:"platform"`
 	SubscriptionType    string    `json:"subscription_type"`
