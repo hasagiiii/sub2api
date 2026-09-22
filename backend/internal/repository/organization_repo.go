@@ -1722,13 +1722,13 @@ func (r *organizationRepository) AdminListOrganizationSubscriptions(ctx context.
 		s.starts_at,s.expires_at,s.status,g.daily_limit_usd::text,g.weekly_limit_usd::text,g.monthly_limit_usd::text,
 		p.daily_limit_usd::text,p.weekly_limit_usd::text,p.monthly_limit_usd::text,
 		CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0)
-			THEN COALESCE(pu.daily_usage_usd, (SELECT COALESCE(SUM(s2.daily_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL))
+			THEN CASE WHEN pu.daily_window_start IS NULL THEN (SELECT COALESCE(SUM(s2.daily_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL) ELSE pu.daily_usage_usd END
 			ELSE s.daily_usage_usd END::text,
 		CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0)
-			THEN COALESCE(pu.weekly_usage_usd, (SELECT COALESCE(SUM(s2.weekly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL))
+			THEN CASE WHEN pu.weekly_window_start IS NULL THEN (SELECT COALESCE(SUM(s2.weekly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL) ELSE pu.weekly_usage_usd END
 			ELSE s.weekly_usage_usd END::text,
 		CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0)
-			THEN COALESCE(pu.monthly_usage_usd, (SELECT COALESCE(SUM(s2.monthly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL))
+			THEN CASE WHEN pu.monthly_window_start IS NULL THEN (SELECT COALESCE(SUM(s2.monthly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL) ELSE pu.monthly_usage_usd END
 			ELSE s.monthly_usage_usd END::text,
 		s.daily_usage_usd::text,s.weekly_usage_usd::text,s.monthly_usage_usd::text,
 		COALESCE(s.notes,''),s.assigned_by,s.assigned_at,s.created_at
@@ -2010,9 +2010,9 @@ func (r *organizationRepository) CancelOrganizationSubscription(ctx context.Cont
 
 const organizationSubscriptionSelectColumns = `s.id,s.organization_id,s.group_id,s.plan_id,g.name,g.platform,g.subscription_type,g.rate_multiplier,s.starts_at,s.expires_at,s.status,g.daily_limit_usd::text,g.weekly_limit_usd::text,g.monthly_limit_usd::text,
 	p.daily_limit_usd::text,p.weekly_limit_usd::text,p.monthly_limit_usd::text,
-	CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0) THEN COALESCE(pu.daily_usage_usd,(SELECT COALESCE(SUM(s2.daily_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL)) ELSE s.daily_usage_usd END::text,
-	CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0) THEN COALESCE(pu.weekly_usage_usd,(SELECT COALESCE(SUM(s2.weekly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL)) ELSE s.weekly_usage_usd END::text,
-		CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0) THEN COALESCE(pu.monthly_usage_usd,(SELECT COALESCE(SUM(s2.monthly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL)) ELSE s.monthly_usage_usd END::text,
+	CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0) THEN CASE WHEN pu.daily_window_start IS NULL THEN (SELECT COALESCE(SUM(s2.daily_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL) ELSE pu.daily_usage_usd END ELSE s.daily_usage_usd END::text,
+	CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0) THEN CASE WHEN pu.weekly_window_start IS NULL THEN (SELECT COALESCE(SUM(s2.weekly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL) ELSE pu.weekly_usage_usd END ELSE s.weekly_usage_usd END::text,
+		CASE WHEN p.id IS NOT NULL AND (COALESCE(p.daily_limit_usd,0)>0 OR COALESCE(p.weekly_limit_usd,0)>0 OR COALESCE(p.monthly_limit_usd,0)>0) THEN CASE WHEN pu.monthly_window_start IS NULL THEN (SELECT COALESCE(SUM(s2.monthly_usage_usd),0) FROM organization_subscriptions s2 WHERE s2.organization_id=s.organization_id AND s2.plan_id=s.plan_id AND s2.deleted_at IS NULL) ELSE pu.monthly_usage_usd END ELSE s.monthly_usage_usd END::text,
 	s.daily_usage_usd::text,s.weekly_usage_usd::text,s.monthly_usage_usd::text,
 	COALESCE(s.notes,''),s.assigned_by,s.assigned_at,s.created_at`
 
@@ -2168,7 +2168,7 @@ func (r *organizationRepository) GetOrganizationSubscriptionForBilling(ctx conte
 				daily, weekly, monthly                   float64
 				dailyWindow, weeklyWindow, monthlyWindow sql.NullTime
 			}
-			err = r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(pu.daily_usage_usd),COALESCE(SUM(s.daily_usage_usd),0)),COALESCE(MAX(pu.weekly_usage_usd),COALESCE(SUM(s.weekly_usage_usd),0)),COALESCE(MAX(pu.monthly_usage_usd),COALESCE(SUM(s.monthly_usage_usd),0)),COALESCE(MIN(pu.daily_window_start),MIN(s.daily_window_start)),COALESCE(MIN(pu.weekly_window_start),MIN(s.weekly_window_start)),COALESCE(MIN(pu.monthly_window_start),MIN(s.monthly_window_start)) FROM organization_subscriptions s LEFT JOIN organization_subscription_plan_usages pu ON pu.organization_id=s.organization_id AND pu.plan_id=s.plan_id WHERE s.organization_id=$1 AND s.plan_id=$2 AND s.deleted_at IS NULL`, rt.OrganizationID, planID.Int64).
+			err = r.db.QueryRowContext(ctx, `SELECT CASE WHEN MAX(pu.daily_window_start) IS NULL THEN COALESCE(SUM(s.daily_usage_usd),0) ELSE MAX(pu.daily_usage_usd) END,CASE WHEN MAX(pu.weekly_window_start) IS NULL THEN COALESCE(SUM(s.weekly_usage_usd),0) ELSE MAX(pu.weekly_usage_usd) END,CASE WHEN MAX(pu.monthly_window_start) IS NULL THEN COALESCE(SUM(s.monthly_usage_usd),0) ELSE MAX(pu.monthly_usage_usd) END,COALESCE(MIN(pu.daily_window_start),MIN(s.daily_window_start)),COALESCE(MIN(pu.weekly_window_start),MIN(s.weekly_window_start)),COALESCE(MIN(pu.monthly_window_start),MIN(s.monthly_window_start)) FROM organization_subscriptions s LEFT JOIN organization_subscription_plan_usages pu ON pu.organization_id=s.organization_id AND pu.plan_id=s.plan_id WHERE s.organization_id=$1 AND s.plan_id=$2 AND s.deleted_at IS NULL`, rt.OrganizationID, planID.Int64).
 				Scan(&aggregate.daily, &aggregate.weekly, &aggregate.monthly, &aggregate.dailyWindow, &aggregate.weeklyWindow, &aggregate.monthlyWindow)
 			if err != nil {
 				return nil, err
@@ -2186,6 +2186,55 @@ func (r *organizationRepository) GetOrganizationSubscriptionForBilling(ctx conte
 		}
 	}
 	return &rt, nil
+}
+
+// ensureOrganizationSubscriptionPlanUsageSeed creates the package counter from
+// existing group rows before the current request updates one of those rows.
+func ensureOrganizationSubscriptionPlanUsageSeed(ctx context.Context, tx *sql.Tx, organizationID, planID int64) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO organization_subscription_plan_usages(organization_id,plan_id,daily_window_start,weekly_window_start,monthly_window_start,daily_usage_usd,weekly_usage_usd,monthly_usage_usd)
+		SELECT organization_id,plan_id,MIN(daily_window_start),MIN(weekly_window_start),MIN(monthly_window_start),COALESCE(SUM(daily_usage_usd),0),COALESCE(SUM(weekly_usage_usd),0),COALESCE(SUM(monthly_usage_usd),0)
+		FROM organization_subscriptions WHERE organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL GROUP BY organization_id,plan_id
+		ON CONFLICT (organization_id,plan_id) DO UPDATE SET
+			daily_usage_usd=CASE WHEN organization_subscription_plan_usages.daily_window_start IS NULL THEN EXCLUDED.daily_usage_usd ELSE organization_subscription_plan_usages.daily_usage_usd END,
+			daily_window_start=COALESCE(organization_subscription_plan_usages.daily_window_start,EXCLUDED.daily_window_start),
+			weekly_usage_usd=CASE WHEN organization_subscription_plan_usages.weekly_window_start IS NULL THEN EXCLUDED.weekly_usage_usd ELSE organization_subscription_plan_usages.weekly_usage_usd END,
+			weekly_window_start=COALESCE(organization_subscription_plan_usages.weekly_window_start,EXCLUDED.weekly_window_start),
+			monthly_usage_usd=CASE WHEN organization_subscription_plan_usages.monthly_window_start IS NULL THEN EXCLUDED.monthly_usage_usd ELSE organization_subscription_plan_usages.monthly_usage_usd END,
+			monthly_window_start=COALESCE(organization_subscription_plan_usages.monthly_window_start,EXCLUDED.monthly_window_start),
+			updated_at=NOW()`, organizationID, planID)
+	return err
+}
+
+// incrementOrganizationSubscriptionPlanUsage keeps the package-level shadow
+// counter in sync with the per-group subscription row. The unified billing
+// repository and the legacy repository path both use this helper so the admin
+// and organization subscription views never diverge from request-time quota
+// accounting.
+func incrementOrganizationSubscriptionPlanUsage(ctx context.Context, tx *sql.Tx, organizationID, planID int64, costUSD float64, planHasLimits bool) error {
+	if planHasLimits {
+		_, err := tx.ExecContext(ctx, `INSERT INTO organization_subscription_plan_usages(organization_id,plan_id,daily_usage_usd,weekly_usage_usd,monthly_usage_usd,daily_window_start,weekly_window_start,monthly_window_start)
+			VALUES($1,$2,$3,$3,$3,NOW(),NOW(),NOW())
+			ON CONFLICT (organization_id,plan_id) DO UPDATE SET
+				daily_usage_usd=CASE WHEN organization_subscription_plan_usages.daily_window_start IS NULL OR NOW()-organization_subscription_plan_usages.daily_window_start >= INTERVAL '24 hours' THEN EXCLUDED.daily_usage_usd ELSE organization_subscription_plan_usages.daily_usage_usd+EXCLUDED.daily_usage_usd END,
+				daily_window_start=CASE WHEN organization_subscription_plan_usages.daily_window_start IS NULL OR NOW()-organization_subscription_plan_usages.daily_window_start >= INTERVAL '24 hours' THEN NOW() ELSE organization_subscription_plan_usages.daily_window_start END,
+				weekly_usage_usd=CASE WHEN organization_subscription_plan_usages.weekly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.weekly_window_start >= INTERVAL '7 days' THEN EXCLUDED.weekly_usage_usd ELSE organization_subscription_plan_usages.weekly_usage_usd+EXCLUDED.weekly_usage_usd END,
+				weekly_window_start=CASE WHEN organization_subscription_plan_usages.weekly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.weekly_window_start >= INTERVAL '7 days' THEN NOW() ELSE organization_subscription_plan_usages.weekly_window_start END,
+				monthly_usage_usd=CASE WHEN organization_subscription_plan_usages.monthly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.monthly_window_start >= INTERVAL '30 days' THEN EXCLUDED.monthly_usage_usd ELSE organization_subscription_plan_usages.monthly_usage_usd+EXCLUDED.monthly_usage_usd END,
+				monthly_window_start=CASE WHEN organization_subscription_plan_usages.monthly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.monthly_window_start >= INTERVAL '30 days' THEN NOW() ELSE organization_subscription_plan_usages.monthly_window_start END,
+				updated_at=NOW()`, organizationID, planID, costUSD)
+		return err
+	}
+
+	// Unlimited packages still retain a shadow total so a later package
+	// limit change can take effect without discarding existing usage. Rebuild
+	// it from the per-group rows because their windows may be independent.
+	_, err := tx.ExecContext(ctx, `INSERT INTO organization_subscription_plan_usages(organization_id,plan_id,daily_window_start,weekly_window_start,monthly_window_start,daily_usage_usd,weekly_usage_usd,monthly_usage_usd)
+		SELECT organization_id,plan_id,MIN(daily_window_start),MIN(weekly_window_start),MIN(monthly_window_start),COALESCE(SUM(daily_usage_usd),0),COALESCE(SUM(weekly_usage_usd),0),COALESCE(SUM(monthly_usage_usd),0)
+		FROM organization_subscriptions WHERE organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL GROUP BY organization_id,plan_id
+		ON CONFLICT (organization_id,plan_id) DO UPDATE SET
+			daily_window_start=EXCLUDED.daily_window_start,weekly_window_start=EXCLUDED.weekly_window_start,monthly_window_start=EXCLUDED.monthly_window_start,
+			daily_usage_usd=EXCLUDED.daily_usage_usd,weekly_usage_usd=EXCLUDED.weekly_usage_usd,monthly_usage_usd=EXCLUDED.monthly_usage_usd,updated_at=NOW()`, organizationID, planID)
+	return err
 }
 
 // IncrementOrganizationSubscriptionUsage atomically adds costUSD to the
@@ -2211,13 +2260,7 @@ func (r *organizationRepository) IncrementOrganizationSubscriptionUsage(ctx cont
 	}
 	planHasLimits := planID.Valid && ((planDaily.Valid && planDaily.Float64 > 0) || (planWeekly.Valid && planWeekly.Float64 > 0) || (planMonthly.Valid && planMonthly.Float64 > 0))
 	if planHasLimits {
-		// A plan may have been unlimited when its rows accumulated usage and
-		// later receive a limit. Seed the shared row from those legacy counters
-		// before adding this request's cost, then increment it below.
-		if _, err := tx.ExecContext(ctx, `INSERT INTO organization_subscription_plan_usages(organization_id,plan_id,daily_window_start,weekly_window_start,monthly_window_start,daily_usage_usd,weekly_usage_usd,monthly_usage_usd)
-			SELECT organization_id,plan_id,MIN(daily_window_start),MIN(weekly_window_start),MIN(monthly_window_start),COALESCE(SUM(daily_usage_usd),0),COALESCE(SUM(weekly_usage_usd),0),COALESCE(SUM(monthly_usage_usd),0)
-			FROM organization_subscriptions WHERE organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL GROUP BY organization_id,plan_id
-			ON CONFLICT (organization_id,plan_id) DO NOTHING`, organizationID, planID.Int64); err != nil {
+		if err := ensureOrganizationSubscriptionPlanUsageSeed(ctx, tx, organizationID, planID.Int64); err != nil {
 			return err
 		}
 	}
@@ -2238,31 +2281,8 @@ func (r *organizationRepository) IncrementOrganizationSubscriptionUsage(ctx cont
 	} else if affected == 0 {
 		return service.ErrOrgSubscriptionNotFound
 	}
-	if planHasLimits {
-		_, err = tx.ExecContext(ctx, `INSERT INTO organization_subscription_plan_usages(organization_id,plan_id,daily_usage_usd,weekly_usage_usd,monthly_usage_usd,daily_window_start,weekly_window_start,monthly_window_start)
-			VALUES($1,$2,$3,$3,$3,NOW(),NOW(),NOW())
-			ON CONFLICT (organization_id,plan_id) DO UPDATE SET
-				daily_usage_usd=CASE WHEN organization_subscription_plan_usages.daily_window_start IS NULL OR NOW()-organization_subscription_plan_usages.daily_window_start >= INTERVAL '24 hours' THEN EXCLUDED.daily_usage_usd ELSE organization_subscription_plan_usages.daily_usage_usd+EXCLUDED.daily_usage_usd END,
-				daily_window_start=CASE WHEN organization_subscription_plan_usages.daily_window_start IS NULL OR NOW()-organization_subscription_plan_usages.daily_window_start >= INTERVAL '24 hours' THEN NOW() ELSE organization_subscription_plan_usages.daily_window_start END,
-				weekly_usage_usd=CASE WHEN organization_subscription_plan_usages.weekly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.weekly_window_start >= INTERVAL '7 days' THEN EXCLUDED.weekly_usage_usd ELSE organization_subscription_plan_usages.weekly_usage_usd+EXCLUDED.weekly_usage_usd END,
-				weekly_window_start=CASE WHEN organization_subscription_plan_usages.weekly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.weekly_window_start >= INTERVAL '7 days' THEN NOW() ELSE organization_subscription_plan_usages.weekly_window_start END,
-				monthly_usage_usd=CASE WHEN organization_subscription_plan_usages.monthly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.monthly_window_start >= INTERVAL '30 days' THEN EXCLUDED.monthly_usage_usd ELSE organization_subscription_plan_usages.monthly_usage_usd+EXCLUDED.monthly_usage_usd END,
-				monthly_window_start=CASE WHEN organization_subscription_plan_usages.monthly_window_start IS NULL OR NOW()-organization_subscription_plan_usages.monthly_window_start >= INTERVAL '30 days' THEN NOW() ELSE organization_subscription_plan_usages.monthly_window_start END,
-				updated_at=NOW()`, organizationID, planID.Int64, costUSD)
-		if err != nil {
-			return err
-		}
-	} else if planID.Valid {
-		// Unlimited packages still retain a shadow total so a later package
-		// limit change can take effect without discarding existing usage. Rebuild
-		// it from the per-group rows because their windows may be independent.
-		_, err = tx.ExecContext(ctx, `INSERT INTO organization_subscription_plan_usages(organization_id,plan_id,daily_window_start,weekly_window_start,monthly_window_start,daily_usage_usd,weekly_usage_usd,monthly_usage_usd)
-			SELECT organization_id,plan_id,MIN(daily_window_start),MIN(weekly_window_start),MIN(monthly_window_start),COALESCE(SUM(daily_usage_usd),0),COALESCE(SUM(weekly_usage_usd),0),COALESCE(SUM(monthly_usage_usd),0)
-			FROM organization_subscriptions WHERE organization_id=$1 AND plan_id=$2 AND deleted_at IS NULL GROUP BY organization_id,plan_id
-			ON CONFLICT (organization_id,plan_id) DO UPDATE SET
-				daily_window_start=EXCLUDED.daily_window_start,weekly_window_start=EXCLUDED.weekly_window_start,monthly_window_start=EXCLUDED.monthly_window_start,
-				daily_usage_usd=EXCLUDED.daily_usage_usd,weekly_usage_usd=EXCLUDED.weekly_usage_usd,monthly_usage_usd=EXCLUDED.monthly_usage_usd,updated_at=NOW()`, organizationID, planID.Int64)
-		if err != nil {
+	if planID.Valid {
+		if err := incrementOrganizationSubscriptionPlanUsage(ctx, tx, organizationID, planID.Int64, costUSD, planHasLimits); err != nil {
 			return err
 		}
 	}

@@ -310,6 +310,28 @@ func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscrip
 // rolling-window reset semantics used for personal subscriptions: a NULL or
 // expired window is (re)started at NOW() with usage set to costUSD.
 func incrementUsageBillingOrgSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {
+	var (
+		organizationID                     int64
+		planID                             sql.NullInt64
+		planDaily, planWeekly, planMonthly sql.NullFloat64
+	)
+	if err := tx.QueryRowContext(ctx, `SELECT s.organization_id,s.plan_id,p.daily_limit_usd,p.weekly_limit_usd,p.monthly_limit_usd
+		FROM organization_subscriptions s
+		LEFT JOIN subscription_plans p ON p.id=s.plan_id
+		WHERE s.id=$1 AND s.deleted_at IS NULL
+		FOR UPDATE OF s`, subscriptionID).
+		Scan(&organizationID, &planID, &planDaily, &planWeekly, &planMonthly); errors.Is(err, sql.ErrNoRows) {
+		return service.ErrOrgSubscriptionNotFound
+	} else if err != nil {
+		return err
+	}
+	planHasLimits := planID.Valid && ((planDaily.Valid && planDaily.Float64 > 0) || (planWeekly.Valid && planWeekly.Float64 > 0) || (planMonthly.Valid && planMonthly.Float64 > 0))
+	if planHasLimits {
+		if err := ensureOrganizationSubscriptionPlanUsageSeed(ctx, tx, organizationID, planID.Int64); err != nil {
+			return err
+		}
+	}
+
 	const updateSQL = `
 		UPDATE organization_subscriptions SET
 			daily_usage_usd = CASE WHEN daily_window_start IS NULL OR NOW() - daily_window_start >= INTERVAL '24 hours' THEN $1 ELSE daily_usage_usd + $1 END,
@@ -330,6 +352,9 @@ func incrementUsageBillingOrgSubscription(ctx context.Context, tx *sql.Tx, subsc
 		return err
 	}
 	if affected > 0 {
+		if planID.Valid {
+			return incrementOrganizationSubscriptionPlanUsage(ctx, tx, organizationID, planID.Int64, costUSD, planHasLimits)
+		}
 		return nil
 	}
 	return service.ErrOrgSubscriptionNotFound

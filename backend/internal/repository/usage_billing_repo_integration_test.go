@@ -309,6 +309,75 @@ func TestUsageBillingRepositoryApply_DeduplicatesSubscriptionBilling(t *testing.
 	require.InDelta(t, 2.5, dailyUsage, 0.000001)
 }
 
+func TestUsageBillingRepositoryApply_EnterpriseSubscriptionUpdatesSharedPlanUsage(t *testing.T) {
+	isolateOrganizationIntegrationTest(t)
+	ctx := context.Background()
+	client := testEntClient(t)
+	billingRepo := NewUsageBillingRepository(client, integrationDB)
+	organizationRepo := NewOrganizationRepository(integrationDB)
+
+	admin := createOrganizationRoot(t, client, 100, service.RoleAdmin)
+	owner := createOrganizationRoot(t, client, 100, service.RoleUser)
+	organizationID := createActiveOrganization(t, owner, 20)
+	groupIDs := make([]int64, 0, 2)
+	for _, name := range []string{"orgsub-billing-a-" + uuid.NewString(), "orgsub-billing-b-" + uuid.NewString()} {
+		var groupID int64
+		require.NoError(t, integrationDB.QueryRowContext(ctx,
+			`INSERT INTO groups(name,status,platform,subscription_type,default_validity_days,daily_limit_usd,rate_multiplier) VALUES($1,'active','codex','subscription',30,100,0.2) RETURNING id`, name).Scan(&groupID))
+		groupIDs = append(groupIDs, groupID)
+	}
+	var planID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		`INSERT INTO subscription_plans(group_id,group_ids,name,price,validity_days,daily_limit_usd) VALUES($1,$2::jsonb,$3,10,30,10) RETURNING id`, groupIDs[0], fmt.Sprintf("[%d,%d]", groupIDs[0], groupIDs[1]), "org-billing-plan-"+uuid.NewString()).Scan(&planID))
+
+	assigned, err := organizationRepo.AdminCreateOrganizationSubscriptionsByPlan(ctx, admin.ID, organizationID, planID, 30, "shared")
+	require.NoError(t, err)
+	require.Len(t, assigned, 2)
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
+		UserID: owner.ID,
+		Key:    "sk-org-billing-" + uuid.NewString(),
+		Name:   "enterprise billing",
+	})
+
+	requestID := uuid.NewString()
+	result, err := billingRepo.Apply(ctx, &service.UsageBillingCommand{
+		RequestID:                  requestID,
+		APIKeyID:                   apiKey.ID,
+		UserID:                     owner.ID,
+		OrganizationSubscriptionID: &assigned[0].ID,
+		SubscriptionCost:           6,
+	})
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+
+	var groupUsage, sharedUsage float64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT daily_usage_usd FROM organization_subscriptions WHERE id=$1`, assigned[0].ID).Scan(&groupUsage))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT daily_usage_usd FROM organization_subscription_plan_usages WHERE organization_id=$1 AND plan_id=$2`, organizationID, planID).Scan(&sharedUsage))
+	require.InDelta(t, 6, groupUsage, 0.000001)
+	require.InDelta(t, 6, sharedUsage, 0.000001)
+
+	// A deployment can have a package row created before the unified billing
+	// path started maintaining it. The UI must still recover the package total
+	// from the per-group counters while that row has no active window.
+	_, err = integrationDB.ExecContext(ctx, `UPDATE organization_subscription_plan_usages SET daily_usage_usd=0,weekly_usage_usd=0,monthly_usage_usd=0,daily_window_start=NULL,weekly_window_start=NULL,monthly_window_start=NULL WHERE organization_id=$1 AND plan_id=$2`, organizationID, planID)
+	require.NoError(t, err)
+	list, err := organizationRepo.ListOrganizationSubscriptions(ctx, owner.ID)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	for _, item := range list {
+		require.InDelta(t, 6, mustParseFloat(t, item.DailyUsageUSD), 0.000001)
+	}
+	runtime, err := organizationRepo.GetOrganizationSubscriptionForBilling(ctx, assigned[1].ID)
+	require.NoError(t, err)
+	require.InDelta(t, 6, runtime.DailyUsageUSD, 0.000001)
+	items, total, err := organizationRepo.AdminListOrganizationSubscriptions(ctx, admin.ID, 1, 20, nil, service.SubscriptionStatusActive, "", "created_at", "desc")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), total)
+	for _, item := range items {
+		require.InDelta(t, 6, mustParseFloat(t, item.DailyUsageUSD), 0.000001)
+	}
+}
+
 func TestUsageBillingRepositoryApply_RequestFingerprintConflict(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
