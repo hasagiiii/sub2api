@@ -26,6 +26,8 @@ const (
 	ContextKeySubscription ContextKey = "subscription"
 	// ContextKeyForcePlatform 强制平台（用于 /antigravity 路由）
 	ContextKeyForcePlatform ContextKey = "force_platform"
+	// ContextKeyAutoPlanRoute marks a plan key that is using automatic routing.
+	ContextKeyAutoPlanRoute ContextKey = "auto_plan_route"
 	// ContextKeyOpsFallbackAPIKey 运维错误日志专用回退键。
 	// 鉴权早退（分组停用/删除、Key 停用/过期/额度、用户停用、IP 限制等）时，
 	// apiKey 已加载但尚未写入 ContextKeyAPIKey；该键让 Ops 错误日志仍能取到
@@ -60,6 +62,13 @@ func GetForcePlatformFromContext(c *gin.Context) (string, bool) {
 	}
 	platform, ok := value.(string)
 	return platform, ok
+}
+
+// IsAutoPlanRoute reports whether the current request came from a plan-bound
+// API key whose group was selected automatically by the auth middleware.
+func IsAutoPlanRoute(c *gin.Context) bool {
+	value, exists := c.Get(string(ContextKeyAutoPlanRoute))
+	return exists && value == true
 }
 
 // ErrorResponse 标准错误响应结构

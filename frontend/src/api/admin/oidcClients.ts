@@ -20,6 +20,7 @@ export interface OidcClient {
   grant_types: string[]
   consent_required: boolean
   enabled: boolean
+  public_client: boolean
   created_at: string
   updated_at: string
 }
@@ -30,6 +31,7 @@ export interface CreateOidcClientRequest {
   allowed_scopes: string[]
   consent_required: boolean
   enabled: boolean
+  public_client?: boolean
 }
 
 export interface UpdateOidcClientRequest {

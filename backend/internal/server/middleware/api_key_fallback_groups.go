@@ -22,7 +22,9 @@ func prepareAPIKeyRoutingState(
 	// 指定了额度池的 Key 也必须建路由状态：没有它，订阅会退化成按 (用户, 分组)
 	// 反查，在用户持有多个覆盖该分组的套餐时就会扣错池子——而这正是"指定套餐"
 	// 要解决的问题。
-	pinnedPool := apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0
+	pinnedPool := (apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0) ||
+		(apiKey.OrganizationSubscriptionID != nil && *apiKey.OrganizationSubscriptionID > 0)
+	autoOrganizationPlan := apiKey.OrganizationSubscriptionID != nil && apiKey.GroupID == nil
 	if !pinnedPool && len(apiKey.FallbackGroupIDs) == 0 {
 		return nil, nil
 	}
@@ -34,6 +36,9 @@ func prepareAPIKeyRoutingState(
 		// subscription by the auth middleware. It has no personal subscription
 		// record to resolve here; only fallback candidates use this path.
 		if index == 0 && apiKey.OrganizationSubscriptionID != nil {
+			continue
+		}
+		if autoOrganizationPlan && apiKey.OrganizationSubscriptionID != nil {
 			continue
 		}
 		if candidate.Unavailable != nil || candidate.Group == nil || skipBilling || !candidate.Group.IsSubscriptionType() {

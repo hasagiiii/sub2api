@@ -3,6 +3,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"strconv"
@@ -57,6 +58,7 @@ type CreateAPIKeyRequest struct {
 type UpdateAPIKeyRequest struct {
 	Name             string   `json:"name"`
 	GroupID          *int64   `json:"group_id"`
+	GroupIDSet       bool     `json:"-"`
 	FallbackGroupIDs *[]int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID 重新绑定公司订阅（企业 API Key）
 	OrganizationSubscriptionID *int64 `json:"organization_subscription_id"`
@@ -75,6 +77,24 @@ type UpdateAPIKeyRequest struct {
 	RateLimit1d         *float64 `json:"rate_limit_1d"`
 	RateLimit7d         *float64 `json:"rate_limit_7d"`
 	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // 重置限速用量
+}
+
+// UnmarshalJSON records whether group_id was present in the request. A nil
+// pointer alone cannot distinguish an omitted field from an explicit null,
+// which is needed to select automatic routing for a plan-bound key.
+func (r *UpdateAPIKeyRequest) UnmarshalJSON(data []byte) error {
+	type plain UpdateAPIKeyRequest
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = UpdateAPIKeyRequest(decoded)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	_, r.GroupIDSet = fields["group_id"]
+	return nil
 }
 
 func validAPIKeyLimit(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 }
@@ -283,6 +303,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 		svcReq.Name = &req.Name
 	}
 	svcReq.GroupID = req.GroupID
+	svcReq.GroupIDSet = req.GroupIDSet
 	svcReq.OrganizationSubscriptionID = req.OrganizationSubscriptionID
 	svcReq.UserSubscriptionID = req.UserSubscriptionID
 	svcReq.PreferCompanyBalance = req.PreferCompanyBalance

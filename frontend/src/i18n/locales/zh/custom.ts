@@ -8707,13 +8707,16 @@ decodeSizeOnRspHint: '开启后上游不返回 size 字段或返回 size=auto �
         scopes: '授权范围',
         redirectUris: '回调地址',
         enabled: '状态',
+        clientType: '客户端类型',
         createdAt: '创建时间',
         actions: '操作',
         uriCount: '{count} 个'
       },
       status: {
         enabled: '已启用',
-        disabled: '已禁用'
+        disabled: '已禁用',
+        public: '公开客户端',
+        confidential: '机密客户端'
       },
       actions: {
         edit: '编辑',
@@ -8732,6 +8735,8 @@ decodeSizeOnRspHint: '开启后上游不返回 size 字段或返回 size=auto �
         allowedScopes: '允许的授权范围',
         consentRequired: '每次都需用户确认授权',
         enabled: '启用此客户端',
+        publicClient: '公开客户端（无需客户端密钥）',
+        publicClientHint: '适用于原生应用或浏览器应用；授权码兑换由 PKCE 保护。',
         save: '保存',
         cancel: '取消',
         saveFailed: '保存失败。',

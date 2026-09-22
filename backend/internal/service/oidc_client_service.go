@@ -6,7 +6,7 @@
 //
 // 关键约束 (与 design.md D3 / spec.md 对齐)：
 //
-//   - client_secret 永远不存明文，仅存 bcrypt hash。
+//   - confidential client_secret 永远不存明文，仅存 bcrypt hash；public client 使用内部标记。
 //   - client_id 形如 "rp_<base32 lowercase no padding>" (16B 随机 → 26 字符)。
 //   - redirect_uris 严格相等匹配；https:// 强制 (allow http://localhost:* for dev)。
 //   - allowed_scopes 必须是 [AllowedOidcProviderScopes] 子集。
@@ -46,6 +46,10 @@ const (
 
 	// oidcClientSecretRandBytes 32B 随机 → base64url 后 43 字符。
 	oidcClientSecretRandBytes = 32
+
+	// oidcPublicClientSecretHash marks a public client in the existing, required
+	// secret-hash column without exposing a new credential or changing the schema.
+	oidcPublicClientSecretHash = "!public-client"
 
 	// OidcClientNameMaxLen 显示名称最大长度。
 	OidcClientNameMaxLen = 100
@@ -87,6 +91,7 @@ type OidcClientView struct {
 	GrantTypes      []string
 	ConsentRequired bool
 	Enabled         bool
+	Public          bool
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -98,6 +103,7 @@ type CreateOidcClientRequest struct {
 	AllowedScopes   []string
 	ConsentRequired bool
 	Enabled         bool
+	Public          bool
 }
 
 // UpdateOidcClientPatch Update 入参；nil 字段表示不修改。
@@ -143,8 +149,8 @@ func NewOidcClientService(client *ent.Client) *OidcClientService {
 
 // ─── Create ──────────────────────────────────────────────────────────────────
 
-// Create 注册新 RP。返回 view + 一次性明文 secret (调用方必须立即返回给 admin，
-// 之后无法再获取)。如果 req.GrantTypes 为空，自动填入 [DefaultOidcClientGrantTypes]。
+// Create 注册新 RP。机密客户端返回一次性明文 secret；public client 返回空 secret，
+// 依靠授权码 PKCE 保护兑换。机密客户端的 secret 调用方必须立即返回给 admin，之后无法再获取。
 //
 // 校验顺序：name → redirect_uris → allowed_scopes。任意一步失败返回对应哨兵错误，
 // 不写 DB。
@@ -166,13 +172,17 @@ func (s *OidcClientService) Create(ctx context.Context, req CreateOidcClientRequ
 	if err != nil {
 		return nil, "", err
 	}
-	plaintextSecret, err := s.generateSecret()
-	if err != nil {
-		return nil, "", err
-	}
-	hash, err := s.hashFunc([]byte(plaintextSecret), s.bcryptCost)
-	if err != nil {
-		return nil, "", fmt.Errorf("oidc client: bcrypt hash: %w", err)
+	plaintextSecret := ""
+	hash := []byte(oidcPublicClientSecretHash)
+	if !req.Public {
+		plaintextSecret, err = s.generateSecret()
+		if err != nil {
+			return nil, "", err
+		}
+		hash, err = s.hashFunc([]byte(plaintextSecret), s.bcryptCost)
+		if err != nil {
+			return nil, "", fmt.Errorf("oidc client: bcrypt hash: %w", err)
+		}
 	}
 
 	row, err := s.client.OidcClient.Create().
@@ -423,6 +433,12 @@ func (s *OidcClientService) Authenticate(ctx context.Context, clientID, presente
 	if !row.Enabled {
 		return nil, ErrOidcClientDisabled
 	}
+	if row.ClientSecretHash == oidcPublicClientSecretHash {
+		if strings.TrimSpace(presentedSecret) == "" {
+			return rowToView(row), nil
+		}
+		return nil, ErrOidcClientWrongSecret
+	}
 	if err := s.compareHashFunc([]byte(row.ClientSecretHash), []byte(presentedSecret)); err != nil {
 		return nil, ErrOidcClientWrongSecret
 	}
@@ -525,6 +541,7 @@ func rowToView(row *ent.OidcClient) *OidcClientView {
 		GrantTypes:      append([]string{}, row.GrantTypes...),
 		ConsentRequired: row.ConsentRequired,
 		Enabled:         row.Enabled,
+		Public:          row.ClientSecretHash == oidcPublicClientSecretHash,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}

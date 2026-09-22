@@ -3659,7 +3659,8 @@ func (r *organizationRepository) ListFallbackCandidateSubscriptions(ctx context.
 	// subscription is missing / soft-deleted we still allow enumerating any
 	// active org subscription; the middleware will pick the first usable one.
 	var platform string
-	if err := r.db.QueryRowContext(ctx, `SELECT g.platform FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id WHERE s.id=$1 AND s.organization_id=$2`, currentSubscriptionID, organizationID).Scan(&platform); err != nil && !errors.Is(err, sql.ErrNoRows) {
+	var currentPlanID sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, `SELECT g.platform,s.plan_id FROM organization_subscriptions s JOIN groups g ON g.id=s.group_id WHERE s.id=$1 AND s.organization_id=$2`, currentSubscriptionID, organizationID).Scan(&platform, &currentPlanID); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 	query := `SELECT ` + organizationSubscriptionSelectColumns + `
@@ -3686,7 +3687,34 @@ func (r *organizationRepository) ListFallbackCandidateSubscriptions(ctx context.
 		}
 		out = append(out, s)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return dedupeOrganizationFallbackCandidates(currentPlanID, out), nil
+}
+
+// dedupeOrganizationFallbackCandidates treats a plan-backed subscription as
+// one fallback target even though the database stores one row per covered
+// group. A different group row in the same plan shares the same quota pool and
+// must not be mistaken for a fresh subscription after the current plan is
+// exhausted. Standalone rows without plan_id remain independent candidates.
+func dedupeOrganizationFallbackCandidates(currentPlanID sql.NullInt64, candidates []service.OrganizationSubscription) []service.OrganizationSubscription {
+	seenPlans := make(map[int64]struct{})
+	out := make([]service.OrganizationSubscription, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.PlanID != nil {
+			planID := *candidate.PlanID
+			if currentPlanID.Valid && planID == currentPlanID.Int64 {
+				continue
+			}
+			if _, seen := seenPlans[planID]; seen {
+				continue
+			}
+			seenPlans[planID] = struct{}{}
+		}
+		out = append(out, candidate)
+	}
+	return out
 }
 
 // ResolveNextOrganizationSubscription walks the candidate chain in order and

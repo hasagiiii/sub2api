@@ -53,6 +53,11 @@
             </span>
           </template>
 
+          <template #cell-public_client="{ row }">
+            <span v-if="row.public_client" class="badge badge-info">{{ t('oidc.admin.status.public') }}</span>
+            <span v-else class="text-xs text-gray-400">{{ t('oidc.admin.status.confidential') }}</span>
+          </template>
+
           <template #cell-created_at="{ value }">
             <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDateTime(value) }}</span>
           </template>
@@ -60,7 +65,7 @@
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-2">
               <button class="btn btn-secondary btn-xs" @click="openEditDialog(row)">{{ t('oidc.admin.actions.edit') }}</button>
-              <button class="btn btn-secondary btn-xs" @click="askResetSecret(row)">{{ t('oidc.admin.actions.resetSecret') }}</button>
+              <button v-if="!row.public_client" class="btn btn-secondary btn-xs" @click="askResetSecret(row)">{{ t('oidc.admin.actions.resetSecret') }}</button>
               <button class="btn btn-danger btn-xs" @click="askDelete(row)">{{ t('oidc.admin.actions.delete') }}</button>
             </div>
           </template>
@@ -143,6 +148,14 @@
         <div class="flex items-center gap-3">
           <input id="oidc-enabled" v-model="form.enabled" type="checkbox" class="h-4 w-4" />
           <label for="oidc-enabled" class="form-label !mb-0">{{ t('oidc.admin.form.enabled') }}</label>
+        </div>
+
+        <div v-if="editingId === null" class="flex items-start gap-3">
+          <input id="oidc-public-client" v-model="form.public_client" type="checkbox" class="mt-0.5 h-4 w-4" />
+          <div>
+            <label for="oidc-public-client" class="form-label !mb-0">{{ t('oidc.admin.form.publicClient') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('oidc.admin.form.publicClientHint') }}</p>
+          </div>
         </div>
       </div>
 
@@ -271,13 +284,15 @@ interface FormState {
   allowed_scopes: string[]
   consent_required: boolean
   enabled: boolean
+  public_client: boolean
 }
 const form = reactive<FormState>({
   client_name: '',
   redirect_uris: [''],
   allowed_scopes: ['openid'],
   consent_required: true,
-  enabled: true
+  enabled: true,
+  public_client: false
 })
 
 const columns = computed<Column[]>(() => [
@@ -286,6 +301,7 @@ const columns = computed<Column[]>(() => [
   { key: 'allowed_scopes', label: t('oidc.admin.table.scopes') },
   { key: 'redirect_uris', label: t('oidc.admin.table.redirectUris') },
   { key: 'enabled', label: t('oidc.admin.table.enabled') },
+  { key: 'public_client', label: t('oidc.admin.table.clientType') },
   { key: 'created_at', label: t('oidc.admin.table.createdAt') },
   { key: 'actions', label: t('oidc.admin.table.actions') }
 ])
@@ -309,6 +325,7 @@ function resetForm() {
   form.allowed_scopes = ['openid']
   form.consent_required = true
   form.enabled = true
+  form.public_client = false
 }
 
 function openCreateDialog() {
@@ -324,6 +341,7 @@ function openEditDialog(row: OidcClient) {
   form.allowed_scopes = [...row.allowed_scopes]
   form.consent_required = row.consent_required
   form.enabled = row.enabled
+  form.public_client = row.public_client
   showFormDialog.value = true
 }
 
@@ -387,10 +405,13 @@ async function doSave() {
         redirect_uris: uris,
         allowed_scopes: form.allowed_scopes,
         consent_required: form.consent_required,
-        enabled: form.enabled
+        enabled: form.enabled,
+        public_client: form.public_client
       })
       showFormDialog.value = false
-      revealSecret(created.client_secret, t('oidc.admin.secretReveal.createBanner'))
+      if (created.client_secret) {
+        revealSecret(created.client_secret, t('oidc.admin.secretReveal.createBanner'))
+      }
     } else {
       await updateClient(editingId.value, {
         client_name: form.client_name.trim(),

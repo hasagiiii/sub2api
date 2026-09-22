@@ -80,9 +80,12 @@ export async function create(
 ): Promise<ApiKey> {
   const payload: CreateApiKeyRequest = { name }
   const userSubscriptionId = options?.userSubscriptionId
-  // 企业订阅仍与个人绑定互斥：它的分组与额度池都来自公司订阅。
+  // 企业订阅仍与个人绑定互斥；计划型企业订阅允许 groupId 为空表示 Auto。
   if (organizationSubscriptionId !== undefined && organizationSubscriptionId !== null) {
     payload.organization_subscription_id = organizationSubscriptionId
+    if (groupId !== undefined) {
+      payload.group_id = groupId
+    }
     payload.fallback_group_ids = fallbackGroupIds ?? []
   } else {
     if (groupId !== undefined) {

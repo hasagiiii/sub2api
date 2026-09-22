@@ -135,6 +135,40 @@ func TestDefaultModelIDsForAnthropicExcludeAntigravityGemini(t *testing.T) {
 	require.Contains(t, antigravityIDs, "gemini-2.5-flash")
 }
 
+func TestAutoPlanAvailableModelsMergesCoveredGroups(t *testing.T) {
+	const firstGroupID int64 = 201
+	const secondGroupID int64 = 202
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
+		byGroup: map[int64][]service.Account{
+			firstGroupID: {{
+				ID:          1,
+				Platform:    service.PlatformAnthropic,
+				Status:      service.StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"claude-one": "claude-one"},
+				},
+			}},
+			secondGroupID: {{
+				ID:          2,
+				Platform:    service.PlatformAnthropic,
+				Status:      service.StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"claude-two": "claude-two"},
+				},
+			}},
+		},
+	})
+
+	models := h.autoPlanAvailableModels(context.Background(), []*service.Group{
+		{ID: firstGroupID, Platform: service.PlatformAnthropic},
+		{ID: secondGroupID, Platform: service.PlatformAnthropic},
+	}, service.PlatformAnthropic)
+
+	require.ElementsMatch(t, []string{"claude-one", "claude-two"}, models)
+}
+
 // Scenario: non-OpenAI groups return a Codex manifest instead of a standard model list.
 func TestGatewayCodexModels_NonOpenAIGroupsUseMappedModels(t *testing.T) {
 	tests := []struct {

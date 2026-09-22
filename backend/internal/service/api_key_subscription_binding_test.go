@@ -22,8 +22,9 @@ func (r *boundKeyGroupRepo) GetByID(_ context.Context, id int64) (*Group, error)
 
 type boundKeySubRepo struct {
 	userSubRepoNoop
-	sub *UserSubscription
-	err error
+	sub        *UserSubscription
+	err        error
+	activeSubs []UserSubscription
 }
 
 func (r *boundKeySubRepo) GetByID(context.Context, int64) (*UserSubscription, error) {
@@ -32,6 +33,10 @@ func (r *boundKeySubRepo) GetByID(context.Context, int64) (*UserSubscription, er
 	}
 	cp := *r.sub
 	return &cp, nil
+}
+
+func (r *boundKeySubRepo) ListActiveByUserID(context.Context, int64) ([]UserSubscription, error) {
+	return append([]UserSubscription(nil), r.activeSubs...), nil
 }
 
 func activeSharedSubscription() *UserSubscription {
@@ -95,6 +100,27 @@ func TestResolveCandidatesRecoversLegacySubscriptionBoundKeyWithoutGroup(t *test
 	})
 }
 
+func TestResolveCandidatesKeepsAllPlatformsForAutoPlanKey(t *testing.T) {
+	sub := activeSharedSubscription()
+	sub.GroupIDs = []int64{10, 11}
+	svc := &APIKeyService{
+		groupRepo: &boundKeyGroupRepo{groups: map[int64]*Group{
+			10: {ID: 10, Platform: PlatformOpenAI, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription},
+			11: {ID: 11, Platform: PlatformAnthropic, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription},
+		}},
+		userSubRepo: &boundKeySubRepo{sub: sub},
+	}
+	subscriptionID := sub.ID
+	candidates := svc.ResolveAPIKeyRoutingCandidates(context.Background(), &APIKey{
+		UserID:             sub.UserID,
+		UserSubscriptionID: &subscriptionID,
+	})
+
+	require.Len(t, candidates, 2)
+	require.Nil(t, candidates[0].Unavailable)
+	require.Nil(t, candidates[1].Unavailable)
+}
+
 func TestResolveCandidatesReportsMissingLegacySubscription(t *testing.T) {
 	subscriptionID := int64(77)
 	key := &APIKey{ID: 1, UserID: 5, UserSubscriptionID: &subscriptionID}
@@ -131,6 +157,27 @@ func TestResolveCandidatesReportsLegacySubscriptionWithoutGroups(t *testing.T) {
 
 	require.Len(t, candidates, 1)
 	require.ErrorIs(t, candidates[0].Unavailable, ErrSubscriptionNotFound)
+}
+
+func TestSelectPlanRouteGroupAllowsModelListingWithoutModel(t *testing.T) {
+	sub := activeSharedSubscription()
+	groups := map[int64]*Group{
+		10: {ID: 10, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription, RateMultiplier: 1.2},
+		11: {ID: 11, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription, RateMultiplier: 0.8},
+		12: {ID: 12, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription, RateMultiplier: 1.0},
+	}
+	svc := &APIKeyService{
+		groupRepo:   &boundKeyGroupRepo{groups: groups},
+		userSubRepo: &boundKeySubRepo{sub: sub},
+	}
+	subscriptionID := sub.ID
+	key := &APIKey{UserID: sub.UserID, UserSubscriptionID: &subscriptionID}
+
+	group, err := svc.SelectPlanRouteGroup(context.Background(), key, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.Equal(t, int64(11), group.ID)
 }
 
 // 指定的套餐覆盖该分组时，额度池就是它。
@@ -205,6 +252,22 @@ func TestValidatePinnedUserSubscriptionAcceptsCoveredGroup(t *testing.T) {
 	require.NoError(t, svc.validatePinnedUserSubscription(context.Background(), 5, &groupID, &subID))
 }
 
+func TestValidatePinnedUserSubscriptionRefreshesPlanCoverage(t *testing.T) {
+	sub := activeSharedSubscription()
+	planID := int64(100)
+	sub.PlanID = &planID
+	sub.GroupIDs = []int64{10}
+	refreshed := *sub
+	refreshed.GroupIDs = []int64{10, 11, 12}
+	svc := &APIKeyService{
+		userSubRepo: &boundKeySubRepo{sub: sub, activeSubs: []UserSubscription{refreshed}},
+	}
+
+	groupID := int64(12)
+	subID := int64(77)
+	require.NoError(t, svc.validatePinnedUserSubscription(context.Background(), 5, &groupID, &subID))
+}
+
 func TestValidatePinnedUserSubscriptionRequiresGroup(t *testing.T) {
 	svc := pinnedPoolService(activeSharedSubscription(), nil)
 
@@ -220,4 +283,25 @@ func TestValidatePinnedUserSubscriptionAllowsNoPin(t *testing.T) {
 
 	groupID := int64(10)
 	require.NoError(t, svc.validatePinnedUserSubscription(context.Background(), 5, &groupID, nil))
+}
+
+func TestSelectCheapestGroupPrefersLowerRateAndKeepsOrderOnTie(t *testing.T) {
+	expensive := &Group{ID: 1, Platform: "openai", Status: StatusActive, RateMultiplier: 2, SubscriptionType: SubscriptionTypeSubscription}
+	cheap := &Group{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, RateMultiplier: 0.5, SubscriptionType: SubscriptionTypeSubscription}
+	selected := selectCheapestGroup([]*Group{expensive, cheap}, "gpt-4.1")
+	require.Equal(t, int64(2), selected.ID)
+
+	first := &Group{ID: 3, Status: StatusActive, RateMultiplier: 1}
+	second := &Group{ID: 4, Status: StatusActive, RateMultiplier: 1}
+	selected = selectCheapestGroup([]*Group{first, second}, "same-model")
+	require.Equal(t, int64(3), selected.ID)
+}
+
+func TestSelectCheapestGroupDoesNotRouteKnownModelToAnotherPlatform(t *testing.T) {
+	grok := &Group{ID: 1, Platform: PlatformGrok, Status: StatusActive, RateMultiplier: 0.1}
+	openai := &Group{ID: 2, Platform: PlatformOpenAI, Status: StatusActive, RateMultiplier: 1}
+
+	selected := selectCheapestGroup([]*Group{grok, openai}, "gpt-5.6-sol")
+
+	require.Equal(t, int64(2), selected.ID)
 }

@@ -560,8 +560,8 @@ describe('user KeysView column settings', () => {
       rate_multiplier: 0.2,
       status: 'active',
     }])
-    // 套餐覆盖的每个分组都会在“订阅套餐”分类中单独列出；手动分配的重复分组
-    // 仍保留在“普通分组”分类中。
+    // 套餐总项与其覆盖的具体路由分组都会在“订阅套餐”分类中列出；手动分配的
+    // 重复分组仍保留在“普通分组”分类中。企业套餐使用相同的套餐项样式。
     listUserSubscriptions.mockResolvedValue([
       { id: 55, plan_id: 100, plan_name: '图像套餐', group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
       { id: 56, plan_id: 101, plan_name: '备用套餐', group_id: 1, group_ids: [1], status: 'active', expires_at: null },
@@ -584,20 +584,14 @@ describe('user KeysView column settings', () => {
       'org',
       'plan',
       'plan',
-      'plan',
       'group',
       'group',
     ])
-    // 套餐项按覆盖分组拆开，用户可直接选择套餐内的具体路由分组。
-    expect(options[1].find('group-option-item-stub').attributes('name'))
-      .toBe('Personal Group')
-    expect(options[2].find('group-option-item-stub').attributes('name')).toBe('Bundled Group')
+    // 菜单只选择套餐，具体路由分组由套餐右侧的 Select 处理。
+    expect(options[1].find('group-option-item-stub').attributes('name')).toBe('图像套餐')
+    expect(options[2].find('group-option-item-stub').attributes('name')).toBe('备用套餐')
     expect(options[3].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
-    expect(options[4].find('group-option-item-stub').attributes('name')).toBe('Personal Group')
-    expect(options[5].find('group-option-item-stub').attributes('name')).toBe('Ordinary Group')
-    expect(options[1].attributes('title')).toContain('Subscription: 图像套餐')
-    expect(options[2].attributes('title')).toContain('Subscription: 图像套餐')
-    expect(options[3].attributes('title')).toContain('Subscription: 备用套餐')
+    expect(options[4].find('group-option-item-stub').attributes('name')).toBe('Ordinary Group')
     expect(listOrganizationSubscriptions).toHaveBeenCalledTimes(2)
     expect(listUserSubscriptions).toHaveBeenCalledTimes(2)
 
@@ -636,12 +630,12 @@ describe('user KeysView column settings', () => {
   })
 
   // 套餐项同时选择额度池和路由分组，切换到套餐中的另一个分组时两者一起更新。
-  it('selects a plan and one of its covered groups from the list selector', async () => {
+  it('selects a covered group from the plan route select', async () => {
     const personalGroup = createGroup({ id: 1, name: 'Personal Group' })
     const bundledGroup = createGroup({ id: 2, name: 'Bundled Group' })
     getAvailableGroups.mockResolvedValue([personalGroup, bundledGroup])
     listKeys.mockResolvedValue({
-      items: [{ ...createApiKey(), group_id: personalGroup.id, group: personalGroup }],
+      items: [{ ...createApiKey(), group_id: personalGroup.id, group: personalGroup, user_subscription_id: 55 }],
       total: 1,
       page: 1,
       page_size: 20,
@@ -653,12 +647,9 @@ describe('user KeysView column settings', () => {
     ])
 
     const wrapper = await mountView()
-    await wrapper.get('[data-test="group-selector-trigger"]').trigger('click')
-    await flushPromises()
-
-    const planGroupOption = wrapper.findAll('[data-test="group-selector-option"]')
-      .find(option => option.attributes('data-binding-kind') === 'plan' && option.find('group-option-item-stub').attributes('name') === 'Bundled Group')
-    await planGroupOption!.trigger('click')
+    const routeSelect = wrapper.get('[data-test="plan-route-select"]')
+    expect(routeSelect.findAll('option').map(option => option.text())).toEqual(['Auto', 'Personal Group', 'Bundled Group'])
+    await routeSelect.setValue(String(bundledGroup.id))
     await flushPromises()
 
     expect(updateKey).toHaveBeenCalledWith(1, {
@@ -690,11 +681,10 @@ describe('user KeysView column settings', () => {
     const wrapper = await mountView()
 
     const groupCell = wrapper.get('[data-test="group-cell"]')
-    // 路由分组照常展示，额度池另用一个带说明的徽标标注。
-    expect(groupCell.findAll('group-badge-stub').map(badge => badge.attributes('name'))).toEqual(['Alpha'])
-    const planBadge = groupCell.get('[data-test="plan-binding-badge"]')
-    expect(planBadge.text()).toBe('Subscription: 图像套餐')
-    expect(planBadge.attributes('title')).toContain('This group belongs to 图像套餐 subscription plan')
+    // 套餐额度池显示在左侧徽标，具体路由分组由右侧 Select 显示和切换。
+    expect(groupCell.findAll('group-badge-stub').map(badge => badge.attributes('name')))
+      .toEqual(['Subscription: 图像套餐'])
+    expect(groupCell.get('[data-test="plan-route-select"]').find('option:checked').text()).toBe('Alpha')
   })
 
   // 套餐覆盖的分组不一定都在"用户可绑定的分组"列表里（例如某个专属分组并未授予
@@ -715,10 +705,10 @@ describe('user KeysView column settings', () => {
 
     const wrapper = await mountView()
 
-    expect(wrapper.get('[data-test="plan-binding-badge"]').text())
-      .toBe('Subscription: 图像套餐')
-    expect(wrapper.get('[data-test="plan-binding-badge"]').attributes('title'))
-      .toContain('This group belongs to 图像套餐 subscription plan')
+    const groupCell = wrapper.get('[data-test="group-cell"]')
+    expect(groupCell.get('group-badge-stub').attributes('name')).toBe('Subscription: 图像套餐')
+    expect(groupCell.get('[data-test="plan-route-select"]').findAll('option').map(option => option.text()))
+      .toEqual(['Auto', '订阅测试分组'])
   })
 
   it('opens bulk editing with only selected visible keys', async () => {

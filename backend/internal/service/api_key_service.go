@@ -223,9 +223,8 @@ type CreateAPIKeyRequest struct {
 	GroupID          *int64  `json:"group_id"`
 	FallbackGroupIDs []int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID, when set, creates an enterprise API key bound
-	// to the given company subscription. The key's group is forced to the
-	// subscription's group and consumption is charged against the organization
-	// subscription instead of a personal subscription.
+	// to the given company subscription. Plan-backed subscriptions may leave
+	// GroupID empty for automatic routing across every covered group.
 	OrganizationSubscriptionID *int64 `json:"organization_subscription_id"`
 	// UserSubscriptionID, when set, pins which of the owner's subscriptions this
 	// key charges. GroupID is still required and still decides routing; the pin
@@ -250,6 +249,7 @@ type CreateAPIKeyRequest struct {
 type UpdateAPIKeyRequest struct {
 	Name             *string  `json:"name"`
 	GroupID          *int64   `json:"group_id"`
+	GroupIDSet       bool     `json:"-"`
 	FallbackGroupIDs *[]int64 `json:"fallback_group_ids"`
 	// OrganizationSubscriptionID, when set, re-binds this key to a company
 	// subscription (enterprise key). Selecting a normal GroupID clears the
@@ -575,6 +575,22 @@ func (s *APIKeyService) resolveBindableUserSubscription(ctx context.Context, use
 	if !sub.IsActive() {
 		return nil, ErrSubscriptionInvalid
 	}
+	// ListActiveByUserID is also the repository's synchronization path for
+	// plan coverage rows. GetByID is used by the hot path and may only see the
+	// primary group when a plan was recently changed, so refresh plan-backed
+	// subscriptions before validating a selected covered group.
+	if sub.PlanID != nil {
+		active, refreshErr := s.userSubRepo.ListActiveByUserID(ctx, userID)
+		if refreshErr != nil {
+			return nil, fmt.Errorf("refresh subscription coverage: %w", refreshErr)
+		}
+		for i := range active {
+			if active[i].ID == subscriptionID {
+				sub = &active[i]
+				break
+			}
+		}
+	}
 	return sub, nil
 }
 
@@ -652,6 +668,35 @@ func (s *APIKeyService) resolveBindableOrganizationSubscription(ctx context.Cont
 		return nil, err
 	}
 	return orgSub, nil
+}
+
+// validateOrganizationPlanGroup verifies that an explicitly selected route is
+// one of the groups covered by the bound enterprise subscription. A regular
+// enterprise subscription has only its own group; a plan subscription shares
+// the quota pool across all rows with the same plan_id.
+func (s *APIKeyService) validateOrganizationPlanGroup(ctx context.Context, userID int64, orgSub *OrganizationSubscription, groupID *int64) error {
+	if orgSub == nil || groupID == nil || *groupID <= 0 {
+		return ErrSubscriptionGroupMismatch
+	}
+	if orgSub.PlanID == nil {
+		if *groupID != orgSub.GroupID {
+			return ErrSubscriptionGroupMismatch
+		}
+		return nil
+	}
+	covered, err := s.organizationPlanCoveredGroups(ctx, &APIKey{
+		UserID:                     userID,
+		OrganizationSubscriptionID: &orgSub.ID,
+	})
+	if err != nil {
+		return err
+	}
+	for _, group := range covered {
+		if group != nil && group.ID == *groupID {
+			return nil
+		}
+	}
+	return ErrSubscriptionGroupMismatch
 }
 
 // ListBindableOrganizationSubscriptions 返回当前用户（作为组织成员）可绑定的活跃公司订阅。
@@ -842,15 +887,21 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 	}
 
-	// 企业 API Key：绑定公司订阅。校验用户是该订阅所属组织的活跃成员，
-	// 并将分组强制设置为订阅所属分组（消费走公司订阅计数器）。
+	// 企业 API Key：绑定公司订阅。计划型企业订阅允许 group_id 为空，
+	// 表示在套餐覆盖的全部分组之间自动路由；非计划型订阅继续使用代表分组。
 	if req.OrganizationSubscriptionID != nil {
 		orgSub, err := s.resolveBindableOrganizationSubscription(ctx, userID, *req.OrganizationSubscriptionID)
 		if err != nil {
 			return nil, err
 		}
-		gid := orgSub.GroupID
-		req.GroupID = &gid
+		if orgSub.PlanID == nil {
+			gid := orgSub.GroupID
+			req.GroupID = &gid
+		} else if req.GroupID != nil {
+			if err := s.validateOrganizationPlanGroup(ctx, userID, orgSub, req.GroupID); err != nil {
+				return nil, err
+			}
+		}
 		// 企业 Key 的额度池来自公司订阅，个人套餐的指定在这里没有意义。
 		req.UserSubscriptionID = nil
 	} else {
@@ -1188,11 +1239,43 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		if err != nil {
 			return nil, err
 		}
-		gid := orgSub.GroupID
-		apiKey.GroupID = &gid
+		if req.GroupIDSet && req.GroupID == nil {
+			if orgSub.PlanID == nil {
+				gid := orgSub.GroupID
+				apiKey.GroupID = &gid
+			} else {
+				apiKey.GroupID = nil
+			}
+		} else if req.GroupID != nil && orgSub.PlanID != nil {
+			if err := s.validateOrganizationPlanGroup(ctx, userID, orgSub, req.GroupID); err != nil {
+				return nil, err
+			}
+			apiKey.GroupID = req.GroupID
+		} else {
+			// Omitted group_id preserves the historical representative-group
+			// behavior when rebinding from older clients.
+			gid := orgSub.GroupID
+			apiKey.GroupID = &gid
+		}
 		apiKey.OrganizationSubscriptionID = req.OrganizationSubscriptionID
 		apiKey.UserSubscriptionID = nil
 		fields.GroupID = true
+	} else if req.GroupIDSet && req.GroupID == nil {
+		// An explicit null group selects automatic routing for a pinned plan.
+		// An omitted group_id still means "keep the current route" below.
+		if req.UserSubscriptionID != nil {
+			if _, err := s.resolveBindableUserSubscription(ctx, userID, *req.UserSubscriptionID); err != nil {
+				return nil, err
+			}
+			apiKey.UserSubscriptionID = req.UserSubscriptionID
+		} else {
+			apiKey.UserSubscriptionID = nil
+		}
+		apiKey.GroupID = nil
+		apiKey.OrganizationSubscriptionID = nil
+		apiKey.FallbackGroupIDs = nil
+		fields.GroupID = true
+		fields.FallbackGroupIDs = true
 	} else if req.GroupID != nil {
 		// 验证分组权限（个人 Key），并清除可能存在的企业绑定
 		user, err := s.userRepo.GetByID(ctx, userID)
@@ -1539,6 +1622,155 @@ func (s *APIKeyService) validateAPIKeyFallbackGroups(ctx context.Context, user *
 	return nil
 }
 
+// SelectPlanRouteGroup chooses the request group for a plan-bound API key.
+// A key with an explicit group stays on that group. Auto mode has no saved
+// group and selects the cheapest covered group that can serve the model.
+func (s *APIKeyService) SelectPlanRouteGroup(ctx context.Context, apiKey *APIKey, requestedModel string) (*Group, error) {
+	if apiKey == nil {
+		return nil, nil
+	}
+	if (apiKey.UserSubscriptionID == nil || *apiKey.UserSubscriptionID <= 0) &&
+		(apiKey.OrganizationSubscriptionID == nil || *apiKey.OrganizationSubscriptionID <= 0) {
+		return apiKey.Group, nil
+	}
+	if apiKey.GroupID != nil && *apiKey.GroupID > 0 {
+		return apiKey.Group, nil
+	}
+	groups, err := s.PlanCoveredGroups(ctx, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	model := strings.ToLower(strings.TrimSpace(requestedModel))
+	selected := selectCheapestGroup(groups, model)
+	if selected == nil {
+		return nil, fmt.Errorf("%w: %s", ErrNoAvailableAccounts, model)
+	}
+	return selected, nil
+}
+
+// PlanCoveredGroups returns the active groups covered by the subscription
+// pinned to an API key. It is used by Auto model listing to expose the union
+// of every covered group's models instead of only the group selected for one
+// request.
+func (s *APIKeyService) PlanCoveredGroups(ctx context.Context, apiKey *APIKey) ([]*Group, error) {
+	if apiKey == nil {
+		return nil, nil
+	}
+	if apiKey.OrganizationSubscriptionID != nil && *apiKey.OrganizationSubscriptionID > 0 {
+		return s.organizationPlanCoveredGroups(ctx, apiKey)
+	}
+	if apiKey.UserSubscriptionID == nil || *apiKey.UserSubscriptionID <= 0 {
+		return nil, nil
+	}
+	sub, err := s.resolveBindableUserSubscription(ctx, apiKey.UserID, *apiKey.UserSubscriptionID)
+	if err != nil {
+		return nil, err
+	}
+	groups := make([]*Group, 0, len(sub.CoveredGroupIDs()))
+	for _, groupID := range sub.CoveredGroupIDs() {
+		group, getErr := s.groupRepo.GetByID(ctx, groupID)
+		if getErr != nil || group == nil || !group.IsActive() {
+			continue
+		}
+		groups = append(groups, group)
+	}
+	return groups, nil
+}
+
+func (s *APIKeyService) organizationPlanCoveredGroups(ctx context.Context, apiKey *APIKey) ([]*Group, error) {
+	if s.organizationRepo == nil || apiKey == nil || apiKey.OrganizationSubscriptionID == nil {
+		return nil, ErrOrgSubscriptionNotFound
+	}
+	current, err := s.resolveBindableOrganizationSubscription(ctx, apiKey.UserID, *apiKey.OrganizationSubscriptionID)
+	if err != nil {
+		return nil, err
+	}
+	rows := []OrganizationSubscription{*current}
+	if current.PlanID != nil {
+		active, listErr := s.organizationRepo.ListActiveOrganizationSubscriptionsForMember(ctx, apiKey.UserID)
+		if listErr != nil {
+			return nil, listErr
+		}
+		rows = rows[:0]
+		for _, row := range active {
+			if row.OrganizationID == current.OrganizationID && row.PlanID != nil && *row.PlanID == *current.PlanID {
+				rows = append(rows, row)
+			}
+		}
+	}
+	groups := make([]*Group, 0, len(rows))
+	seen := make(map[int64]struct{}, len(rows))
+	for _, row := range rows {
+		if _, exists := seen[row.GroupID]; exists {
+			continue
+		}
+		group, getErr := s.groupRepo.GetByID(ctx, row.GroupID)
+		if getErr != nil || group == nil || !group.IsActive() {
+			continue
+		}
+		seen[row.GroupID] = struct{}{}
+		groups = append(groups, group)
+	}
+	return groups, nil
+}
+
+func selectCheapestGroup(groups []*Group, model string) *Group {
+	var selected *Group
+	selectedPrice := 0.0
+	for _, group := range groups {
+		if group == nil || !group.IsActive() || !groupSupportsModel(group, model) {
+			continue
+		}
+		price := group.RateMultiplier * modelUnitPrice(model)
+		if selected == nil || price < selectedPrice {
+			selected = group
+			selectedPrice = price
+		}
+	}
+	return selected
+}
+
+func groupSupportsModel(group *Group, model string) bool {
+	if group == nil {
+		return false
+	}
+	// Model-list requests such as GET /v1/models do not carry a model name.
+	// They still need a concrete group so the handler can enumerate models;
+	// defer model-specific filtering until a request includes the model.
+	if model == "" {
+		return true
+	}
+	// A plan may cover groups from several providers. Public model IDs with a
+	// known provider prefix must stay on that provider's group; otherwise Auto
+	// mode can pick a cheaper unrelated group (for example a Grok group for a
+	// gpt-* request) and only fail later inside the account scheduler.
+	if targetPlatform, detected := DetectModelPlatform(model); detected &&
+		group.Platform != targetPlatform && group.Platform != PlatformComposite {
+		return false
+	}
+	if len(group.SupportedModelScopes) == 0 {
+		return true
+	}
+	for _, scope := range group.SupportedModelScopes {
+		scope = strings.ToLower(strings.TrimSpace(scope))
+		if scope == "" || scope == "*" || scope == model || strings.HasPrefix(model, strings.TrimSuffix(scope, "*")) {
+			return true
+		}
+	}
+	return false
+}
+
+func modelUnitPrice(model string) float64 {
+	switch {
+	case strings.Contains(model, "opus"):
+		return 15
+	case strings.Contains(model, "sonnet"), strings.Contains(model, "gpt-4"), strings.Contains(model, "gemini-2.5-pro"):
+		return 3
+	default:
+		return 1
+	}
+}
+
 // ResolveAPIKeyRoutingCandidates returns the primary group followed by the
 // configured fallback groups. Runtime-invalid fallbacks remain in the result
 // with Unavailable set so routing can preserve order and diagnostics.
@@ -1553,6 +1785,11 @@ func (s *APIKeyService) ResolveAPIKeyRoutingCandidates(ctx context.Context, apiK
 		return nil
 	}
 	groupIDs := make([]int64, 0, 1+len(apiKey.FallbackGroupIDs))
+	// An unassigned plan key is in Auto mode: its covered groups may span
+	// platforms and all of them remain candidates until a request model picks
+	// one. Explicitly routed keys still require same-platform fallbacks.
+	autoPlan := apiKey.GroupID == nil && ((apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0) ||
+		(apiKey.OrganizationSubscriptionID != nil && *apiKey.OrganizationSubscriptionID > 0))
 	if apiKey.GroupID != nil && *apiKey.GroupID > 0 {
 		groupIDs = append(groupIDs, *apiKey.GroupID)
 	} else if apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0 && s.userSubRepo != nil {
@@ -1573,6 +1810,16 @@ func (s *APIKeyService) ResolveAPIKeyRoutingCandidates(ctx context.Context, apiK
 			return []APIKeyRoutingCandidate{{Unavailable: ErrSubscriptionInvalid}}
 		}
 		groupIDs = append(groupIDs, sub.CoveredGroupIDs()...)
+	} else if apiKey.OrganizationSubscriptionID != nil && *apiKey.OrganizationSubscriptionID > 0 {
+		groups, err := s.organizationPlanCoveredGroups(ctx, apiKey)
+		if err != nil {
+			return []APIKeyRoutingCandidate{{Unavailable: err}}
+		}
+		for _, group := range groups {
+			if group != nil {
+				groupIDs = append(groupIDs, group.ID)
+			}
+		}
 	}
 	groupIDs = append(groupIDs, apiKey.FallbackGroupIDs...)
 	if len(groupIDs) == 0 && apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0 {
@@ -1600,7 +1847,7 @@ func (s *APIKeyService) ResolveAPIKeyRoutingCandidates(ctx context.Context, apiK
 		}
 		if group == nil || !group.IsActive() {
 			candidate.Unavailable = ErrGroupNotFound
-		} else if index > 0 && (primaryPlatform == "" || group.Platform != primaryPlatform) {
+		} else if index > 0 && !autoPlan && (primaryPlatform == "" || group.Platform != primaryPlatform) {
 			candidate.Unavailable = ErrGroupNotAllowed
 		} else if !group.IsSubscriptionType() && apiKey.User != nil && !apiKey.User.CanBindGroup(group.ID, group.IsExclusive) {
 			candidate.Unavailable = ErrGroupNotAllowed

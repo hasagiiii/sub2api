@@ -8526,13 +8526,16 @@ decodeSizeOnRspHint: 'When the upstream response omits the size field or returns
         scopes: 'Scopes',
         redirectUris: 'Redirect URIs',
         enabled: 'Status',
+        clientType: 'Client type',
         createdAt: 'Created',
         actions: 'Actions',
         uriCount: '{count}'
       },
       status: {
         enabled: 'Enabled',
-        disabled: 'Disabled'
+        disabled: 'Disabled',
+        public: 'Public',
+        confidential: 'Confidential'
       },
       actions: {
         edit: 'Edit',
@@ -8551,6 +8554,8 @@ decodeSizeOnRspHint: 'When the upstream response omits the size field or returns
         allowedScopes: 'Allowed scopes',
         consentRequired: 'Require user consent every time',
         enabled: 'Enable this client',
+        publicClient: 'Public client (no client secret)',
+        publicClientHint: 'Use this for native or browser apps. Authorization code exchange is protected by PKCE.',
         save: 'Save',
         cancel: 'Cancel',
         saveFailed: 'Failed to save.',

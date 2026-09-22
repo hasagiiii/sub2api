@@ -143,6 +143,29 @@ func TestOidcClient_Authenticate_HappyAndWrongSecret(t *testing.T) {
 	require.True(t, errors.Is(err, ErrOidcClientWrongSecret))
 }
 
+func TestOidcClient_PublicClientDoesNotRequireSecret(t *testing.T) {
+	client := newOidcSigningTestClient(t)
+	svc := newOidcClientServiceForTest(t, client)
+
+	view, plain, err := svc.Create(context.Background(), CreateOidcClientRequest{
+		ClientName:    "Native App",
+		RedirectURIs:  []string{"http://localhost:3000/callback"},
+		AllowedScopes: []string{"openid"},
+		Enabled:       true,
+		Public:        true,
+	})
+	require.NoError(t, err)
+	require.Empty(t, plain)
+	require.True(t, view.Public)
+
+	got, err := svc.Authenticate(context.Background(), view.ClientID, "")
+	require.NoError(t, err)
+	require.Equal(t, view.ID, got.ID)
+
+	_, err = svc.Authenticate(context.Background(), view.ClientID, "unexpected-secret")
+	require.ErrorIs(t, err, ErrOidcClientWrongSecret)
+}
+
 func TestOidcClient_Authenticate_UnknownClientReturnsNotFound(t *testing.T) {
 	client := newOidcSigningTestClient(t)
 	svc := newOidcClientServiceForTest(t, client)

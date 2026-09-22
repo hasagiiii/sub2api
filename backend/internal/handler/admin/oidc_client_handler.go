@@ -50,6 +50,7 @@ type adminOidcClient struct {
 	GrantTypes      []string  `json:"grant_types"`
 	ConsentRequired bool      `json:"consent_required"`
 	Enabled         bool      `json:"enabled"`
+	Public          bool      `json:"public_client"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -67,6 +68,7 @@ func toAdminOidcClient(v *service.OidcClientView) *adminOidcClient {
 		GrantTypes:      v.GrantTypes,
 		ConsentRequired: v.ConsentRequired,
 		Enabled:         v.Enabled,
+		Public:          v.Public,
 		CreatedAt:       v.CreatedAt,
 		UpdatedAt:       v.UpdatedAt,
 	}
@@ -130,6 +132,7 @@ type createOidcClientRequest struct {
 	AllowedScopes   []string `json:"allowed_scopes"`
 	ConsentRequired bool     `json:"consent_required"`
 	Enabled         bool     `json:"enabled"`
+	Public          bool     `json:"public_client"`
 }
 
 // createOidcClientResponse Create 返回体：一次性附带明文 secret。
@@ -151,6 +154,7 @@ func (h *OidcClientHandler) Create(c *gin.Context) {
 		AllowedScopes:   req.AllowedScopes,
 		ConsentRequired: req.ConsentRequired,
 		Enabled:         req.Enabled,
+		Public:          req.Public,
 	})
 	if mapOidcClientError(c, err) {
 		return

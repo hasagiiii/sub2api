@@ -875,9 +875,9 @@ export interface CreateApiKeyRequest {
   fallback_group_ids?: number[]
   organization_subscription_id?: number | null
   /**
-   * 指定个人订阅（套餐）作为扣费额度池。路由仍由 group_id 决定，且该分组必须被
-   * 套餐覆盖，因此可同时发送 group_id / fallback_group_ids。
+   * 指定企业订阅；计划型企业订阅可将 group_id 设为空以启用 Auto，或指定套餐覆盖的分组。
    */
+  /** 个人订阅（套餐）作为扣费额度池；路由分组必须被套餐覆盖。 */
   user_subscription_id?: number | null
   prefer_company_balance?: boolean
   custom_key?: string // Optional custom API Key
@@ -895,6 +895,7 @@ export interface UpdateApiKeyRequest {
   group_id?: number | null
   fallback_group_ids?: number[]
   organization_subscription_id?: number | null
+  /** 企业计划可用 group_id=null 切换 Auto；显式分组必须属于该计划覆盖范围。 */
   /** 指定个人订阅（套餐）作为扣费额度池；改选普通分组时可同时更新该绑定。 */
   user_subscription_id?: number | null
   prefer_company_balance?: boolean

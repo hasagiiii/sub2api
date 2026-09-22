@@ -251,7 +251,7 @@ func (s *OidcProviderService) Discovery(ctx context.Context) (map[string]any, er
 		"subject_types_supported":               []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 		"scopes_supported":                      AllowedOidcProviderScopes,
-		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post"},
+		"token_endpoint_auth_methods_supported": []string{"client_secret_basic", "client_secret_post", "none"},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"claims_supported": []string{
 			"sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "acr",
@@ -260,7 +260,7 @@ func (s *OidcProviderService) Discovery(ctx context.Context) (map[string]any, er
 	}, nil
 }
 
-// AuthenticateClient 供 token 端点鉴权 client (client_secret_basic / client_secret_post)。
+// AuthenticateClient 供 token 端点鉴权 client (client_secret_basic / client_secret_post / none)。
 // 失败统一归一为 invalid_client，不泄露具体原因。
 func (s *OidcProviderService) AuthenticateClient(ctx context.Context, clientID, secret string) (*OidcClientView, *OidcError) {
 	clientID = strings.TrimSpace(clientID)

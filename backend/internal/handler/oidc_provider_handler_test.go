@@ -224,6 +224,7 @@ func TestOidcHandler_Discovery_OKWhenEnabled(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &doc))
 	require.Equal(t, "https://op.example.com", doc["issuer"])
 	require.Contains(t, doc["scopes_supported"], "sub2api:balance")
+	require.Contains(t, doc["token_endpoint_auth_methods_supported"], "none")
 }
 
 func TestOidcHandler_JWKS_OKWhenEnabled(t *testing.T) {
@@ -296,6 +297,40 @@ func TestOidcHandler_Token_AuthorizationCodeSucceeds(t *testing.T) {
 	require.NotEmpty(t, resp.AccessToken)
 	require.NotEmpty(t, resp.RefreshToken)
 	require.NotEmpty(t, resp.IDToken)
+}
+
+func TestOidcHandler_Token_PublicClientSucceedsWithoutSecret(t *testing.T) {
+	e := newOidcHandlerTestEnv(t, true)
+	rp, secret, err := e.clients.Create(context.Background(), service.CreateOidcClientRequest{
+		ClientName:      "Native App",
+		RedirectURIs:    []string{"http://localhost:3000/callback"},
+		AllowedScopes:   []string{"openid"},
+		ConsentRequired: false,
+		Enabled:         true,
+		Public:          true,
+	})
+	require.NoError(t, err)
+	require.Empty(t, secret)
+	userID := e.createUser(t)
+	verifier := "verifier-0123456789-0123456789-0123456789"
+	code, err := e.provider.IssueCode(context.Background(), service.OidcIssueCodeInput{
+		Client:      rp,
+		UserID:      userID,
+		Scopes:      []string{"openid"},
+		RedirectURI: "http://localhost:3000/callback",
+		Challenge:   pkceS256(verifier),
+		Method:      "S256",
+	})
+	require.NoError(t, err)
+
+	w := e.postToken(url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {"http://localhost:3000/callback"},
+		"code_verifier": {verifier},
+		"client_id":     {rp.ClientID},
+	})
+	require.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestOidcHandler_Token_RefreshGrant(t *testing.T) {

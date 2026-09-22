@@ -13,7 +13,7 @@ The system SHALL expose an OpenID Connect Discovery 1.0 compliant document at `G
 - **THEN** the response is HTTP 200 with `Content-Type: application/json`
 - **AND** the JSON body contains `issuer` equal to the configured `oidc_provider.issuer_url` (no trailing slash)
 - **AND** the JSON body contains `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, `jwks_uri` formed by appending `/oidc/authorize`, `/oidc/token`, `/oidc/userinfo`, `/.well-known/jwks.json` respectively to the issuer URL
-- **AND** the JSON body declares `response_types_supported: ["code"]`, `grant_types_supported: ["authorization_code","refresh_token"]`, `id_token_signing_alg_values_supported: ["RS256"]`, `subject_types_supported: ["public"]`, `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported: ["client_secret_basic","client_secret_post"]`
+- **AND** the JSON body declares `response_types_supported: ["code"]`, `grant_types_supported: ["authorization_code","refresh_token"]`, `id_token_signing_alg_values_supported: ["RS256"]`, `subject_types_supported: ["public"]`, `code_challenge_methods_supported: ["S256"]`, `token_endpoint_auth_methods_supported: ["client_secret_basic","client_secret_post","none"]`
 - **AND** the JSON body declares `scopes_supported` containing exactly `openid`, `profile`, `email`, `offline_access`, `sub2api:balance`, `sub2api:apikey`
 
 #### Scenario: Discovery is hidden when provider is disabled

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -163,6 +165,11 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		if err := apiKeyService.ValidateOrganizationAccess(c.Request.Context(), apiKey.User); err != nil {
 			MarkIngressRejected(c, IngressRejectUserInactive)
 			AbortWithError(c, 403, "ORGANIZATION_ACCESS_DENIED", "Organization access is unavailable")
+			return
+		}
+		if err := resolveAutoPlanGroup(c, apiKeyService, apiKey); err != nil {
+			status, code, message := apiKeyRoutingErrorResponse(err)
+			AbortWithError(c, status, code, message)
 			return
 		}
 		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
@@ -641,4 +648,38 @@ func validateAPIKeyGroupAvailable(apiKey *service.APIKey) (string, string, bool)
 		return "GROUP_DISABLED", "API Key 所属分组已停用", false
 	}
 	return "", "", true
+}
+
+func resolveAutoPlanGroup(c *gin.Context, apiKeyService *service.APIKeyService, apiKey *service.APIKey) error {
+	if apiKey == nil ||
+		((apiKey.UserSubscriptionID == nil || *apiKey.UserSubscriptionID <= 0) &&
+			(apiKey.OrganizationSubscriptionID == nil || *apiKey.OrganizationSubscriptionID <= 0)) ||
+		(apiKey.GroupID != nil && *apiKey.GroupID > 0) {
+		return nil
+	}
+	c.Set(string(ContextKeyAutoPlanRoute), true)
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return err
+	}
+	c.Request.Body = io.NopCloser(strings.NewReader(string(body)))
+	model := requestmodel.FromBody(c.GetHeader("Content-Type"), body)
+	// A model listing has no request model. Leave the group unset so the
+	// routing precheck can evaluate every covered group; the handler then
+	// aggregates their model lists instead of committing Auto to one group.
+	path := strings.TrimRight(strings.TrimSpace(c.Request.URL.Path), "/")
+	if model == "" && c.Request.Method == http.MethodGet && strings.HasSuffix(path, "/models") {
+		return nil
+	}
+	group, err := apiKeyService.SelectPlanRouteGroup(c.Request.Context(), apiKey, model)
+	if err != nil {
+		return err
+	}
+	if group == nil {
+		return nil
+	}
+	apiKey.Group = group
+	groupID := group.ID
+	apiKey.GroupID = &groupID
+	return nil
 }

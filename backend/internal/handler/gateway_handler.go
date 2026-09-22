@@ -1191,6 +1191,25 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		zap.String("forced_platform", forcedPlatform),
 	)
 
+	// Auto plan keys must advertise the union of every covered group's models.
+	// The auth middleware selects one concrete group for the rest of the request,
+	// but using that group alone here would hide models available in the other
+	// groups covered by the same plan.
+	if middleware2.IsAutoPlanRoute(c) && forcedPlatform == "" && h.apiKeyService != nil && apiKey != nil {
+		if groups, err := h.apiKeyService.PlanCoveredGroups(c.Request.Context(), apiKey); err == nil && len(groups) > 0 {
+			availableModels := h.autoPlanAvailableModels(c.Request.Context(), groups, platform)
+			if len(availableModels) > 0 {
+				reqLog.Info("gateway.models.auto_plan_available",
+					zap.Int("group_count", len(groups)),
+					zap.Int("model_count", len(availableModels)),
+					zap.Strings("models", availableModels),
+				)
+				writeModelsList(c, platform, availableModels)
+				return
+			}
+		}
+	}
+
 	if platform == service.PlatformOpenAI && apiKey != nil && apiKey.Group != nil &&
 		apiKey.Group.Platform == service.PlatformOpenAI && apiKey.Group.CodexModelsManifestConfig.Enabled {
 		h.pinnedOpenAIModels(c, apiKey.Group)
@@ -1280,6 +1299,43 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	writeModelsListResponse(c, claude.DefaultModels)
+}
+
+func (h *GatewayHandler) autoPlanAvailableModels(ctx context.Context, groups []*service.Group, platform string) []string {
+	seen := make(map[string]struct{})
+	models := make([]string, 0)
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		groupID := group.ID
+		groupPlatform := group.Platform
+		var available []string
+		if groupPlatform == service.PlatformComposite {
+			available, _ = h.compositeAvailableModels(ctx, &groupID)
+		} else {
+			available = h.gatewayService.GetAvailableModels(ctx, &groupID, groupPlatform)
+			if groupPlatform == service.PlatformOpenAI {
+				available = mergeModelIDs(available, h.gatewayService.GetAvailableModels(ctx, &groupID, service.PlatformFal))
+				available = mergeModelIDs(available, h.gatewayService.GetAvailableModels(ctx, &groupID, service.PlatformLeonardo))
+			}
+		}
+		if group.ModelAllowlistEnabled() {
+			available = group.ModelAllowlist.FilterForListing(modelListingSource(groupPlatform, available, defaultModelIDsForPlatform(groupPlatform)))
+		}
+		for _, model := range available {
+			model = strings.TrimSpace(model)
+			if model == "" {
+				continue
+			}
+			if _, exists := seen[model]; exists {
+				continue
+			}
+			seen[model] = struct{}{}
+			models = append(models, model)
+		}
+	}
+	return models
 }
 
 // CodexModels returns the effective group model list using the manifest shape

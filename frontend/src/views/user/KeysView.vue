@@ -155,16 +155,22 @@
           </template>
 
           <template #cell-group="{ row }">
-            <div class="group/dropdown relative space-y-1.5">
+            <div class="group/dropdown relative flex min-h-6 items-center gap-1.5">
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
                 @click="openGroupSelector(row)"
-                class="-mx-2 -my-1 flex cursor-pointer flex-wrap items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
+                class="-mx-2 flex min-h-6 cursor-pointer flex-wrap items-center gap-2 rounded-lg px-2 py-0 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
                 data-test="group-selector-trigger"
                 :title="t('keys.clickToChangeGroup')"
               >
                 <GroupBadge
-                  v-if="row.group"
+                  v-if="hasPlanRoute(row)"
+                  :name="planLabelForKey(row)"
+                  platform="composite"
+                  subscription-type="subscription"
+                />
+                <GroupBadge
+                  v-else-if="row.group"
                   :name="row.group.name"
                   :platform="row.group.platform"
                   :subscription-type="row.group.subscription_type"
@@ -185,14 +191,6 @@
                   徽标必须带"扣费"字样：只写分组名会和左边的路由分组混成一片，
                   读起来像是这把 Key 还能用在别的分组上。
                 -->
-                <span
-                  v-if="row.user_subscription_id"
-                  class="badge badge-purple shrink-0 whitespace-nowrap text-xs"
-                  data-test="plan-binding-badge"
-                  :title="poolPlanDescriptionForKey(row)"
-                >
-                  {{ poolPlanLabelForKey(row) }}
-                </span>
                 <template v-if="row.organization_subscription_id">
                   <!--
                     需求：自动切换 badge 与右侧问号在视觉上"连在一起"。
@@ -299,8 +297,9 @@
                   </span>
                   </span>
                 </template>
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('keys.selectGroup') }}</span>
+                <span v-if="!hasPlanRoute(row)" class="text-xs text-gray-500 dark:text-gray-400">{{ t('keys.selectGroup') }}</span>
                 <svg
+                  v-if="!hasPlanRoute(row)"
                   class="h-3.5 w-3.5 text-gray-400 opacity-60 transition-opacity group-hover/dropdown:opacity-100"
                   fill="none"
                   stroke="currentColor"
@@ -314,6 +313,33 @@
                   />
                 </svg>
               </button>
+              <Select
+                v-if="hasPlanRoute(row)"
+                class="plan-route-select w-28 shrink-0"
+                size="sm"
+                :model-value="planRouteValue(row)"
+                :options="planRouteOptions(row)"
+                aria-label="API key route group"
+                data-test="plan-route-select"
+                :borderless-options="true"
+                @click.stop
+                @update:model-value="changePlanRoute(row, String($event ?? 'auto'))"
+              >
+                <template #selected="{ option }">
+                  <span class="block truncate text-xs font-semibold text-gray-600 dark:text-dark-200">
+                    {{ option ? (option as unknown as PlanRouteOption).label : 'Auto' }}
+                  </span>
+                </template>
+                <template #option="{ option, selected }">
+                  <GroupOptionItem
+                    :name="(option as unknown as PlanRouteOption).label"
+                    :platform="(option as unknown as PlanRouteOption).platform"
+                    subscription-type="standard"
+                    :description="(option as unknown as PlanRouteOption).description"
+                    :selected="selected"
+                  />
+                </template>
+              </Select>
               <div
                 v-if="row.fallback_group_ids?.length"
                 class="max-w-72 text-xs leading-5 text-gray-500 dark:text-gray-400"
@@ -1587,35 +1613,37 @@
             >
               {{ bindingKindLabel(section.kind) }}
             </div>
-            <button
-              v-for="option in section.options"
-              :key="option.value ?? 'null'"
-              @click="changeGroup(selectedKeyForGroup!, option.value)"
-              :class="[
-                'flex min-h-11 w-full items-center gap-2 rounded-md border border-transparent px-3 py-2.5 text-left text-sm leading-5 transition-colors',
-                isBindingOptionSelected(option.value)
-                  ? 'bg-primary-50 dark:bg-primary-900/20'
-                  : 'hover:bg-gray-50 dark:hover:bg-dark-700'
-              ]"
-              data-test="group-selector-option"
-              :data-binding-kind="option.kind"
-              :data-enterprise="option.kind === 'org' ? 'true' : 'false'"
-              :title="option.description || undefined"
-            >
-              <GroupOptionItem
-                :name="option.label"
-                :platform="option.platform"
-                :subscription-type="option.subscriptionType"
-                :rate-multiplier="option.rate"
-                :user-rate-multiplier="option.userRate"
-                :peak-rate-enabled="option.peakRateEnabled"
-                :peak-start="option.peakStart"
-                :peak-end="option.peakEnd"
-                :peak-rate-multiplier="option.peakRateMultiplier"
-                :description="option.description"
-                :selected="isBindingOptionSelected(option.value)"
-              />
-            </button>
+            <div v-for="option in section.options" :key="option.value ?? 'null'">
+              <button
+                @click="changeGroup(selectedKeyForGroup!, option.value)"
+                :class="[
+                  'flex min-h-11 w-full items-center gap-2 rounded-md border border-transparent px-3 py-2.5 text-left text-sm leading-5 transition-colors',
+                  option.isPlanChild ? 'pl-7' : '',
+                  isBindingOptionSelected(option.value)
+                    ? 'bg-primary-50 dark:bg-primary-900/20'
+                    : 'hover:bg-gray-50 dark:hover:bg-dark-700'
+                ]"
+                data-test="group-selector-option"
+                :data-binding-kind="option.kind"
+                :data-plan-child="option.isPlanChild ? 'true' : 'false'"
+                :data-enterprise="option.kind === 'org' ? 'true' : 'false'"
+                :title="option.description || undefined"
+              >
+                <GroupOptionItem
+                  :name="option.label"
+                  :platform="option.platform"
+                  :subscription-type="option.subscriptionType"
+                  :rate-multiplier="option.rate"
+                  :user-rate-multiplier="option.userRate"
+                  :peak-rate-enabled="option.peakRateEnabled"
+                  :peak-start="option.peakStart"
+                  :peak-end="option.peakEnd"
+                  :peak-rate-multiplier="option.peakRateMultiplier"
+                  :description="option.description"
+                  :selected="isBindingOptionSelected(option.value)"
+                />
+              </button>
+            </div>
           </section>
           <!-- Empty state when search has no results -->
           <div v-if="filteredGroupOptions.length === 0" class="py-4 text-center text-sm text-gray-400 dark:text-gray-500">
@@ -1690,6 +1718,13 @@ interface GroupOption {
   peakRateMultiplier: number
   subscriptionType: SubscriptionType
   platform: GroupPlatform
+}
+
+interface PlanRouteOption {
+  value: string | number
+  label: string
+  platform: GroupPlatform
+  description: string | null
 }
 
 interface FormGroupHeaderOption {
@@ -1986,6 +2021,7 @@ const groupOptions = computed(() =>
     platform: group.platform,
     kind: 'group' as KeyBindingKind,
     isEnterprise: false,
+    isPlanChild: false,
   }))
 )
 
@@ -2042,18 +2078,11 @@ const fallbackGroupOptions = computed(() => eligibleFallbackGroups.value.map(gro
 })))
 
 /** 额度池的辅助说明：到期时间最能帮用户判断先用哪一份。 */
-const poolDescription = (sub: BindableUserSubscription): string | undefined =>
-  sub.expires_at ? t('keys.poolExpiresAt', { date: formatDateTime(sub.expires_at) }) : undefined
-
 const poolPlanLabel = (sub: BindableUserSubscription): string => {
   const planName = sub.plan_name?.trim()
   return planName ? t('keys.poolPlanLabel', { name: planName }) : t('keys.poolSubscription')
 }
 
-const poolPlanDescription = (sub: BindableUserSubscription): string => {
-  const planName = sub.plan_name?.trim()
-  return planName ? t('keys.poolPlanDescription', { name: planName }) : t('keys.poolSubscription')
-}
 
 const createProvider = ref<KeyGroupProvider>('anthropic')
 
@@ -2116,6 +2145,68 @@ const formGroupOptions = computed(() => {
     : options.filter((group) => group.kind === 'group' || getKeyGroupProvider(group.platform as GroupPlatform) === createProvider.value)
 })
 
+const planRouteGroups = (key: ApiKey) => {
+  const subscription = userSubscriptions.value.find(item => item.id === key.user_subscription_id)
+  if (!subscription) return []
+  return subscriptionGroupIds(subscription).map(groupId => groupById(groupId)).filter((group): group is Group => group != null)
+}
+
+const organizationPlanRows = (subscriptionId: number | null | undefined) => {
+  if (!subscriptionId) return []
+  const selected = orgSubscriptions.value.find(item => item.id === subscriptionId)
+  if (!selected) return []
+  if (selected.plan_id == null) return [selected]
+  return orgSubscriptions.value.filter(item =>
+    item.organization_id === selected.organization_id && item.plan_id === selected.plan_id
+  )
+}
+
+const organizationPlanForKey = (key: Pick<ApiKey, 'organization_subscription_id'>) => {
+  const rows = organizationPlanRows(key.organization_subscription_id)
+  return rows[0]?.plan_id != null ? rows[0] : null
+}
+
+const hasPlanRoute = (key: Pick<ApiKey, 'user_subscription_id' | 'organization_subscription_id'>) =>
+  Boolean(key.user_subscription_id || organizationPlanForKey(key))
+
+const planRouteGroupIds = (key: ApiKey) => key.user_subscription_id
+  ? planRouteGroups(key).map(group => group.id)
+  : organizationPlanRows(key.organization_subscription_id).map(row => row.group_id)
+
+const planRouteValue = (key: ApiKey) => {
+  if (key.group_id == null) return 'auto'
+  return planRouteGroupIds(key).includes(key.group_id) ? key.group_id : 'auto'
+}
+
+const planRouteOptions = (key: ApiKey) => {
+  const routeGroups = key.user_subscription_id
+    ? planRouteGroups(key).map(group => ({
+        value: group.id,
+        label: group.name,
+        platform: group.platform,
+        description: group.description,
+      }))
+    : organizationPlanRows(key.organization_subscription_id).map(row => ({
+        value: row.group_id,
+        label: row.group_name,
+        platform: (row.platform || 'composite') as GroupPlatform,
+        description: row.notes || null,
+      }))
+  return [
+    { value: 'auto', label: 'Auto', platform: 'composite', description: null },
+    ...routeGroups,
+  ]
+}
+
+const changePlanRoute = (key: ApiKey, value: string) => {
+  const groupId = value === 'auto' ? null : Number(value)
+  const route = groupId ? `group:${groupId}` : 'auto'
+  const binding = key.user_subscription_id
+    ? `plan:${key.user_subscription_id}:${route}`
+    : `orgplan:${key.organization_subscription_id}:${route}`
+  void changeGroup(key, binding)
+}
+
 const poolPlanLabelForKey = (key: Pick<ApiKey, 'user_subscription_id'>): string => {
   const subscriptionID = key.user_subscription_id
   if (!subscriptionID) return t('keys.poolBadge')
@@ -2123,12 +2214,15 @@ const poolPlanLabelForKey = (key: Pick<ApiKey, 'user_subscription_id'>): string 
   return subscription ? poolPlanLabel(subscription) : t('keys.poolBadge')
 }
 
-const poolPlanDescriptionForKey = (key: Pick<ApiKey, 'user_subscription_id'>): string => {
-  const subscriptionID = key.user_subscription_id
-  if (!subscriptionID) return t('keys.poolHint')
-  const subscription = userSubscriptions.value.find(item => item.id === subscriptionID)
-  return subscription ? poolPlanDescription(subscription) : t('keys.poolHint')
+const organizationPlanLabelForKey = (key: Pick<ApiKey, 'organization_subscription_id'>): string => {
+  const plan = organizationPlanForKey(key)
+  return plan?.plan_name || plan?.group_name || t('keys.orgSubscriptionLabel')
 }
+
+const planLabelForKey = (key: ApiKey): string => key.user_subscription_id
+  ? poolPlanLabelForKey(key)
+  : organizationPlanLabelForKey(key)
+
 
 /**
  * 覆盖了指定分组的订阅（额度池候选）。
@@ -2159,8 +2253,8 @@ const showPoolChoice = computed(() =>
 const poolOptions = computed(() =>
   poolCandidates.value.map(sub => ({
     value: sub.id,
-    label: poolPlanLabel(sub),
-    description: poolDescription(sub)
+    label: sub.plan_name || sub.group_names?.[0] || poolPlanLabel(sub),
+    description: undefined
   }))
 )
 
@@ -2324,12 +2418,30 @@ async function ensureFallbackLoaded(subscriptionId: number) {
 }
 
 watch(() => formData.value.group_id, groupId => {
+  if (formData.value.organization_subscription_id) {
+    fallbackGroupToAdd.value = null
+    return
+  }
   formData.value.fallback_group_ids = normalizeFallbackGroups(groupId, formData.value.fallback_group_ids)
   fallbackGroupToAdd.value = null
 })
 
 watch(() => formData.value.organization_subscription_id, organizationSubscriptionId => {
   if (organizationSubscriptionId) {
+	const selectedSubscription = orgSubscriptions.value.find(item => item.id === organizationSubscriptionId)
+	const currentPlan = organizationPlanForKey({
+	  organization_subscription_id: selectedKey.value?.organization_subscription_id ?? null,
+	})
+	const samePlanAsEditedKey = Boolean(
+	  selectedSubscription?.plan_id != null &&
+	  currentPlan?.plan_id === selectedSubscription.plan_id &&
+	  currentPlan.organization_id === selectedSubscription.organization_id
+	)
+	if (!samePlanAsEditedKey) {
+	  if (selectedSubscription?.plan_id != null) {
+	    formData.value.group_id = null
+	  }
+	}
     fallbackGroupToAdd.value = null
     formData.value.fallback_group_ids = normalizeFallbackGroups(
       fallbackPrimaryGroupId.value,
@@ -2341,24 +2453,37 @@ watch(() => formData.value.organization_subscription_id, organizationSubscriptio
   }
 })
 
-// 企业订阅下拉选项：选中后创建的 API Key 将消耗对应企业订阅额度，
-// 并强制绑定订阅所属分组（无需再单独选择个人分组）。
+// 企业套餐在数据库中按覆盖分组保存多行。选择器按组织 + 套餐聚合，避免用户把
+// 同一份额度池误认为多个订阅；无 plan_id 的传统单分组订阅仍逐条展示。
 const orgSubscriptionOptions = computed(() => {
   const typeLabels: Record<string, string> = {
     daily: t('keys.orgSubscriptionType.daily'),
     weekly: t('keys.orgSubscriptionType.weekly'),
     monthly: t('keys.orgSubscriptionType.monthly')
   }
-  return orgSubscriptions.value.map((sub) => {
+  const seenPlans = new Set<string>()
+  return orgSubscriptions.value.flatMap((sub) => {
+    const planKey = sub.plan_id == null ? null : `${sub.organization_id}:${sub.plan_id}`
+    if (planKey && seenPlans.has(planKey)) return []
+    if (planKey) seenPlans.add(planKey)
+    const planRows = planKey
+      ? orgSubscriptions.value.filter(item => item.organization_id === sub.organization_id && item.plan_id === sub.plan_id)
+      : [sub]
     const typeLabel = typeLabels[sub.subscription_type] || sub.subscription_type
-    return {
+    const groupNames = [...new Set(planRows.map(item => item.group_name).filter(Boolean))]
+    return [{
       value: sub.id,
-      label: `${sub.group_name} · ${typeLabel}`,
-      description: sub.notes || undefined,
+      label: sub.plan_id != null
+        ? (sub.plan_name || sub.group_name)
+        : `${sub.group_name} · ${typeLabel}`,
+      description: sub.plan_id != null
+        ? groupNames.join(' / ')
+        : (sub.notes || undefined),
       rate: sub.rate_multiplier,
       platform: (sub.platform || 'composite') as GroupPlatform,
       userRate: null,
-    }
+      planId: sub.plan_id ?? null,
+    }]
   })
 })
 
@@ -2408,56 +2533,67 @@ watch([showCreateModal, createProviderOptions], ([isOpen, providers], [wasOpen])
 // Group dropdown search
 const groupSearchQuery = ref('')
 const quickGroupOptions = computed(() => [
-  ...orgSubscriptionOptions.value.map(option => ({
-    ...option,
-    value: `org:${option.value}`,
-    platform: option.platform,
-    rate: option.rate,
-    userRate: undefined,
+  ...orgSubscriptionOptions.value.map(option => {
+    const base = {
+      ...option,
+      // 套餐总项使用 composite 图标，与个人订阅套餐保持一致；展开的分组项
+      // 再恢复各自真实平台图标。
+      platform: (option.planId != null ? 'composite' : option.platform) as GroupPlatform,
+      rate: option.rate,
+      userRate: undefined,
+      peakRateEnabled: false,
+      peakStart: undefined,
+      peakEnd: undefined,
+      peakRateMultiplier: undefined,
+      subscriptionType: 'subscription' as const,
+      // 企业订阅和个人套餐必须保持两个独立分类；企业套餐即使使用相同的
+      // 套餐视觉，也不能归入个人套餐 section。
+      kind: 'org' as KeyBindingKind,
+      isEnterprise: true,
+      isPlanChild: false,
+    }
+    return {
+      ...base,
+      value: option.planId != null ? `orgplan:${option.value}:auto` : `org:${option.value}`,
+    }
+  }),
+  // 这里每个个人 plan 只显示一个套餐项。具体路由分组由右侧 Select 选择，
+  // 不在这个绑定对象下拉菜单重复展开。
+  ...quickPoolCandidates.value.map(({ sub }) => ({
+    value: `plan:${sub.id}:auto`,
+    label: sub.plan_name || sub.group_names?.[0] || poolPlanLabel(sub),
+    description: sub.group_names?.filter(Boolean).join(' / ') || undefined,
+    platform: 'composite' as const,
+    rate: undefined,
+    userRate: null,
     peakRateEnabled: false,
     peakStart: undefined,
     peakEnd: undefined,
     peakRateMultiplier: undefined,
     subscriptionType: 'subscription' as const,
-    kind: 'org' as KeyBindingKind,
-    isEnterprise: true,
-  })),
-  // 订阅套餐按“套餐 + 覆盖分组”展开：同一个套餐覆盖多个分组时，用户可以逐个
-  // 选择实际路由的分组，套餐只决定这次请求从哪一份额度池扣费。
-  ...quickPoolCandidates.value.map(({ sub, group }) => ({
-    value: `plan:${sub.id}:group:${group.id}`,
-    label: group.name,
-    description: [poolPlanLabel(sub), poolDescription(sub), group.description].filter(Boolean).join(' · '),
-    platform: group.platform,
-    rate: group.rate_multiplier,
-    userRate: userGroupRates.value[group.id] ?? null,
-    peakRateEnabled: group.peak_rate_enabled,
-    peakStart: group.peak_start,
-    peakEnd: group.peak_end,
-    peakRateMultiplier: group.peak_rate_multiplier,
-    subscriptionType: group.subscription_type,
     kind: 'plan' as KeyBindingKind,
     isEnterprise: false,
+    isPlanChild: false,
   })),
   ...ordinaryGroupOptions.value,
 ])
 
 /** 当前操作的 Key 可选的套餐分组组合；只展示用户当前可绑定的分组。 */
 const quickPoolCandidates = computed(() => {
-  const key = selectedKeyForGroup.value
-  if (!key || key.organization_subscription_id) return []
-  const availableGroupIds = new Set(groups.value.map(group => group.id))
-  return userSubscriptions.value
-    .filter(sub => sub.plan_id != null)
-    .flatMap(sub =>
-      subscriptionGroupIds(sub)
-        .filter(groupId => availableGroupIds.has(groupId))
-        .map(groupId => {
-          const group = groupById(groupId)
-          return group ? { sub, group } : null
-        })
-        .filter((candidate): candidate is { sub: BindableUserSubscription; group: Group } => candidate !== null)
-    )
+  const plans = new Map<number, { sub: BindableUserSubscription; groupIds: Set<number> }>()
+  for (const subscription of userSubscriptions.value) {
+    if (subscription.plan_id == null) continue
+    const existing = plans.get(subscription.plan_id)
+    if (existing) {
+      subscriptionGroupIds(subscription).forEach(groupId => existing.groupIds.add(groupId))
+    } else {
+      plans.set(subscription.plan_id, {
+        sub: subscription,
+        groupIds: new Set(subscriptionGroupIds(subscription)),
+      })
+    }
+  }
+  return [...plans.values()].map(({ sub }) => ({ sub }))
 })
 
 /**
@@ -2521,9 +2657,23 @@ const isBindingOptionSelected = (value: number | string | null) => {
   if (!key) return false
   if (typeof value === 'string') {
     if (value.startsWith('org:')) return key.organization_subscription_id === Number(value.slice(4))
+    const organizationPlanMatch = value.match(/^orgplan:(\d+):(group:(\d+)|auto)$/)
+    if (organizationPlanMatch) {
+      const selectedRows = organizationPlanRows(Number(organizationPlanMatch[1]))
+      const keyRows = organizationPlanRows(key.organization_subscription_id)
+      if (!selectedRows.length || !keyRows.length) return false
+      const samePlan = selectedRows[0].organization_id === keyRows[0].organization_id &&
+        selectedRows[0].plan_id === keyRows[0].plan_id
+      const selectedGroupId = organizationPlanMatch[3] ? Number(organizationPlanMatch[3]) : null
+      return samePlan && key.group_id === selectedGroupId
+    }
     const planMatch = value.match(/^plan:(\d+):group:(\d+)$/)
     if (planMatch) {
       return key.user_subscription_id === Number(planMatch[1]) && key.group_id === Number(planMatch[2])
+    }
+    const autoPlanMatch = value.match(/^plan:(\d+):auto$/)
+    if (autoPlanMatch) {
+      return key.user_subscription_id === Number(autoPlanMatch[1]) && key.group_id == null
     }
     return false
   }
@@ -2773,16 +2923,19 @@ const changeGroup = async (key: ApiKey, selectedValue: number | string | null) =
   dropdownPosition.value = null
   const prefixed = typeof selectedValue === 'string' ? selectedValue : ''
   const organizationSubscriptionID = prefixed.startsWith('org:') ? Number(prefixed.slice(4)) : null
-  const planMatch = prefixed.match(/^plan:(\d+):group:(\d+)$/)
+  const planMatch = prefixed.match(/^plan:(\d+)(?::group:(\d+)|:auto)$/)
   const pinnedSubscriptionID = planMatch ? Number(planMatch[1]) : null
-  const pinnedGroupID = planMatch ? Number(planMatch[2]) : null
+  const pinnedGroupID = planMatch && planMatch[2] ? Number(planMatch[2]) : null
+	const organizationPlanMatch = prefixed.match(/^orgplan:(\d+)(?::group:(\d+)|:auto)$/)
+	const organizationPlanSubscriptionID = organizationPlanMatch ? Number(organizationPlanMatch[1]) : null
+	const organizationPlanGroupID = organizationPlanMatch?.[2] ? Number(organizationPlanMatch[2]) : null
 
   try {
     // 套餐选项同时指定额度池和路由分组；同一套餐覆盖的每个分组都是独立选项。
     if (pinnedSubscriptionID) {
       if (key.user_subscription_id === pinnedSubscriptionID && key.group_id === pinnedGroupID) return
       await keysAPI.update(key.id, {
-        group_id: pinnedGroupID,
+        group_id: prefixed.endsWith(':auto') ? null : pinnedGroupID,
         organization_subscription_id: null,
         user_subscription_id: pinnedSubscriptionID,
         fallback_group_ids: normalizeFallbackGroups(pinnedGroupID, key.fallback_group_ids ?? []),
@@ -2791,6 +2944,23 @@ const changeGroup = async (key: ApiKey, selectedValue: number | string | null) =
       loadApiKeys()
       return
     }
+	if (organizationPlanSubscriptionID) {
+	  const currentRows = organizationPlanRows(key.organization_subscription_id)
+	  const selectedRows = organizationPlanRows(organizationPlanSubscriptionID)
+	  const samePlan = currentRows.length > 0 && selectedRows.length > 0 &&
+	    currentRows[0].organization_id === selectedRows[0].organization_id &&
+	    currentRows[0].plan_id === selectedRows[0].plan_id
+	  if (samePlan && key.group_id === organizationPlanGroupID) return
+	  await keysAPI.update(key.id, {
+	    group_id: organizationPlanGroupID,
+	    organization_subscription_id: organizationPlanSubscriptionID,
+	    user_subscription_id: null,
+	    fallback_group_ids: [],
+	  })
+	  appStore.showSuccess(t('keys.groupChangedSuccess'))
+	  loadApiKeys()
+	  return
+	}
 
     const newGroupId = organizationSubscriptionID
       ? (orgSubscriptions.value.find(subscription => subscription.id === organizationSubscriptionID)?.group_id ?? null)
@@ -2909,6 +3079,7 @@ const handleSubmit = async () => {
         // 可选的订阅套餐一同提交：两者各自回答"路由到哪"和"使用哪份额度"。
         ...(orgSubscriptionId
           ? {
+              group_id: formData.value.group_id,
               organization_subscription_id: orgSubscriptionId,
               fallback_group_ids: normalizeFallbackGroups(
                 fallbackPrimaryGroupId.value,
@@ -2938,7 +3109,7 @@ const handleSubmit = async () => {
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
-      // 分组始终发送（路由依据）；订阅套餐仅在有歧义时由用户指定后一同发送。
+      // 分组始终发送（企业套餐的 null 表示 Auto）；订阅套餐仅在有歧义时由用户指定后一同发送。
       // 企业 Key 的额度池来自公司订阅，个人套餐的指定在那里没有意义。
       const pinnedSubscriptionId = orgSubscriptionId ? null : formData.value.user_subscription_id
       const createArgs = [
@@ -3229,3 +3400,30 @@ onUnmounted(() => {
   if (resetTimer) clearInterval(resetTimer)
 })
 </script>
+
+<style scoped>
+.plan-route-select {
+  @apply h-6;
+}
+
+.plan-route-select :deep(.select-trigger) {
+  @apply h-6 min-h-6 rounded-md border border-gray-200/90 bg-gray-50 px-2 py-0 text-[11px] font-semibold leading-4 text-gray-600 shadow-none;
+  @apply hover:border-gray-300 hover:bg-white focus:border-gray-400 focus:ring-2 focus:ring-gray-300/40 dark:border-dark-600 dark:bg-dark-800 dark:text-dark-200 dark:hover:border-dark-500 dark:hover:bg-dark-700 dark:focus:border-dark-500 dark:focus:ring-dark-500/40;
+}
+
+.plan-route-select :deep(.select-trigger-open) {
+  @apply border-gray-400 bg-white ring-2 ring-gray-300/45 dark:border-dark-500 dark:bg-dark-700 dark:ring-dark-500/45;
+}
+
+.plan-route-select :deep(.select-value) {
+  @apply min-w-0;
+}
+
+.plan-route-select :deep(.select-value > .inline-flex) {
+  @apply max-w-full;
+}
+
+.plan-route-select :deep(.select-icon) {
+  @apply text-gray-400 dark:text-dark-400;
+}
+</style>

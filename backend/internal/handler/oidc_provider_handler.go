@@ -267,7 +267,8 @@ func (h *OidcProviderHandler) Token(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	c.Header("Pragma", "no-cache")
 
-	// client 鉴权：client_secret_basic 优先，回退 client_secret_post。
+	// client 鉴权：client_secret_basic 优先，回退 client_secret_post；公开客户端
+	// 使用 client_id（无 client_secret）并依靠授权码 PKCE 保护 token 兑换。
 	clientID, secret, ok := c.Request.BasicAuth()
 	if !ok {
 		clientID = c.PostForm("client_id")
