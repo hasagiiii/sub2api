@@ -1,7 +1,11 @@
 export default {
   iqTest: {
-    title: 'GPT-6 Astra IQ Test',
-    description: 'Run one HTML generation test for every account that supports GPT-6 Astra.',
+    title: 'IQ Test',
+    description: 'Run one HTML generation test for every account that supports the selected model.',
+    model: 'Test model',
+    selectModel: 'Select a model',
+    useCustomModel: 'Use model',
+    modelHint: 'Only text-capable OpenAI models are shown. Changing the model reloads eligible accounts.',
     prompt: 'Test prompt',
     promptHint: 'Edit the prompt for this session only. It is not saved and resets to the default after a page refresh.',
     resetPrompt: 'Reset to default',
@@ -12,7 +16,8 @@ export default {
     refreshAccounts: 'Refresh accounts',
     loadAccountsFailed: 'Failed to load eligible accounts',
     empty: 'No test has been run yet.',
-    noEligible: 'No account supports GPT-6 Astra.',
+    noEligible: 'No account supports the selected model.',
+    loadModelsFailed: 'Failed to load test models',
     account: 'Account',
     status: 'Status',
     success: 'Success',

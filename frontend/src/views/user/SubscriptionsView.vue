@@ -123,9 +123,6 @@
                       <span v-if="row.limit !== null" class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
                         ${{ row.used.toFixed(2) }} / ${{ row.limit.toFixed(2) }}
                       </span>
-                      <span v-else class="shrink-0 text-sm text-emerald-600 dark:text-emerald-400">
-                        {{ t('userSubscriptions.unlimited') }}
-                      </span>
                     </div>
                     <div v-if="row.limit !== null" class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                       <div
@@ -158,9 +155,6 @@
                         <span v-if="row.limit !== null" class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
                           ${{ row.used.toFixed(2) }} / ${{ row.limit.toFixed(2) }}
                         </span>
-                        <span v-else class="shrink-0 text-sm text-emerald-600 dark:text-emerald-400">
-                          {{ t('userSubscriptions.unlimited') }}
-                        </span>
                       </div>
                       <div v-if="row.limit !== null" class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                         <div
@@ -174,23 +168,6 @@
               </template>
             </div>
 
-            <!-- No limits configured - Unlimited badge -->
-            <div
-              v-if="getQuotaSections(subscription).length === 0"
-              class="flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 py-6 dark:from-emerald-900/20 dark:to-teal-900/20"
-            >
-              <div class="flex items-center gap-3">
-                <span class="text-4xl text-emerald-600 dark:text-emerald-400">∞</span>
-                <div>
-                  <p class="text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                    {{ t('userSubscriptions.unlimited') }}
-                  </p>
-                  <p class="text-xs text-emerald-600/70 dark:text-emerald-400/70">
-                    {{ t('userSubscriptions.unlimitedDesc') }}
-                  </p>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -325,8 +302,8 @@ function getQuotaSections(subscription: UserSubscription): SubscriptionQuotaSect
     return [{
       key: 'plan',
       label: t('userSubscriptions.planQuota'),
-      rows: planRows,
-    }]
+      rows: planRows.filter((row) => row.limit !== null),
+    }].filter((section) => section.rows.length > 0)
   }
 
   for (const period of periods) {
@@ -366,11 +343,12 @@ function getQuotaSections(subscription: UserSubscription): SubscriptionQuotaSect
         groupLimit.name || `Group #${groupLimit.group_id}`
       )
       const groupLimitValue = groupLimit[config.groupLimitKey]
+      if (!isPositiveLimit(groupLimitValue)) continue
       section.rows.push({
         key: `${period}-${groupLimit.group_id}`,
         label: t(`userSubscriptions.${period}`),
         used: getGroupUsage(subscription, groupLimit.group_id, period),
-        limit: isPositiveLimit(groupLimitValue) ? groupLimitValue : null,
+        limit: groupLimitValue,
         resetText: getQuotaResetText(subscription, period, groupLimit.group_id),
       })
     }

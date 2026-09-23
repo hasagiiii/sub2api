@@ -120,7 +120,8 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
-		// GPT-6 Astra HTML IQ test
+		// HTML IQ test
+		admin.GET("/iq-test/models", h.Admin.Account.IQTestModels)
 		admin.GET("/iq-test/accounts", h.Admin.Account.IQTestAccounts)
 		admin.POST("/iq-test", h.Admin.Account.IQTest)
 

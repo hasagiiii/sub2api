@@ -1,7 +1,11 @@
 export default {
   iqTest: {
-    title: 'GPT-6 Astra 智商测试',
-    description: '向所有支持 GPT-6 Astra 的账号各发起一次 HTML 生成测试。',
+    title: '智商测试',
+    description: '向所有支持所选模型的账号各发起一次 HTML 生成测试。',
+    model: '测试模型',
+    selectModel: '选择模型',
+    useCustomModel: '使用模型',
+    modelHint: '只显示支持文本生成的 OpenAI 模型；切换模型后会重新筛选账号。',
     prompt: '测试 Prompt',
     promptHint: '可临时修改本次测试使用的 Prompt，不会保存，刷新页面后恢复默认。',
     resetPrompt: '恢复默认',
@@ -12,7 +16,8 @@ export default {
     refreshAccounts: '刷新账号',
     loadAccountsFailed: '加载符合条件的账号失败',
     empty: '尚未运行测试。',
-    noEligible: '没有找到支持 GPT-6 Astra 的账号。',
+    noEligible: '没有找到支持当前模型的账号。',
+    loadModelsFailed: '加载测试模型失败',
     account: '账号',
     status: '状态',
     success: '成功',

@@ -13,6 +13,25 @@
           </button>
         </div>
 
+        <div class="mt-4 max-w-xl">
+          <label for="iq-test-model" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.iqTest.model') }}</label>
+          <Select
+            id="iq-test-model"
+            v-model="selectedModelId"
+            :options="models"
+            value-key="id"
+            label-key="display_name"
+            :disabled="loading || loadingModels || loadingAccounts"
+            :loading="loadingModels"
+            :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.iqTest.selectModel')"
+            searchable
+            creatable
+            :creatable-prefix="t('admin.iqTest.useCustomModel')"
+            @change="handleModelChange"
+          />
+          <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ t('admin.iqTest.modelHint') }}</p>
+        </div>
+
         <div class="mt-4">
           <div class="mb-1.5 flex flex-wrap items-center justify-between gap-2">
             <label for="iq-test-prompt" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.iqTest.prompt') }}</label>
@@ -101,6 +120,7 @@
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-900 dark:text-white">
                 <span>{{ historyLabel(entry) }}</span>
+                <span class="font-mono text-xs text-gray-500 dark:text-gray-400">{{ entry.model }}</span>
                 <span class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.iqTest.historySummary', { success: historySuccessCount(entry), total: entry.results.length }) }}
                 </span>
@@ -124,6 +144,7 @@
         <div class="flex flex-wrap items-center justify-between gap-2 px-1">
           <h2 class="font-medium text-gray-900 dark:text-white">
             {{ t('admin.iqTest.results') }}
+            <span v-if="selectedModelId" class="ml-2 font-mono text-xs font-normal text-gray-500 dark:text-gray-400">{{ selectedModelId }}</span>
             <span v-if="viewingHistoryId" class="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-600 dark:bg-dark-700 dark:text-gray-300">
               {{ t('admin.iqTest.viewingHistory') }}
             </span>
@@ -184,16 +205,18 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import Select from '@/components/common/Select.vue'
 import { adminAPI } from '@/api/admin'
 import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
-import type { IQTestAccount } from '@/api/admin/iqTest'
+import type { IQTestAccount, IQTestModel } from '@/api/admin/iqTest'
 import {
   clearIQTestHistory,
   createHistoryEntryID,
   deleteIQTestHistoryEntry,
   loadIQTestHistory,
   MAX_HISTORY_ENTRIES,
+  DEFAULT_IQ_TEST_MODEL,
   saveIQTestHistoryEntry
 } from '@/utils/iqTestHistory'
 import type { IQTestHistoryEntry } from '@/utils/iqTestHistory'
@@ -204,6 +227,8 @@ const { t } = useI18n()
 // （无 localStorage / 无后端），刷新页面即回到 DEFAULT_PROMPT。
 const DEFAULT_PROMPT = '创建一个HTML，内容是SVG绘制一个鹈鹏骑自行车的2D动画，你不需要任何测试'
 const prompt = ref(DEFAULT_PROMPT)
+const selectedModelId = ref(DEFAULT_IQ_TEST_MODEL)
+const models = ref<IQTestModel[]>([])
 const overloadMessage = 'Our servers are currently overloaded. Please try again later.'
 // 账号并行测试的上限，与后端 IQTest 批量探测的信号量容量保持一致：既让多个号
 // 同时开跑，又不会一次把所有账号压向同一上游导致过载（503）。
@@ -231,6 +256,7 @@ const history = ref<IQTestHistoryEntry[]>([])
 // 非空表示结果区当前展示的是某条历史记录，而不是本次新跑的测试。
 const viewingHistoryId = ref('')
 const loadingAccounts = ref(false)
+const loadingModels = ref(false)
 const loading = ref(false)
 const error = ref('')
 // 一次运行内所有账号请求共用同一个 controller，开始新一轮时可一次性取消上一轮。
@@ -241,6 +267,7 @@ let runToken = 0
 // 本次运行实际发起的 Prompt：503 续跑期间用户可能又编辑了输入框，历史记录应
 // 保留发起时的内容而非最新草稿。
 let runPrompt = ''
+let runModel = DEFAULT_IQ_TEST_MODEL
 
 const selectedCount = computed(() => selectedIds.value.size)
 const trimmedPrompt = computed(() => prompt.value.trim())
@@ -250,14 +277,46 @@ const totalCost = computed(() => testStates.value.reduce((sum, state) => sum + s
 
 onMounted(() => {
   history.value = loadIQTestHistory()
-  void loadAccounts()
+  void loadModels()
 })
 
+async function loadModels(): Promise<void> {
+  loadingModels.value = true
+  error.value = ''
+  try {
+    const nextModels = await adminAPI.iqTest.listModels()
+    models.value = nextModels
+    if (!nextModels.some((model) => model.id === selectedModelId.value)) {
+      selectedModelId.value = nextModels[0]?.id || ''
+    }
+    if (selectedModelId.value) await loadAccounts()
+  } catch (err: any) {
+    models.value = []
+    accounts.value = []
+    selectedIds.value = new Set()
+    error.value = err?.response?.data?.message || err?.message || t('admin.iqTest.loadModelsFailed')
+  } finally {
+    loadingModels.value = false
+  }
+}
+
+async function handleModelChange(): Promise<void> {
+  if (loading.value || !selectedModelId.value) return
+  await loadAccounts()
+}
+
 async function loadAccounts(): Promise<void> {
+  const requestedModelId = selectedModelId.value
+  if (!requestedModelId) {
+    accounts.value = []
+    selectedIds.value = new Set()
+    return
+  }
   loadingAccounts.value = true
   error.value = ''
   try {
-    const nextAccounts = await adminAPI.iqTest.listAccounts()
+    const nextAccounts = await adminAPI.iqTest.listAccounts(requestedModelId)
+    if (requestedModelId !== selectedModelId.value) return
     accounts.value = nextAccounts
     selectedIds.value = new Set(nextAccounts.map((account) => account.id))
     testStates.value = []
@@ -286,7 +345,7 @@ function resetPrompt(): void {
 }
 
 async function run(): Promise<void> {
-  if (selectedCount.value === 0 || trimmedPrompt.value.length === 0) return
+  if (selectedCount.value === 0 || trimmedPrompt.value.length === 0 || !selectedModelId.value) return
   abortController?.abort()
   abortController = new AbortController()
   runToken += 1
@@ -295,6 +354,7 @@ async function run(): Promise<void> {
   error.value = ''
   viewingHistoryId.value = ''
   runPrompt = trimmedPrompt.value
+  runModel = selectedModelId.value
   testStates.value = accounts.value
     .filter((account) => selectedIds.value.has(account.id))
     .map((account) => ({
@@ -343,6 +403,7 @@ function persistRun(): void {
   history.value = saveIQTestHistoryEntry({
     id: createHistoryEntryID(),
     createdAt: new Date().toISOString(),
+    model: runModel,
     prompt: runPrompt,
     results: testStates.value.map((state) => ({
       accountId: state.account.id,
@@ -361,6 +422,7 @@ function persistRun(): void {
 function viewHistory(entry: IQTestHistoryEntry): void {
   if (loading.value) return
   viewingHistoryId.value = entry.id
+  selectedModelId.value = entry.model
   testStates.value = entry.results.map((result) => ({
     account: { id: result.accountId, name: result.accountName, type: '', status: '', platform: '' },
     status: result.status,
@@ -445,7 +507,7 @@ async function streamAccountTest(state: IQTestState, requestPrompt: string): Pro
         'Content-Type': 'application/json',
         [ADMIN_UI_REQUEST_HEADER]: '1'
       },
-      body: JSON.stringify({ model_id: 'gpt-6-astra', prompt: requestPrompt }),
+      body: JSON.stringify({ model_id: runModel, prompt: requestPrompt }),
       signal
     })
 

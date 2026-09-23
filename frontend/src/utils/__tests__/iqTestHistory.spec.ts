@@ -17,6 +17,7 @@ const STORAGE_KEY = 'iq_test_history'
 const buildEntry = (overrides: Partial<IQTestHistoryEntry> = {}): IQTestHistoryEntry => ({
   id: 'entry-1',
   createdAt: '2026-09-16T10:00:00.000Z',
+  model: 'gpt-6-astra',
   prompt: 'draw a pelican',
   results: [
     {
@@ -50,6 +51,15 @@ describe('iqTestHistory', () => {
     expect(stored).toHaveLength(1)
     expect(loadIQTestHistory()).toEqual(stored)
     expect(loadIQTestHistory()[0].results[0].costUSD).toBe(0.25)
+  })
+
+  it('backfills the default model for history entries saved before model selection', () => {
+    localStorage.setItem(
+      'iq_test_history',
+      JSON.stringify([{ id: 'legacy', createdAt: '2026-09-16T10:00:00.000Z', prompt: 'legacy', results: [] }])
+    )
+
+    expect(loadIQTestHistory()[0].model).toBe('gpt-6-astra')
   })
 
   it('keeps the newest run first and replaces an entry reusing the same id', () => {

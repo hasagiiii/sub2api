@@ -256,28 +256,27 @@
           </template>
 
           <template #cell-usage="{ row }">
-            <div class="min-w-[300px] space-y-3">
+            <div class="box-border w-[360px] max-w-full space-y-3">
               <template v-if="isSharedPlan(row)">
-                <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
-                  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
-                    <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
-                    <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.usage') }}</h4>
-                  </div>
-                  <div class="grid grid-cols-3 gap-2 px-1 pt-1">
-                    <div v-for="window in (['daily', 'weekly', 'monthly'] as const)" :key="window" class="min-w-0 space-y-1">
-                      <div class="flex items-center justify-between gap-1 text-[11px] text-gray-500 dark:text-dark-400">
-                        <span>{{ t(`admin.subscriptions.${window}`) }}</span>
-                        <span class="shrink-0">${{ rowUsage(row, window).toFixed(2) }}</span>
-                      </div>
-                      <div class="truncate text-[11px] text-gray-400 dark:text-dark-500">
-                        {{ rowLimit(row, window) ? `$${rowLimit(row, window)?.toFixed(2)}` : t('admin.subscriptions.unlimited') }}
-                      </div>
-                      <div class="relative h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                        <div
-                          class="absolute inset-y-0 left-0 rounded-full"
-                          :class="rowLimit(row, window) ? getProgressClass(rowUsage(row, window), rowLimit(row, window)) : 'bg-emerald-500'"
-                          :style="{ width: rowLimit(row, window) ? getProgressWidth(rowUsage(row, window), rowLimit(row, window)) : '0%' }"
-                        />
+                <div class="box-border w-full overflow-y-auto" style="scrollbar-gutter: stable">
+                  <div class="box-border w-full rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                    <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                      <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
+                      <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.usage') }}</h4>
+                    </div>
+                    <div class="box-border w-full space-y-2 px-1 pt-1">
+                      <div v-for="window in (['daily', 'weekly', 'monthly'] as const)" :key="window" class="min-w-0 space-y-1">
+                        <div class="flex items-center justify-between gap-1 text-[11px] text-gray-500 dark:text-dark-400">
+                          <span>{{ t(`admin.subscriptions.${window}`) }}</span>
+                          <span class="min-w-0 break-all text-right">{{ formatUsageLimit(rowUsage(row, window), rowLimit(row, window)) }}</span>
+                        </div>
+                        <div class="relative h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                          <div
+                            class="absolute inset-y-0 left-0 rounded-full"
+                            :class="rowLimit(row, window) ? getProgressClass(rowUsage(row, window), rowLimit(row, window)) : 'bg-emerald-500'"
+                            :style="{ width: rowLimit(row, window) ? getProgressWidth(rowUsage(row, window), rowLimit(row, window)) : '0%' }"
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -287,18 +286,18 @@
                   <div class="text-xs font-medium text-gray-500 dark:text-gray-400">
                     {{ t('admin.subscriptions.groupUsage') }}
                   </div>
-                  <div class="max-h-[6.75rem] space-y-2 overflow-y-auto pr-1">
+                  <div class="box-border w-full max-h-[6.75rem] space-y-2 overflow-y-auto" style="scrollbar-gutter: stable">
                     <div
                       v-for="group in sharedPlanGroupProgress(row)"
                       :key="group.group_id"
-                      class="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800/60"
+                      class="box-border w-full rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-600 dark:bg-dark-800/60"
                     >
                       <div class="mb-1.5 truncate text-sm font-medium text-gray-700 dark:text-gray-300">{{ group.name }}</div>
-                      <div class="grid grid-cols-3 gap-2">
+                      <div class="box-border w-full space-y-2 px-1 pt-1">
                         <div v-for="window in (['daily', 'weekly', 'monthly'] as const)" :key="window" class="min-w-0 space-y-1">
                           <div class="flex items-center justify-between gap-1 text-[11px] text-gray-500 dark:text-dark-400">
                             <span>{{ t(`admin.subscriptions.${window}`) }}</span>
-                            <span class="shrink-0">${{ groupUsage(group, window).toFixed(2) }}</span>
+                            <span class="min-w-0 break-all text-right">${{ groupUsage(group, window).toFixed(2) }}</span>
                           </div>
                           <div class="relative h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                             <div
@@ -315,20 +314,15 @@
 
               <template v-else>
               <!-- Daily Usage -->
-              <div v-if="rowLimit(row, 'daily')" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
-                <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+              <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                <div class="flex items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-dark-600">
+                  <div class="flex items-center gap-2">
                   <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
                   <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.daily') }}</h4>
+                  </div>
+                  <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatUsageLimit(rowUsage(row, 'daily'), rowLimit(row, 'daily')) }}</span>
                 </div>
                 <div class="space-y-2 px-1 pt-1">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.subscriptions.usage') }}</span>
-                    <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
-                      ${{ row.daily_usage_usd?.toFixed(2) || '0.00' }}
-                      <span class="text-gray-400">/</span>
-                      ${{ rowLimit(row, 'daily')?.toFixed(2) }}
-                    </span>
-                  </div>
                   <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
                       class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
@@ -358,20 +352,15 @@
               </div>
 
               <!-- Weekly Usage -->
-              <div v-if="rowLimit(row, 'weekly')" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
-                <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+              <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                <div class="flex items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-dark-600">
+                  <div class="flex items-center gap-2">
                   <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
                   <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.weekly') }}</h4>
+                  </div>
+                  <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatUsageLimit(rowUsage(row, 'weekly'), rowLimit(row, 'weekly')) }}</span>
                 </div>
                 <div class="space-y-2 px-1 pt-1">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.subscriptions.usage') }}</span>
-                    <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
-                      ${{ row.weekly_usage_usd?.toFixed(2) || '0.00' }}
-                      <span class="text-gray-400">/</span>
-                      ${{ rowLimit(row, 'weekly')?.toFixed(2) }}
-                    </span>
-                  </div>
                   <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
                       class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
@@ -401,20 +390,15 @@
               </div>
 
               <!-- Monthly Usage -->
-              <div v-if="rowLimit(row, 'monthly')" class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
-                <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+              <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
+                <div class="flex items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-dark-600">
+                  <div class="flex items-center gap-2">
                   <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
                   <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.monthly') }}</h4>
+                  </div>
+                  <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatUsageLimit(rowUsage(row, 'monthly'), rowLimit(row, 'monthly')) }}</span>
                 </div>
                 <div class="space-y-2 px-1 pt-1">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.subscriptions.usage') }}</span>
-                    <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
-                      ${{ row.monthly_usage_usd?.toFixed(2) || '0.00' }}
-                      <span class="text-gray-400">/</span>
-                      ${{ rowLimit(row, 'monthly')?.toFixed(2) }}
-                    </span>
-                  </div>
                   <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
                     <div
                       class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
@@ -443,23 +427,6 @@
                 </div>
               </div>
 
-              <!-- No Limits - Unlimited badge -->
-              <div
-                v-if="
-                  !rowLimit(row, 'daily') &&
-                  !rowLimit(row, 'weekly') &&
-                  !rowLimit(row, 'monthly')
-                "
-                class="flex items-center justify-center rounded-xl bg-gradient-to-r from-emerald-50 to-teal-50 py-6 dark:from-emerald-900/20 dark:to-teal-900/20"
-              >
-                <div class="flex items-center gap-3">
-                  <span class="text-4xl text-emerald-600 dark:text-emerald-400">∞</span>
-                  <div>
-                    <p class="text-sm font-medium text-emerald-700 dark:text-emerald-300">{{ t('admin.subscriptions.unlimited') }}</p>
-                    <p class="text-xs text-emerald-600/70 dark:text-emerald-400/70">{{ t('admin.subscriptions.unlimitedDesc') }}</p>
-                  </div>
-                </div>
-              </div>
               </template>
             </div>
           </template>
@@ -1408,6 +1375,11 @@ const rowUsage = (row: AdminSubscriptionRow, window: UsageWindow): number => {
       ? row.weekly_usage_usd
       : row.monthly_usage_usd
   return Number(value || 0)
+}
+
+const formatUsageLimit = (used: number, limit: number | null): string => {
+  const usedText = `$${used.toFixed(2)}`
+  return limit != null && limit > 0 ? `${usedText}/$${limit.toFixed(2)}` : `${usedText}/+∞`
 }
 
 const rowLimit = (row: AdminSubscriptionRow, window: UsageWindow): number | null => {

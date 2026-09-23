@@ -1,4 +1,4 @@
-// Local persistence for GPT-6 Astra IQ test runs.
+// Local persistence for IQ test runs.
 //
 // The IQ test drives the per-account SSE endpoint straight from the browser and
 // the backend keeps no record of a run, so history is stored client-side. Runs
@@ -15,6 +15,8 @@ export const MAX_HISTORY_ENTRIES = 10
 export const MAX_OUTPUT_CHARS = 20000
 
 export const TRUNCATION_NOTICE = '\n… [truncated]'
+
+export const DEFAULT_IQ_TEST_MODEL = 'gpt-6-astra'
 
 export type IQTestHistoryStatus = 'success' | 'failed'
 
@@ -33,6 +35,7 @@ export interface IQTestHistoryResult {
 export interface IQTestHistoryEntry {
   id: string
   createdAt: string
+  model: string
   prompt: string
   results: IQTestHistoryResult[]
 }
@@ -86,7 +89,7 @@ const normalizeEntry = (value: unknown): IQTestHistoryEntry | null => {
   const results = Array.isArray(raw.results)
     ? raw.results.map(normalizeResult).filter((result): result is IQTestHistoryResult => result !== null)
     : []
-  return { id, createdAt, prompt: toText(raw.prompt), results }
+  return { id, createdAt, model: toText(raw.model) || DEFAULT_IQ_TEST_MODEL, prompt: toText(raw.prompt), results }
 }
 
 export const loadIQTestHistory = (): IQTestHistoryEntry[] => {

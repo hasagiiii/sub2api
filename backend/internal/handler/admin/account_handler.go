@@ -1356,7 +1356,38 @@ func (h *AccountHandler) Test(c *gin.Context) {
 	}
 }
 
-const iqTestPrompt = "创建一个HTML，内容是SVG绘制一个鹈鹏骑自行车的2D动画，你不需要任何测试"
+const (
+	defaultIQTestModel  = "gpt-6-astra"
+	defaultIQTestPrompt = "创建一个HTML，内容是SVG绘制一个鹈鹏骑自行车的2D动画，你不需要任何测试"
+)
+
+type iqTestRequest struct {
+	ModelID string `json:"model_id"`
+	Prompt  string `json:"prompt"`
+}
+
+func iqTestModels() []openai.Model {
+	models := make([]openai.Model, 0, len(openai.DefaultModels))
+	for _, model := range openai.DefaultModels {
+		// IQ tests send a text prompt and render the returned HTML. Image-only
+		// models are not valid choices for this workflow.
+		if strings.HasPrefix(model.ID, "gpt-image-") {
+			continue
+		}
+		models = append(models, model)
+	}
+	return models
+}
+
+func resolveIQTestModel(raw string) (string, bool) {
+	modelID := strings.TrimSpace(raw)
+	if modelID == "" {
+		return defaultIQTestModel, true
+	}
+	// The built-in catalog is only a convenience. Upstream accounts may expose
+	// arbitrary model identifiers, so custom input is passed through unchanged.
+	return modelID, true
+}
 
 type iqTestResult struct {
 	AccountID    int64   `json:"account_id"`
@@ -1378,10 +1409,21 @@ type iqTestAccount struct {
 	Platform string `json:"platform"`
 }
 
-// IQTestAccounts returns the accounts that satisfy the GPT-6 Astra test
+// IQTestModels returns the text-capable OpenAI models supported by the IQ test.
+// GET /api/v1/admin/iq-test/models
+func (h *AccountHandler) IQTestModels(c *gin.Context) {
+	response.Success(c, iqTestModels())
+}
+
+// IQTestAccounts returns the accounts that satisfy the selected model test
 // criteria without starting any upstream requests.
 // GET /api/v1/admin/iq-test/accounts
 func (h *AccountHandler) IQTestAccounts(c *gin.Context) {
+	modelID, valid := resolveIQTestModel(c.Query("model_id"))
+	if !valid {
+		response.BadRequest(c, "Unsupported IQ test model")
+		return
+	}
 	if h.adminService == nil {
 		response.Error(c, http.StatusServiceUnavailable, "Account test service unavailable")
 		return
@@ -1393,7 +1435,7 @@ func (h *AccountHandler) IQTestAccounts(c *gin.Context) {
 	}
 	eligible := make([]iqTestAccount, 0, len(accounts))
 	for _, account := range accounts {
-		if !account.IsModelSupported("gpt-6-astra") {
+		if !account.IsModelSupported(modelID) {
 			continue
 		}
 		eligible = append(eligible, iqTestAccount{
@@ -1404,9 +1446,20 @@ func (h *AccountHandler) IQTestAccounts(c *gin.Context) {
 	c.JSON(http.StatusOK, eligible)
 }
 
-// IQTest runs the one-shot GPT-6 Astra HTML generation test for every matching account.
+// IQTest runs the one-shot HTML generation test for every matching account.
 // POST /api/v1/admin/iq-test
 func (h *AccountHandler) IQTest(c *gin.Context) {
+	var req iqTestRequest
+	_ = c.ShouldBindJSON(&req)
+	modelID, valid := resolveIQTestModel(req.ModelID)
+	if !valid {
+		response.BadRequest(c, "Unsupported IQ test model")
+		return
+	}
+	prompt := strings.TrimSpace(req.Prompt)
+	if prompt == "" {
+		prompt = defaultIQTestPrompt
+	}
 	if h.adminService == nil || h.accountTestService == nil {
 		response.Error(c, http.StatusServiceUnavailable, "Account test service unavailable")
 		return
@@ -1418,7 +1471,7 @@ func (h *AccountHandler) IQTest(c *gin.Context) {
 	}
 	targets := make([]service.Account, 0, len(accounts))
 	for _, account := range accounts {
-		if account.IsModelSupported("gpt-6-astra") {
+		if account.IsModelSupported(modelID) {
 			targets = append(targets, account)
 		}
 	}
@@ -1436,7 +1489,7 @@ func (h *AccountHandler) IQTest(c *gin.Context) {
 			cacheReadTokens, cacheCreationTokens := 0, 0
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 			defer cancel()
-			probe, probeErr := h.accountTestService.RunPromptBackground(ctx, account.ID, "gpt-6-astra", iqTestPrompt)
+			probe, probeErr := h.accountTestService.RunPromptBackground(ctx, account.ID, modelID, prompt)
 			if probe != nil {
 				result.HTML = probe.ResponseText
 				result.ErrorMessage = probe.ErrorMessage
@@ -1458,7 +1511,7 @@ func (h *AccountHandler) IQTest(c *gin.Context) {
 				result.ErrorMessage = probeErr.Error()
 			}
 			if h.billingService != nil {
-				if cost, costErr := h.billingService.CalculateCost("gpt-6-astra", service.UsageTokens{InputTokens: result.InputTokens, OutputTokens: result.OutputTokens, CacheReadTokens: cacheReadTokens, CacheCreationTokens: cacheCreationTokens}, account.BillingRateMultiplier()); costErr == nil && cost != nil {
+				if cost, costErr := h.billingService.CalculateCost(modelID, service.UsageTokens{InputTokens: result.InputTokens, OutputTokens: result.OutputTokens, CacheReadTokens: cacheReadTokens, CacheCreationTokens: cacheCreationTokens}, account.BillingRateMultiplier()); costErr == nil && cost != nil {
 					result.CostUSD = cost.ActualCost
 				}
 			}
@@ -1466,7 +1519,7 @@ func (h *AccountHandler) IQTest(c *gin.Context) {
 		}(i, targets[i])
 	}
 	wg.Wait()
-	c.JSON(http.StatusOK, gin.H{"model": "gpt-6-astra", "prompt": iqTestPrompt, "results": results})
+	c.JSON(http.StatusOK, gin.H{"model": modelID, "prompt": prompt, "results": results})
 }
 
 // RecoverState handles unified recovery of recoverable account runtime state.
