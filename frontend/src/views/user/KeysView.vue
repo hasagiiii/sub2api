@@ -155,22 +155,24 @@
           </template>
 
           <template #cell-group="{ row }">
-            <div class="group/dropdown relative flex min-h-6 items-center gap-1.5">
+            <div class="group/dropdown relative flex min-h-6 min-w-0 max-w-full items-center gap-1.5 overflow-hidden">
               <button
                 :ref="(el) => setGroupButtonRef(row.id, el)"
                 @click="openGroupSelector(row)"
-                class="-mx-2 flex min-h-6 cursor-pointer flex-wrap items-center gap-2 rounded-lg px-2 py-0 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
+                class="-mx-2 flex min-h-6 min-w-0 max-w-full cursor-pointer flex-nowrap items-center gap-2 overflow-hidden whitespace-nowrap rounded-lg px-2 py-0 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
                 data-test="group-selector-trigger"
                 :title="t('keys.clickToChangeGroup')"
               >
                 <GroupBadge
                   v-if="hasPlanRoute(row)"
+                  class="min-w-0 max-w-[9rem] shrink"
                   :name="planLabelForKey(row)"
                   platform="composite"
                   subscription-type="subscription"
                 />
                 <GroupBadge
                   v-else-if="row.group"
+                  class="min-w-0 max-w-[9rem] shrink"
                   :name="row.group.name"
                   :platform="row.group.platform"
                   :subscription-type="row.group.subscription_type"
@@ -217,7 +219,7 @@
                     <span
                       class="relative inline-flex"
                       data-test="auto-switch-help"
-                      @mouseenter="onFallbackHover(row.organization_subscription_id); fallbackTooltipKey = row.organization_subscription_id!"
+                      @mouseenter="onFallbackHover(row.organization_subscription_id); fallbackTooltipKey = row.id"
                       @mouseleave="fallbackTooltipKey = null"
                       @click.stop.prevent
                     >
@@ -229,7 +231,7 @@
                         :title="t('organization.settings.fallback.tooltipHelp')"
                       >?</span>
                     <div
-                      v-if="fallbackTooltipKey === row.organization_subscription_id"
+                      v-if="fallbackTooltipKey === row.id"
                       class="pointer-events-none absolute left-1/2 top-full z-30 mt-1 w-80 max-w-[calc(100vw-2rem)] -translate-x-1/2 whitespace-normal break-words rounded-md border border-gray-200 bg-white p-2 text-xs leading-5 text-gray-600 shadow-lg dark:border-dark-600 dark:bg-dark-800 dark:text-dark-200"
                       data-test="auto-switch-tooltip"
                       role="tooltip"
@@ -257,15 +259,15 @@
                             <span class="w-14 shrink-0 font-mono text-[10px] text-gray-400">
                               {{ t('organization.settings.fallback.chainCurrent') }}
                             </span>
-                            <span class="inline-flex min-w-0 items-center">
+                            <span class="inline-flex min-w-0 items-center whitespace-nowrap">
                               <GroupBadge
                                 v-if="row.group"
-                                :name="row.group.name"
+                                :name="organizationFallbackLabel(row.organization_subscription_id, row.group.name)"
                                 :platform="row.group.platform"
                                 :subscription-type="row.group.subscription_type"
                                 :rate-multiplier="row.group.rate_multiplier"
                                                               />
-                              <span v-else class="break-all">{{ `#${row.organization_subscription_id}` }}</span>
+                              <span v-else class="whitespace-nowrap">{{ organizationFallbackLabel(row.organization_subscription_id) }}</span>
                             </span>
                           </li>
                           <li
@@ -278,7 +280,7 @@
                             </span>
                             <span class="inline-flex min-w-0 items-center">
                               <GroupBadge
-                                :name="candidate.group_name || `#${candidate.id}`"
+                                :name="candidate.plan_name || candidate.group_name || t('keys.orgSubscriptionLabel')"
                                 :platform="candidate.platform"
                                 :subscription-type="candidate.subscription_type"
                                 :rate-multiplier="candidate.rate_multiplier"
@@ -315,7 +317,7 @@
               </button>
               <Select
                 v-if="hasPlanRoute(row)"
-                class="plan-route-select w-28 shrink-0"
+                class="plan-route-select w-20 shrink-0"
                 size="sm"
                 :model-value="planRouteValue(row)"
                 :options="planRouteOptions(row)"
@@ -342,7 +344,7 @@
               </Select>
               <div
                 v-if="row.fallback_group_ids?.length"
-                class="max-w-72 text-xs leading-5 text-gray-500 dark:text-gray-400"
+                class="min-w-0 max-w-40 truncate whitespace-nowrap text-xs leading-5 text-gray-500 dark:text-gray-400"
                 data-test="fallback-group-summary"
               >
                 {{ fallbackGroupSummary(row.fallback_group_ids) }}
@@ -674,39 +676,92 @@
           />
         </div>
 
-        <div v-if="orgSubscriptionOptions.length > 0">
-          <label class="input-label">{{ t('keys.orgSubscriptionLabel') }}</label>
+        <div>
+          <label class="input-label" for="key-form-group">{{ t('keys.groupLabel') }}</label>
           <Select
-            v-model="formData.organization_subscription_id"
-            :options="orgSubscriptionOptions"
-            :placeholder="t('keys.orgSubscriptionNone')"
+            id="key-form-group"
+            :aria-label="t('keys.groupLabel')"
+            :model-value="formBindingValue"
+            :options="formBindingOptions"
+            :placeholder="t('keys.selectGroup')"
+            :empty-text="t('common.noGroupsAvailable')"
             :searchable="true"
-            :clearable="true"
+            :search-placeholder="t('keys.searchGroup')"
             :borderless-options="true"
+            data-tour="key-form-group"
+            @update:model-value="selectFormBinding"
           >
             <template #selected="{ option }">
-              <GroupBadge
+              <GroupOptionItem
                 v-if="option"
                 :name="(option as unknown as GroupOption).label"
                 :platform="(option as unknown as GroupOption).platform"
-                subscription-type="subscription"
+                :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
-                :always-show-rate="true"
-                              />
-              <span v-else class="text-gray-400">{{ t('keys.orgSubscriptionNone') }}</span>
+                :user-rate-multiplier="(option as unknown as GroupOption).userRate"
+                :description="(option as unknown as GroupOption).description"
+              />
+              <span v-else class="whitespace-nowrap text-gray-400">{{ t('keys.selectGroup') }}</span>
             </template>
             <template #option="{ option, selected }">
+              <template v-if="(option as unknown as FormGroupHeaderOption).kind === 'group'">
+                <span
+                  class="block w-full text-xs font-semibold leading-5"
+                  :class="(option as unknown as FormGroupHeaderOption).section === 'plan'
+                    ? 'text-violet-700 dark:text-violet-300'
+                    : (option as unknown as FormGroupHeaderOption).section === 'org'
+                      ? 'text-sky-700 dark:text-sky-300'
+                      : 'text-gray-700 dark:text-gray-200'"
+                >
+                  {{ (option as unknown as FormGroupHeaderOption).label }}
+                </span>
+              </template>
               <GroupOptionItem
+                v-else
                 :name="(option as unknown as GroupOption).label"
                 :platform="(option as unknown as GroupOption).platform"
-                subscription-type="subscription"
+                :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
+                :user-rate-multiplier="(option as unknown as GroupOption).userRate"
                 :description="(option as unknown as GroupOption).description"
                 :selected="selected"
               />
             </template>
           </Select>
-          <p class="input-hint">{{ t('keys.orgSubscriptionHint') }}</p>
+          <p class="input-hint">{{ t('keys.groupSelectionHint') }}</p>
+        </div>
+
+        <div v-if="formHasPlanRoute && formPlanRouteOptions.length > 0">
+          <label class="input-label">{{ t('keys.routeGroupLabel') }}</label>
+          <Select
+            class="min-w-0"
+            :model-value="formPlanRouteValue"
+            :options="formPlanRouteOptions"
+            :placeholder="t('keys.selectGroup')"
+            :searchable="true"
+            :search-placeholder="t('keys.searchGroup')"
+            :borderless-options="true"
+            data-test="key-form-route-group"
+            @update:model-value="selectFormPlanRoute"
+          >
+            <template #selected="{ option }">
+              <span v-if="option" class="whitespace-nowrap text-sm text-gray-800 dark:text-gray-100">
+                {{ (option as unknown as PlanRouteOption).label }}
+              </span>
+              <span v-else class="whitespace-nowrap text-gray-400">{{ t('keys.selectGroup') }}</span>
+            </template>
+            <template #option="{ option, selected }">
+              <GroupOptionItem
+                :name="(option as unknown as PlanRouteOption).label"
+                :platform="(option as unknown as PlanRouteOption).platform"
+                subscription-type="standard"
+                :description="(option as unknown as PlanRouteOption).description"
+                :selected="selected"
+              />
+            </template>
+          </Select>
+          <p class="input-hint">{{ t('keys.routeGroupHint') }}</p>
+        </div>
 
           <!-- 选择企业订阅后展示"自动切换"开关状态与套餐切换顺序 -->
           <div
@@ -714,7 +769,7 @@
             class="mt-2 rounded-md border border-gray-200 bg-gray-50 p-2 text-xs leading-5 text-gray-600 dark:border-dark-600 dark:bg-dark-900/60 dark:text-dark-300"
             data-test="edit-fallback-panel"
           >
-            <div class="flex items-center gap-2">
+            <div class="flex min-w-0 flex-nowrap items-center gap-2 whitespace-nowrap">
               <span
                 class="badge whitespace-nowrap text-xs"
                 :class="getFallbackEntry(formData.organization_subscription_id).loaded && !getFallbackEntry(formData.organization_subscription_id).autoSwitchEnabled ? 'badge-gray' : 'badge-purple'"
@@ -725,7 +780,7 @@
                     : t('organization.settings.fallback.badge')
                 }}
               </span>
-              <span class="text-gray-500 dark:text-gray-400">{{ t('organization.settings.fallback.tooltipIntro') }}</span>
+              <span class="min-w-0 truncate text-gray-500 dark:text-gray-400">{{ t('organization.settings.fallback.tooltipIntro') }}</span>
             </div>
             <div class="mt-2 font-medium text-gray-800 dark:text-white">{{ t('organization.settings.fallback.chainTitle') }}</div>
             <div v-if="getFallbackEntry(formData.organization_subscription_id).loading" class="mt-1">
@@ -737,15 +792,15 @@
             <ol v-else class="mt-1 space-y-1">
               <li class="flex items-center gap-2">
                 <span class="w-14 shrink-0 font-mono text-[10px] text-gray-400">{{ t('organization.settings.fallback.chainCurrent') }}</span>
-                <span class="inline-flex min-w-0 items-center">
+                <span class="inline-flex min-w-0 items-center whitespace-nowrap">
                   <GroupBadge
                     v-if="editFallbackCurrentGroup"
-                    :name="editFallbackCurrentGroup.name"
+                    :name="organizationFallbackLabel(formData.organization_subscription_id, editFallbackCurrentGroup.name)"
                     :platform="editFallbackCurrentGroup.platform"
                     :subscription-type="editFallbackCurrentGroup.subscription_type"
                     :rate-multiplier="editFallbackCurrentGroup.rate_multiplier"
                                       />
-                  <span v-else class="break-all">{{ `#${formData.organization_subscription_id}` }}</span>
+                  <span v-else class="whitespace-nowrap">{{ organizationFallbackLabel(formData.organization_subscription_id) }}</span>
                 </span>
               </li>
               <li
@@ -758,7 +813,7 @@
                 </span>
                 <span class="inline-flex min-w-0 items-center">
                   <GroupBadge
-                    :name="candidate.group_name || `#${candidate.id}`"
+                    :name="candidate.plan_name || candidate.group_name || t('keys.orgSubscriptionLabel')"
                     :platform="candidate.platform"
                     :subscription-type="candidate.subscription_type"
                     :rate-multiplier="candidate.rate_multiplier"
@@ -773,137 +828,6 @@
               </li>
             </ol>
           </div>
-        </div>
-
-        <div v-if="!formData.organization_subscription_id">
-          <label class="input-label">{{ t('keys.groupLabel') }}</label>
-        </div>
-        <fieldset v-if="!formData.organization_subscription_id && !showEditModal" data-tour="key-form-provider">
-          <legend class="input-label">{{ t('keys.providerLabel') }}</legend>
-          <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <label
-              v-for="provider in createProviderOptions"
-              :key="provider.value"
-              class="relative min-w-0"
-              :class="provider.count === 0 ? 'cursor-not-allowed' : 'cursor-pointer'"
-            >
-              <input
-                type="radio"
-                name="key-provider"
-                :value="provider.value"
-                :checked="createProvider === provider.value"
-                :disabled="provider.count === 0"
-                class="peer sr-only"
-                @change="selectCreateProvider(provider.value)"
-              />
-              <span
-                class="flex h-full flex-col items-center gap-2 rounded-xl border border-gray-200 bg-white px-2 py-3 text-center transition-colors peer-checked:border-primary-500 peer-checked:bg-primary-50/60 peer-checked:ring-1 peer-checked:ring-primary-500 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary-500 peer-disabled:opacity-40 dark:border-dark-600 dark:bg-dark-800 dark:peer-checked:border-primary-500 dark:peer-checked:bg-primary-500/10"
-                :class="provider.count > 0 && 'hover:border-primary-300 dark:hover:border-primary-700'"
-              >
-                <span class="flex h-8 items-center justify-center gap-1.5" aria-hidden="true">
-                  <span
-                    v-for="platform in KEY_GROUP_PROVIDER_ICONS[provider.value]"
-                    :key="platform"
-                    class="flex h-8 w-8 items-center justify-center rounded-lg"
-                    :class="platformBadgeLightClass(platform)"
-                  >
-                    <PlatformIcon :platform="platform" size="lg" />
-                  </span>
-                </span>
-                <span class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ provider.label }}</span>
-              </span>
-              <span
-                v-if="createProvider === provider.value"
-                class="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary-500 text-white"
-                aria-hidden="true"
-              >
-                <Icon name="check" size="xs" :stroke-width="3" />
-              </span>
-            </label>
-          </div>
-          <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400" aria-live="polite">
-            {{ groups.length === 0 ? t('common.noGroupsAvailable') : t(`keys.providerHints.${createProvider}`) }}
-          </p>
-        </fieldset>
-
-        <div v-if="!formData.organization_subscription_id">
-          <label class="input-label" for="key-form-group">{{ t('keys.groupLabel') }}</label>
-          <Select
-            :key="showEditModal ? 'edit' : createProvider"
-            id="key-form-group"
-            :aria-label="t('keys.groupLabel')"
-            v-model="formData.group_id"
-            :options="formGroupOptions"
-            :placeholder="t('keys.selectGroup')"
-            :empty-text="t('common.noGroupsAvailable')"
-            :searchable="true"
-            :search-placeholder="t('keys.searchGroup')"
-            :borderless-options="true"
-            data-tour="key-form-group"
-          >
-            <template #selected="{ option }">
-              <GroupBadge
-                v-if="option"
-                :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform"
-                :subscription-type="(option as unknown as GroupOption).subscriptionType"
-                :rate-multiplier="(option as unknown as GroupOption).rate"
-                :user-rate-multiplier="(option as unknown as GroupOption).userRate"
-                :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
-                :peak-start="(option as unknown as GroupOption).peakStart"
-                :peak-end="(option as unknown as GroupOption).peakEnd"
-                :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
-              />
-              <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
-            </template>
-            <template #option="{ option, selected }">
-              <template v-if="(option as unknown as FormGroupHeaderOption).kind === 'group'">
-                <span
-                  class="block w-full text-xs font-semibold leading-5"
-                  :class="(option as unknown as FormGroupHeaderOption).section === 'plan'
-                    ? 'text-violet-700 dark:text-violet-300'
-                    : 'text-gray-700 dark:text-gray-200'"
-                >
-                  {{ (option as unknown as FormGroupHeaderOption).label }}
-                </span>
-              </template>
-              <GroupOptionItem
-                v-else
-                :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform"
-                :subscription-type="(option as unknown as GroupOption).subscriptionType"
-                :rate-multiplier="(option as unknown as GroupOption).rate"
-                :user-rate-multiplier="(option as unknown as GroupOption).userRate"
-                :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
-                :peak-start="(option as unknown as GroupOption).peakStart"
-                :peak-end="(option as unknown as GroupOption).peakEnd"
-                :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
-                :description="(option as unknown as GroupOption).description"
-                :selected="selected"
-              />
-            </template>
-          </Select>
-
-        </div>
-
-        <!--
-          订阅套餐的选择只在"有歧义"时出现：用户有多个套餐都覆盖了所选分组，
-          此时单看分组无法确定该扣哪一份额度。只有一个套餐覆盖时没有可选项，
-          多问一句反而是噪音。
-          注意它不决定路由——分组始终由上面的选择器决定，因为同一套餐里的两个
-          分组可能提供相同模型，只有用户知道要用哪个。
-        -->
-        <div v-if="showPoolChoice" data-test="key-form-pool-choice">
-          <label class="input-label">{{ t('keys.poolLabel') }}</label>
-          <Select
-            v-model="formData.user_subscription_id"
-            :options="poolOptions"
-            :placeholder="t('keys.selectPool')"
-            :borderless-options="true"
-            data-test="key-form-subscription"
-          />
-          <p class="input-hint mt-0.5">{{ t('keys.poolHint') }}</p>
-        </div>
 
         <!-- 回退分组与订阅套餐互不影响：路由始终由分组决定 -->
         <div class="mt-4 space-y-2" data-test="fallback-groups-editor">
@@ -926,7 +850,7 @@
               <span class="w-5 flex-none text-center text-xs font-medium text-gray-500">{{ index + 1 }}</span>
               <GroupBadge
                 v-if="groupById(groupId)"
-                class="min-w-0 flex-1"
+                class="min-w-0 max-w-full flex-1 whitespace-nowrap"
                 :name="groupById(groupId)!.name"
                 :platform="groupById(groupId)!.platform"
                 :subscription-type="groupById(groupId)!.subscription_type"
@@ -971,11 +895,11 @@
 
             <div
               v-if="fallbackPrimaryGroupId !== null && formData.fallback_group_ids.length < 5 && fallbackGroupOptions.length"
-              class="flex items-center gap-2"
+              class="flex min-w-0 flex-nowrap items-center gap-2"
             >
               <Select
                 v-model="fallbackGroupToAdd"
-                class="min-w-0 flex-1"
+                class="min-w-0 flex-1 whitespace-nowrap"
                 :options="fallbackGroupOptions"
                 :placeholder="t('keys.selectFallbackGroup')"
                 :searchable="true"
@@ -1691,9 +1615,6 @@ import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
-import PlatformIcon from '@/components/common/PlatformIcon.vue'
-import { platformBadgeLightClass } from '@/utils/platformColors'
-import { KEY_GROUP_PROVIDERS, KEY_GROUP_PROVIDER_ICONS, getKeyGroupProvider, type KeyGroupProvider } from '@/utils/keyGroupProviders'
 import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
@@ -1725,13 +1646,14 @@ interface PlanRouteOption {
   label: string
   platform: GroupPlatform
   description: string | null
+  [key: string]: unknown
 }
 
 interface FormGroupHeaderOption {
   value: string
   label: string
   kind: 'group'
-  section: 'plan' | 'group'
+  section: 'org' | 'plan' | 'group'
   disabled: true
 }
 
@@ -2084,67 +2006,6 @@ const poolPlanLabel = (sub: BindableUserSubscription): string => {
 }
 
 
-const createProvider = ref<KeyGroupProvider>('anthropic')
-
-const formGroupOptions = computed(() => {
-  const planGroupIds = new Set(
-    userSubscriptions.value
-      .filter(sub => sub.plan_id != null)
-      .flatMap(sub => subscriptionGroupIds(sub))
-  )
-
-  const decorateGroupOption = (option: (typeof groupOptions.value)[number]) => {
-    const planNames = userSubscriptions.value
-      .filter(sub => sub.plan_id != null && subscriptionGroupIds(sub).includes(Number(option.value)))
-      .map(sub => sub.plan_name?.trim())
-      .filter((name): name is string => Boolean(name))
-      .filter((name, index, names) => names.indexOf(name) === index)
-
-    return {
-      ...option,
-      // Select reserves kind="group" for non-selectable section headers.
-      kind: undefined,
-      description: planNames.length > 0
-        ? [option.description, t('keys.poolPlanLabel', { name: planNames.join('、') })]
-          .filter(Boolean)
-          .join(' · ')
-        : option.description,
-    }
-  }
-
-  const planOptions = groupOptions.value
-    .filter(option => planGroupIds.has(option.value))
-    .map(decorateGroupOption)
-  const regularOptions = groupOptions.value
-    .filter(option => !planGroupIds.has(option.value))
-    .map(decorateGroupOption)
-  const options: Array<Record<string, unknown>> = []
-
-  if (planOptions.length > 0) {
-    options.push({
-      value: '__subscription_plans__',
-      label: t('keys.poolLabel'),
-      kind: 'group',
-      section: 'plan',
-      disabled: true,
-    } satisfies FormGroupHeaderOption)
-    options.push(...planOptions)
-  }
-  if (regularOptions.length > 0) {
-    options.push({
-      value: '__regular_groups__',
-      label: t('keys.normalGroupLabel'),
-      kind: 'group',
-      section: 'group',
-      disabled: true,
-    } satisfies FormGroupHeaderOption)
-    options.push(...regularOptions)
-  }
-  return showEditModal.value
-    ? options
-    : options.filter((group) => group.kind === 'group' || getKeyGroupProvider(group.platform as GroupPlatform) === createProvider.value)
-})
-
 const planRouteGroups = (key: ApiKey) => {
   const subscription = userSubscriptions.value.find(item => item.id === key.user_subscription_id)
   if (!subscription) return []
@@ -2219,6 +2080,11 @@ const organizationPlanLabelForKey = (key: Pick<ApiKey, 'organization_subscriptio
   return plan?.plan_name || plan?.group_name || t('keys.orgSubscriptionLabel')
 }
 
+const organizationFallbackLabel = (subscriptionId: number | null | undefined, fallbackGroupName = ''): string => {
+  const plan = organizationPlanRows(subscriptionId)[0]
+  return plan?.plan_name?.trim() || plan?.group_name?.trim() || fallbackGroupName.trim() || t('keys.orgSubscriptionLabel')
+}
+
 const planLabelForKey = (key: ApiKey): string => key.user_subscription_id
   ? poolPlanLabelForKey(key)
   : organizationPlanLabelForKey(key)
@@ -2237,28 +2103,6 @@ const subscriptionsCoveringGroup = (groupId: number | null): BindableUserSubscri
 const poolCandidates = computed(() => subscriptionsCoveringGroup(formData.value.group_id))
 
 /**
- * 只在有歧义时才要求用户选额度池。
- *
- * 一个套餐覆盖该分组时答案唯一，后端按分组反查就能得到同一条，问用户等于制造噪音；
- * 两个及以上才必须由用户指定，否则池子会由一个用户看不到、也控制不了的排序规则决定。
- */
-const showPoolChoice = computed(() =>
-  !formData.value.organization_subscription_id && poolCandidates.value.length > 1
-)
-
-/**
- * 额度池下拉项。标签用套餐覆盖的分组名拼成——同一分组下的多个套餐往往只在"还覆盖
- * 了哪些别的分组"上有区别，这是最能让用户区分它们的信息。
- */
-const poolOptions = computed(() =>
-  poolCandidates.value.map(sub => ({
-    value: sub.id,
-    label: sub.plan_name || sub.group_names?.[0] || poolPlanLabel(sub),
-    description: undefined
-  }))
-)
-
-/**
  * 分组一变，之前选的池子可能已不覆盖新分组（后端会拒绝保存）。此时自动清掉，
  * 让选择器回到"未指定"而不是留一个注定失败的值。
  * 仅剩一个候选时也清掉：此时选择器不显示，留值只会让 payload 带上无谓的指定。
@@ -2266,7 +2110,7 @@ const poolOptions = computed(() =>
 watch([() => formData.value.group_id, poolCandidates], () => {
   const current = formData.value.user_subscription_id
   if (current === null) return
-  if (!showPoolChoice.value || !poolCandidates.value.some(sub => sub.id === current)) {
+  if (!poolCandidates.value.some(sub => sub.id === current)) {
     formData.value.user_subscription_id = null
   }
 })
@@ -2319,6 +2163,7 @@ type SubscriptionFallbackEntry = {
   autoSwitchEnabled: boolean
   candidates: Array<{
     id: number
+    plan_name?: string
     group_name?: string
     platform?: import('@/types').GroupPlatform
     subscription_type?: import('@/types').SubscriptionType
@@ -2393,6 +2238,7 @@ async function ensureFallbackLoaded(subscriptionId: number) {
         autoSwitchEnabled: !!view.auto_switch_enabled,
         candidates: (view.candidates || []).map(candidate => ({
           id: candidate.id,
+          plan_name: candidate.plan_name,
           group_name: candidate.group_name,
           platform: candidate.platform as import('@/types').GroupPlatform | undefined,
           subscription_type: candidate.subscription_type as import('@/types').SubscriptionType | undefined,
@@ -2507,29 +2353,6 @@ const editFallbackCurrentGroup = computed(() => {
   }
 })
 
-const createProviderOptions = computed(() => KEY_GROUP_PROVIDERS.map((value) => ({
-  value,
-  label: t(`keys.providers.${value}`),
-  count: groups.value.filter((group) => getKeyGroupProvider(group.platform) === value).length
-})))
-
-const selectCreateProvider = (provider: KeyGroupProvider) => {
-  if (createProvider.value === provider) return
-  createProvider.value = provider
-  formData.value.group_id = null
-}
-
-// Also handles groups arriving after the create dialog has already opened.
-watch([showCreateModal, createProviderOptions], ([isOpen, providers], [wasOpen]) => {
-  if (!isOpen) return
-  if (!wasOpen || !providers.some((provider) => provider.value === createProvider.value && provider.count > 0)) {
-    selectCreateProvider(providers.find((provider) => provider.count > 0)?.value ?? 'anthropic')
-  }
-  if (!formGroupOptions.value.some((group) => group.value === formData.value.group_id)) {
-    formData.value.group_id = null
-  }
-})
-
 // Group dropdown search
 const groupSearchQuery = ref('')
 const quickGroupOptions = computed(() => [
@@ -2577,6 +2400,137 @@ const quickGroupOptions = computed(() => [
   })),
   ...ordinaryGroupOptions.value,
 ])
+
+// 创建/编辑弹窗使用与列表内联选择器相同的绑定选项：企业订阅、个人套餐、普通分组。
+// 这样三个入口的可选范围、分类和扣费语义保持一致。
+const formBindingOptions = computed(() => {
+  const sections: Array<{ kind: KeyBindingKind; options: typeof quickGroupOptions.value }> = [
+    { kind: 'org', options: quickGroupOptions.value.filter(option => option.kind === 'org') },
+    { kind: 'plan', options: quickGroupOptions.value.filter(option => option.kind === 'plan') },
+    { kind: 'group', options: quickGroupOptions.value.filter(option => option.kind === 'group') },
+  ]
+  return sections.flatMap(section => {
+    if (section.options.length === 0) return []
+    const sectionName = section.kind === 'org' ? 'org' : section.kind === 'plan' ? 'plan' : 'group'
+    return [
+      {
+        value: `__form_${section.kind}__`,
+        label: bindingKindLabel(section.kind),
+        kind: 'group' as const,
+        section: sectionName as FormGroupHeaderOption['section'],
+        disabled: true as const,
+      },
+      ...section.options.map(option => section.kind === 'group'
+        ? { ...option, kind: undefined }
+        : option),
+    ]
+  })
+})
+
+const formBindingValue = computed<number | string | null>(() => {
+  if (formData.value.organization_subscription_id) {
+    const subscription = orgSubscriptions.value.find(item => item.id === formData.value.organization_subscription_id)
+    return subscription?.plan_id != null
+      ? `orgplan:${subscription.id}:auto`
+      : `org:${formData.value.organization_subscription_id}`
+  }
+  if (formData.value.user_subscription_id) return `plan:${formData.value.user_subscription_id}:auto`
+  return formData.value.group_id
+})
+
+const formHasPlanRoute = computed(() => {
+  if (formData.value.user_subscription_id) return true
+  return Boolean(organizationPlanForKey({
+    organization_subscription_id: formData.value.organization_subscription_id,
+  }))
+})
+
+const formPlanRouteOptions = computed<PlanRouteOption[]>(() => {
+  if (formData.value.user_subscription_id) {
+    const subscription = userSubscriptions.value.find(item => item.id === formData.value.user_subscription_id)
+    return subscriptionGroupIds(subscription)
+      .map(groupId => groupById(groupId))
+      .filter((group): group is Group => group != null)
+      .map(group => ({
+        value: group.id,
+        label: group.name,
+        platform: group.platform,
+        description: group.description,
+      }))
+  }
+  const rows = organizationPlanRows(formData.value.organization_subscription_id)
+  if (!rows.length || rows[0].plan_id == null) return []
+  return [
+    { value: 'auto', label: 'Auto', platform: 'composite', description: null },
+    ...rows.map(row => ({
+      value: row.group_id,
+      label: row.group_name,
+      platform: (row.platform || 'composite') as GroupPlatform,
+      description: row.notes || null,
+    })),
+  ]
+})
+
+const formPlanRouteValue = computed<string | number>(() => formData.value.group_id ?? 'auto')
+
+const selectFormBinding = (value: string | number | boolean | null) => {
+  if (typeof value === 'number') {
+    formData.value.group_id = value
+    formData.value.organization_subscription_id = null
+    formData.value.user_subscription_id = null
+    formData.value.fallback_group_ids = normalizeFallbackGroups(value, formData.value.fallback_group_ids)
+    return
+  }
+  if (typeof value !== 'string') return
+
+  const organizationID = value.startsWith('org:') ? Number(value.slice(4)) : null
+  const organizationPlanMatch = value.match(/^orgplan:(\d+):auto$/)
+  const planMatch = value.match(/^plan:(\d+):auto$/)
+  if (organizationID) {
+    formData.value.organization_subscription_id = organizationID
+    formData.value.user_subscription_id = null
+    formData.value.group_id = null
+    formData.value.fallback_group_ids = []
+    void ensureFallbackLoaded(organizationID)
+    return
+  }
+  if (organizationPlanMatch) {
+    const subscriptionID = Number(organizationPlanMatch[1])
+    formData.value.organization_subscription_id = subscriptionID
+    formData.value.user_subscription_id = null
+    formData.value.group_id = null
+    formData.value.fallback_group_ids = []
+    void ensureFallbackLoaded(subscriptionID)
+    return
+  }
+  if (planMatch) {
+    const subscriptionID = Number(planMatch[1])
+    const subscription = userSubscriptions.value.find(item => item.id === subscriptionID)
+    const coveredGroupIds = subscriptionGroupIds(subscription)
+    const currentGroupId = formData.value.group_id
+    const routeGroupId = currentGroupId && coveredGroupIds.includes(currentGroupId)
+      ? currentGroupId
+      : coveredGroupIds[0] ?? null
+    formData.value.user_subscription_id = subscriptionID
+    formData.value.organization_subscription_id = null
+    formData.value.group_id = routeGroupId
+    formData.value.fallback_group_ids = normalizeFallbackGroups(routeGroupId, formData.value.fallback_group_ids)
+  }
+}
+
+const selectFormPlanRoute = (value: string | number | boolean | null) => {
+  if (value === 'auto') {
+    formData.value.group_id = formData.value.user_subscription_id
+      ? formPlanRouteOptions.value[0]?.value as number ?? null
+      : null
+  } else if (typeof value === 'number') {
+    formData.value.group_id = value
+  }
+  formData.value.fallback_group_ids = normalizeFallbackGroups(
+    formData.value.group_id,
+    formData.value.fallback_group_ids,
+  )
+}
 
 /** 当前操作的 Key 可选的套餐分组组合；只展示用户当前可绑定的分组。 */
 const quickPoolCandidates = computed(() => {
@@ -3017,12 +2971,6 @@ const handleSubmit = async () => {
     appStore.showError(t('keys.groupRequired'))
     return
   }
-  // 有多个套餐覆盖所选分组时必须指定扣哪一份，否则池子会由用户看不到的规则决定。
-  if (showPoolChoice.value && !formData.value.user_subscription_id) {
-    appStore.showError(t('keys.poolRequired'))
-    return
-  }
-
   // Validate custom key if enabled
   if (!showEditModal.value && formData.value.use_custom_key) {
     if (!formData.value.custom_key) {

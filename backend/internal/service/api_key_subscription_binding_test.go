@@ -68,19 +68,59 @@ func pinnedPoolService(sub *UserSubscription, err error) *APIKeyService {
 	}
 }
 
-// 指定了扣费套餐也不改变路由：候选仍是 group_id + fallback。
-//
-// 套餐里的两个分组可能提供相同模型，只有调用方知道该用哪一个；把候选换成套餐的
-// 覆盖集合会让这个选择权丢失。
-func TestResolveCandidatesIgnoresPinnedSubscription(t *testing.T) {
-	svc := pinnedPoolService(activeSharedSubscription(), nil)
+// 手动分配的订阅仍然只提供额度池，候选保持 group_id + fallback。
+func TestResolveCandidatesKeepsExplicitGroupsForManualSubscription(t *testing.T) {
+	sub := activeSharedSubscription()
+	sub.GroupIDs = []int64{sub.GroupID}
+	svc := pinnedPoolService(sub, nil)
 
 	candidates := svc.ResolveAPIKeyRoutingCandidates(context.Background(), pinnedPoolKey())
 
-	// 套餐覆盖 10/11/12，但候选只有 Key 自己配的 10（主）与 11（回退）。
+	// A manually assigned subscription is still an explicit quota pool. Its
+	// routing remains the key's primary group plus configured fallback groups.
 	require.Len(t, candidates, 2)
 	require.Equal(t, int64(10), candidates[0].Group.ID)
 	require.Equal(t, int64(11), candidates[1].Group.ID)
+}
+
+func TestResolveCandidatesExpandsLegacyMultiGroupSubscription(t *testing.T) {
+	svc := pinnedPoolService(activeSharedSubscription(), nil)
+	candidates := svc.ResolveAPIKeyRoutingCandidates(context.Background(), pinnedPoolKey())
+
+	require.Len(t, candidates, 3)
+	require.Equal(t, []int64{10, 11, 12}, []int64{
+		candidates[0].Group.ID,
+		candidates[1].Group.ID,
+		candidates[2].Group.ID,
+	})
+}
+
+func TestResolveCandidatesExpandsPlanCoverageForPinnedPlanKey(t *testing.T) {
+	planID := int64(900)
+	sub := activeSharedSubscription()
+	sub.PlanID = &planID
+	svc := pinnedPoolService(sub, nil)
+	groupRepo, ok := svc.groupRepo.(*boundKeyGroupRepo)
+	require.True(t, ok)
+	groups := groupRepo.groups
+	groups[10].Platform = PlatformOpenAI
+	groups[11].Platform = PlatformDeepseek
+	groups[12].Platform = PlatformAnthropic
+	key := pinnedPoolKey()
+
+	candidates := svc.ResolveAPIKeyRoutingCandidates(context.Background(), key)
+
+	// The saved group remains preferred, but a plan key must also try every
+	// covered group before returning that the requested model is unsupported.
+	require.Len(t, candidates, 3)
+	require.Equal(t, []int64{10, 11, 12}, []int64{
+		candidates[0].Group.ID,
+		candidates[1].Group.ID,
+		candidates[2].Group.ID,
+	})
+	for _, candidate := range candidates {
+		require.Nil(t, candidate.Unavailable)
+	}
 }
 
 // 旧版套餐 Key 可能没有保存 group_id。认证时仍应从订阅的实际覆盖关系恢复

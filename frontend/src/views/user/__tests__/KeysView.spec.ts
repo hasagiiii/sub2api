@@ -538,6 +538,61 @@ describe('user KeysView column settings', () => {
     expect(personalGroupCell.find('[data-test="auto-switch-help"]').exists()).toBe(false)
   })
 
+  it('shows the auto-switch tooltip only for the hovered key and uses plan names', async () => {
+    const enterpriseGroup = createGroup({ id: 99, name: 'Enterprise Group' })
+    listKeys.mockResolvedValueOnce({
+      items: [
+        { ...createApiKey(), id: 1, group_id: enterpriseGroup.id, group: enterpriseGroup, organization_subscription_id: 90 },
+        { ...createApiKey(), id: 2, group_id: enterpriseGroup.id, group: enterpriseGroup, organization_subscription_id: 90 },
+      ],
+      total: 2,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    listOrganizationSubscriptions.mockResolvedValue([{
+      id: 90,
+      organization_id: 8,
+      plan_id: 3017,
+      plan_name: '企业套餐',
+      group_id: enterpriseGroup.id,
+      group_name: enterpriseGroup.name,
+      platform: 'openai',
+      subscription_type: 'monthly',
+      rate_multiplier: 0.2,
+      status: 'active',
+    }])
+    getSubscriptionFallback.mockResolvedValue({
+      auto_switch_enabled: true,
+      candidates: [{
+        id: 3018,
+        plan_name: '备用套餐',
+        group_name: '备用分组',
+        platform: 'openai',
+        subscription_type: 'monthly',
+        rate_multiplier: 0.3,
+      }],
+    })
+
+    const wrapper = await mountView()
+    const helpCells = wrapper.findAll('[data-test="auto-switch-help"]')
+    expect(helpCells).toHaveLength(2)
+
+    await helpCells[0].trigger('mouseenter')
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.findAll('[data-test="auto-switch-tooltip"]')).toHaveLength(1)
+    const tooltip = wrapper.get('[data-test="auto-switch-tooltip"]')
+    const badgeNames = tooltip.findAll('group-badge-stub').map(badge => badge.attributes('name'))
+    expect(badgeNames).toContain('企业套餐')
+    expect(badgeNames).toContain('备用套餐')
+
+    await helpCells[0].trigger('mouseleave')
+    await nextTick()
+    expect(wrapper.findAll('[data-test="auto-switch-tooltip"]')).toHaveLength(0)
+  })
+
   it('groups the selector into enterprise, plan and group sections', async () => {
     const personalGroup = createGroup({ id: 1, name: 'Personal Group' })
     const bundledGroup = createGroup({ id: 2, name: 'Bundled Group' })
@@ -1028,7 +1083,7 @@ describe('user KeysView column settings', () => {
     expect(updateKey).toHaveBeenCalledWith(1, expect.objectContaining({ fallback_group_ids: [2, 3] }))
   })
 
-  it('shows the enterprise subscription rate and clears fallback groups when selected', async () => {
+  it('uses the same enterprise binding option as the list selector', async () => {
     const primary = createGroup({ id: 1, name: 'Primary' })
     const fallback = createGroup({ id: 2, name: 'Fallback' })
     getAvailableGroups.mockResolvedValue([primary, fallback])
@@ -1047,30 +1102,24 @@ describe('user KeysView column settings', () => {
     await openCreateForm(wrapper, 1)
     await addFallbackFromSelect(wrapper, 2)
 
-    expect(wrapper.get('[data-test="base-dialog"]').text()).toContain('Enterprise Subscription')
-
-    const selects = wrapper.findAllComponents({ name: 'Select' })
-    const organizationSelect = selects.find(select =>
-      (select.props('options') as Array<{ value: number }>).some(option => option.value === 90)
-    )
-    expect(organizationSelect).toBeDefined()
-    expect(organizationSelect!.props('options')).toContainEqual(expect.objectContaining({
-      value: 90,
+    const groupSelect = wrapper.findComponent('[data-tour="key-form-group"]')
+    expect(groupSelect.props('options')).toContainEqual(expect.objectContaining({
+      value: 'org:90',
+      label: 'Enterprise 0.2x · Monthly',
       rate: 0.2,
       platform: 'openai',
     }))
-    await organizationSelect!.vm.$emit('update:modelValue', 90)
+    await groupSelect.vm.$emit('update:modelValue', 'org:90')
     await nextTick()
 
     expect(wrapper.find('[data-test="edit-fallback-panel"]').exists()).toBe(true)
-    expect(wrapper.find('[data-test="fallback-groups-editor"]').exists()).toBe(true)
-    expect(wrapper.findAll('[data-test="fallback-group-row"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-test="fallback-group-row"]')).toHaveLength(0)
     await wrapper.get('input[required]').setValue('enterprise-key')
     await wrapper.get('#key-form').trigger('submit')
     await flushPromises()
     expect(createKey).toHaveBeenCalledWith(
       'enterprise-key',
-      1,
+      null,
       undefined,
       [],
       [],
@@ -1078,47 +1127,13 @@ describe('user KeysView column settings', () => {
       undefined,
       { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 },
       90,
-      [2],
+      [],
       true,
-      // 企业订阅优先于个人订阅，不传订阅选项。
       undefined
     )
   })
 
-  // 多个套餐覆盖所选分组时才需要指定扣费来源；分组与回退分组始终可选，因为
-  // 同一套餐里的两个分组可能提供相同模型，路由必须由用户决定。
-  it('asks which plan to charge only when several cover the chosen group', async () => {
-    getAvailableGroups.mockResolvedValue([
-      createGroup({ id: 1, name: 'Alpha' }),
-      createGroup({ id: 2, name: 'Beta' }),
-    ])
-    listUserSubscriptions.mockResolvedValue([
-      { id: 55, group_id: 1, group_ids: [1, 2], status: 'active', expires_at: null },
-      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
-    ])
-
-    const wrapper = await mountView()
-    await getButtonByText(wrapper, 'Create API Key').trigger('click')
-    await nextTick()
-
-    // 还没选分组，无从判断有无歧义。
-    expect(wrapper.find('[data-test="key-form-pool-choice"]').exists()).toBe(false)
-
-    // 选中同时被两个套餐覆盖的分组 1 → 出现订阅套餐选择。
-    await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
-    await nextTick()
-    expect(wrapper.find('[data-test="key-form-pool-choice"]').exists()).toBe(true)
-    // 分组与回退分组不受影响：套餐只决定扣费来源。
-    expect(wrapper.find('[data-tour="key-form-group"]').exists()).toBe(true)
-    expect(wrapper.find('[data-test="fallback-groups-editor"]').exists()).toBe(true)
-
-    // 换到只有一个套餐覆盖的分组 2 → 答案唯一，不再询问。
-    await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 2)
-    await nextTick()
-    expect(wrapper.find('[data-test="key-form-pool-choice"]').exists()).toBe(false)
-  })
-
-  it('submits the chosen group together with the pinned plan', async () => {
+  it('uses the same plan binding option and exposes its routing groups', async () => {
     getAvailableGroups.mockResolvedValue([
       createGroup({ id: 1, name: 'Alpha' }),
       createGroup({ id: 2, name: 'Beta' }),
@@ -1134,15 +1149,15 @@ describe('user KeysView column settings', () => {
     await nextTick()
 
     const groupSelect = wrapper.findComponent('[data-tour="key-form-group"]')
-    const groupOptions = groupSelect.props('options') as Array<{ value: number | string; label: string; kind?: string; description?: string }>
-    expect(groupOptions.filter(option => option.kind === 'group').map(option => option.label))
+    const options = groupSelect.props('options') as Array<{ value: string | number; label: string; kind?: string }>
+    expect(options.filter(option => option.kind === 'group').map(option => option.label))
       .toEqual(['Subscription plan', 'Regular groups'])
-    expect(groupOptions.find(option => option.value === 1)?.description)
-      .toContain('Subscription: 图像套餐、备用套餐')
+    expect(options).toContainEqual(expect.objectContaining({ value: 'plan:55:auto', label: '图像套餐' }))
 
-    await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
+    await groupSelect.vm.$emit('update:modelValue', 'plan:55:auto')
     await nextTick()
-    await wrapper.findComponent('[data-test="key-form-subscription"]').vm.$emit('update:modelValue', 56)
+    expect(wrapper.find('[data-test="key-form-route-group"]').exists()).toBe(true)
+    await wrapper.findComponent('[data-test="key-form-route-group"]').vm.$emit('update:modelValue', 2)
     await nextTick()
 
     await wrapper.get('input[required]').setValue('pinned-key')
@@ -1152,31 +1167,8 @@ describe('user KeysView column settings', () => {
     expect(showError).not.toHaveBeenCalled()
     expect(createKey).toHaveBeenCalledTimes(1)
     const createArgs = createKey.mock.calls[0]
-    // 分组照常发送（路由依据），套餐通过末位 options 指定额度池。
-    expect(createArgs[1]).toBe(1)
-    expect(createArgs[createArgs.length - 1]).toEqual({ userSubscriptionId: 56 })
-  })
-
-  // 有歧义却不选，等于把池子的选择交给一个用户看不到的规则。
-  it('refuses to save when several plans cover the group and none is chosen', async () => {
-    getAvailableGroups.mockResolvedValue([createGroup({ id: 1, name: 'Alpha' })])
-    listUserSubscriptions.mockResolvedValue([
-      { id: 55, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
-      { id: 56, group_id: 1, group_ids: [1], status: 'active', expires_at: null },
-    ])
-
-    const wrapper = await mountView()
-    await getButtonByText(wrapper, 'Create API Key').trigger('click')
-    await nextTick()
-    await wrapper.findComponent('[data-tour="key-form-group"]').vm.$emit('update:modelValue', 1)
-    await nextTick()
-
-    await wrapper.get('input[required]').setValue('ambiguous-key')
-    await wrapper.get('#key-form').trigger('submit')
-    await flushPromises()
-
-    expect(showError).toHaveBeenCalledWith(messages['keys.poolRequired'] ?? 'keys.poolRequired')
-    expect(createKey).not.toHaveBeenCalled()
+    expect(createArgs[1]).toBe(2)
+    expect(createArgs[createArgs.length - 1]).toEqual({ userSubscriptionId: 55 })
   })
 
   it('still requires a group', async () => {
@@ -1218,111 +1210,33 @@ describe('user KeysView column settings', () => {
     await getButtonByText(wrapper, 'Edit').trigger('click')
     await nextTick()
 
-    const organizationSelect = wrapper.findAllComponents({ name: 'Select' }).find(select =>
-      (select.props('options') as Array<{ value: number }>).some(option => option.value === 90)
-    )
-    expect(organizationSelect).toBeDefined()
-    await organizationSelect!.vm.$emit('update:modelValue', 90)
+    const groupSelect = wrapper.findComponent('[data-tour="key-form-group"]')
+    expect(groupSelect.props('options')).toContainEqual(expect.objectContaining({ value: 'org:90' }))
+    await groupSelect.vm.$emit('update:modelValue', 'org:90')
     await nextTick()
 
     expect(wrapper.find('[data-test="edit-fallback-panel"]').exists()).toBe(true)
     expect(getSubscriptionFallback).toHaveBeenCalledWith(90)
   })
 
-  describe('create provider selection', () => {
-    const platforms = ['anthropic', 'openai', 'kimi', 'zhipu', 'deepseek', 'minimax', 'gemini', 'grok', 'antigravity', 'composite', 'opencode_go']
-    const availableGroups = platforms.map((platform, index) => ({
-      id: index + 1,
-      // Deliberately ambiguous names: classification must follow the platform.
-      name: `Shared group ${index + 1}`,
-      platform,
-      rate_multiplier: 1,
-      subscription_type: 'standard',
-    }))
-    const groupSelect = (wrapper: VueWrapper) => wrapper.findComponent('[data-tour="key-form-group"]')
-    const optionIds = (wrapper: VueWrapper) => groupSelect(wrapper).props('options')
-      .filter((option: { value: unknown }) => typeof option.value === 'number')
-      .map((option: { value: number }) => option.value)
-    const chooseProvider = (wrapper: VueWrapper, value: string) => wrapper.get(`input[name="key-provider"][value="${value}"]`).setValue()
-    const openCreate = async () => {
-      const wrapper = await mountView()
-      await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
-      return wrapper
-    }
+  it('uses the same regular group options in create and edit modes', async () => {
+    const groups = [
+      createGroup({ id: 1, name: 'OpenAI group', platform: 'openai' }),
+      createGroup({ id: 2, name: 'Anthropic group', platform: 'anthropic' }),
+    ]
+    getAvailableGroups.mockResolvedValue(groups)
 
-    beforeEach(() => {
-      getAvailableGroups.mockResolvedValue(availableGroups)
-    })
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await nextTick()
+    const createOptions = wrapper.findComponent('[data-tour="key-form-group"]').props('options') as Array<{ value: unknown }>
+    expect(createOptions.filter(option => typeof option.value === 'number').map(option => option.value)).toEqual([1, 2])
 
-    it('classifies all configured platforms and retains the complete table filter', async () => {
-      const wrapper = await openCreate()
-      expect(wrapper.findAll('input[name="key-provider"]')).toHaveLength(4)
-      expect(optionIds(wrapper)).toEqual([1])
-      await chooseProvider(wrapper, 'openai')
-      expect(optionIds(wrapper)).toEqual([2])
-      await chooseProvider(wrapper, 'domestic')
-      expect(optionIds(wrapper)).toEqual([3, 4, 5, 6])
-      await chooseProvider(wrapper, 'other')
-      expect(optionIds(wrapper)).toEqual([7, 8, 9, 10, 11])
-      expect(wrapper.findAllComponents({ name: 'Select' })[0].props('options')).toHaveLength(13)
-    })
-
-    it('clears the previous group on provider change and submits only the newly selected group', async () => {
-      const wrapper = await openCreate()
-      await wrapper.get('[data-tour="key-form-name"]').setValue('My key')
-      await groupSelect(wrapper).vm.$emit('update:modelValue', 1)
-      await chooseProvider(wrapper, 'domestic')
-      expect(groupSelect(wrapper).props('modelValue')).toBeNull()
-      await wrapper.get('#key-form').trigger('submit')
-      expect(keysAPI.create).not.toHaveBeenCalled()
-      expect(showError).toHaveBeenCalledWith(messages['keys.groupRequired'])
-
-      await groupSelect(wrapper).vm.$emit('update:modelValue', 5)
-      vi.mocked(keysAPI.create).mockResolvedValue({ ...createApiKey(), group_id: 5 })
-      await wrapper.get('#key-form').trigger('submit')
-      await flushPromises()
-      expect(keysAPI.create).toHaveBeenCalledOnce()
-      expect(vi.mocked(keysAPI.create).mock.calls[0].slice(0, 2)).toEqual(['My key', 5])
-    })
-
-    it('defaults to a provider with available groups and disables empty categories', async () => {
-      getAvailableGroups.mockResolvedValue([availableGroups[5]])
-      const wrapper = await openCreate()
-      expect(wrapper.get<HTMLInputElement>('input[value="domestic"]').element.checked).toBe(true)
-      expect(wrapper.get<HTMLInputElement>('input[value="anthropic"]').element.disabled).toBe(true)
-      expect(optionIds(wrapper)).toEqual([6])
-    })
-
-    it('shows the empty state when no groups are available', async () => {
-      getAvailableGroups.mockResolvedValue([])
-      const wrapper = await openCreate()
-      expect(wrapper.get('[data-tour="key-form-provider"]').text()).toContain('common.noGroupsAvailable')
-      expect(optionIds(wrapper)).toEqual([])
-      expect(wrapper.findAll<HTMLInputElement>('input[name="key-provider"]').every((input) => input.element.disabled)).toBe(true)
-    })
-
-    it('selects an available provider when groups arrive after opening', async () => {
-      let resolveGroups!: (value: typeof availableGroups) => void
-      getAvailableGroups.mockReturnValue(new Promise((resolve) => { resolveGroups = resolve }))
-      const wrapper = await openCreate()
-      resolveGroups([availableGroups[1]])
-      await flushPromises()
-      expect(wrapper.get<HTMLInputElement>('input[value="openai"]').element.checked).toBe(true)
-      expect(optionIds(wrapper)).toEqual([2])
-    })
-
-    it('resets provider and group when reopening create, and preserves edit options', async () => {
-      const wrapper = await openCreate()
-      await chooseProvider(wrapper, 'domestic')
-      await groupSelect(wrapper).vm.$emit('update:modelValue', 5)
-      await wrapper.get('[data-test="close-dialog"]').trigger('click')
-      await wrapper.get('[data-tour="keys-create-btn"]').trigger('click')
-      expect(optionIds(wrapper)).toEqual([1])
-      expect(groupSelect(wrapper).props('modelValue')).toBeNull()
-      await wrapper.get('[data-test="close-dialog"]').trigger('click')
-      await getButtonByText(wrapper, 'Edit').trigger('click')
-      expect(wrapper.find('[data-tour="key-form-provider"]').exists()).toBe(false)
-      expect(optionIds(wrapper)).toHaveLength(11)
-    })
+    await wrapper.get('[data-test="close-dialog"]').trigger('click')
+    await getButtonByText(wrapper, 'Edit').trigger('click')
+    await nextTick()
+    const editOptions = wrapper.findComponent('[data-tour="key-form-group"]').props('options') as Array<{ value: unknown }>
+    expect(editOptions.filter(option => typeof option.value === 'number').map(option => option.value)).toEqual([1, 2])
   })
+
 })

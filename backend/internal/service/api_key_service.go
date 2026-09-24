@@ -1771,9 +1771,10 @@ func modelUnitPrice(model string) float64 {
 	}
 }
 
-// ResolveAPIKeyRoutingCandidates returns the primary group followed by the
-// configured fallback groups. Runtime-invalid fallbacks remain in the result
-// with Unavailable set so routing can preserve order and diagnostics.
+// ResolveAPIKeyRoutingCandidates returns the preferred group followed by the
+// remaining groups covered by a plan and any configured fallback groups.
+// Runtime-invalid candidates remain in the result with Unavailable set so
+// routing can preserve order and diagnostics.
 //
 // Routing is decided by the group alone, including for a key that pins a
 // subscription: two groups in one plan may serve the same models, so the group
@@ -1787,15 +1788,13 @@ func (s *APIKeyService) ResolveAPIKeyRoutingCandidates(ctx context.Context, apiK
 	groupIDs := make([]int64, 0, 1+len(apiKey.FallbackGroupIDs))
 	// An unassigned plan key is in Auto mode: its covered groups may span
 	// platforms and all of them remain candidates until a request model picks
-	// one. Explicitly routed keys still require same-platform fallbacks.
+	// one. A plan-bound key with a saved primary group also needs the complete
+	// plan coverage here: the saved group is only the preferred first candidate,
+	// not a reason to reject a model that another covered group can serve.
 	autoPlan := apiKey.GroupID == nil && ((apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0) ||
 		(apiKey.OrganizationSubscriptionID != nil && *apiKey.OrganizationSubscriptionID > 0))
-	if apiKey.GroupID != nil && *apiKey.GroupID > 0 {
-		groupIDs = append(groupIDs, *apiKey.GroupID)
-	} else if apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0 && s.userSubRepo != nil {
-		// 兼容早期“只绑定套餐、不单独保存分组”的 Key。新 Key 始终由
-		// group_id 决定路由；历史 Key 的 group_id 为空时，必须从实际订阅的
-		// 覆盖关系恢复候选，否则认证阶段会把空候选集误报成 NO_AVAILABLE_GROUP。
+	var userSubscription *UserSubscription
+	if apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0 && s.userSubRepo != nil {
 		sub, err := s.userSubRepo.GetByID(ctx, *apiKey.UserSubscriptionID)
 		if err != nil {
 			return []APIKeyRoutingCandidate{{Unavailable: err}}
@@ -1809,19 +1808,58 @@ func (s *APIKeyService) ResolveAPIKeyRoutingCandidates(ctx context.Context, apiK
 			// The key cannot consume another user's quota pool.
 			return []APIKeyRoutingCandidate{{Unavailable: ErrSubscriptionInvalid}}
 		}
-		groupIDs = append(groupIDs, sub.CoveredGroupIDs()...)
-	} else if apiKey.OrganizationSubscriptionID != nil && *apiKey.OrganizationSubscriptionID > 0 {
+		userSubscription = sub
+		// A multi-group subscription is a plan-style quota pool even for
+		// legacy rows whose plan_id is missing. Do not collapse it to the
+		// saved primary group, otherwise a model available only in another
+		// covered group is rejected before that group is tried.
+		if sub.PlanID != nil || len(sub.CoveredGroupIDs()) > 1 {
+			autoPlan = true
+		}
+	}
+
+	appendGroupID := func(groupID int64) {
+		if groupID <= 0 {
+			return
+		}
+		for _, existing := range groupIDs {
+			if existing == groupID {
+				return
+			}
+		}
+		groupIDs = append(groupIDs, groupID)
+	}
+	if apiKey.GroupID != nil && *apiKey.GroupID > 0 {
+		appendGroupID(*apiKey.GroupID)
+	}
+	if userSubscription != nil && (apiKey.GroupID == nil || userSubscription.PlanID != nil || len(userSubscription.CoveredGroupIDs()) > 1) {
+		// A plan subscription covers multiple upstream groups. Keep the saved
+		// group first when present, then let model/account selection try every
+		// other covered group before reporting the model as unsupported.
+		for _, groupID := range userSubscription.CoveredGroupIDs() {
+			appendGroupID(groupID)
+		}
+	}
+	if apiKey.GroupID == nil && apiKey.OrganizationSubscriptionID != nil && *apiKey.OrganizationSubscriptionID > 0 {
 		groups, err := s.organizationPlanCoveredGroups(ctx, apiKey)
 		if err != nil {
 			return []APIKeyRoutingCandidate{{Unavailable: err}}
 		}
+		if len(groups) > 1 {
+			// A multi-row organization plan can route across providers even when
+			// the key has a saved primary group; the primary remains only the
+			// first candidate.
+			autoPlan = true
+		}
 		for _, group := range groups {
 			if group != nil {
-				groupIDs = append(groupIDs, group.ID)
+				appendGroupID(group.ID)
 			}
 		}
 	}
-	groupIDs = append(groupIDs, apiKey.FallbackGroupIDs...)
+	for _, groupID := range apiKey.FallbackGroupIDs {
+		appendGroupID(groupID)
+	}
 	if len(groupIDs) == 0 && apiKey.UserSubscriptionID != nil && *apiKey.UserSubscriptionID > 0 {
 		// Keep the failure actionable when a legacy subscription row has no
 		// usable primary/covered group instead of returning a generic group error.

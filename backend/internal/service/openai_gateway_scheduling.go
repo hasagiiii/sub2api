@@ -1574,6 +1574,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		if platform == PlatformGrok {
 			accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 		}
+		s.logSchedulableAccountPool(ctx, groupID, platform, accounts, "scheduler_snapshot")
 		return accounts, nil
 	}
 	var accounts []Account
@@ -1592,7 +1593,29 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	if platform == PlatformGrok {
 		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 	}
+	s.logSchedulableAccountPool(ctx, groupID, platform, accounts, "database")
 	return accounts, nil
+}
+
+func (s *OpenAIGatewayService) logSchedulableAccountPool(ctx context.Context, groupID *int64, platform string, accounts []Account, source string) {
+	if len(accounts) > 0 {
+		return
+	}
+	groupName, groupPlatform := "", ""
+	if groupID != nil && s.schedulerSnapshot != nil {
+		if group, err := s.schedulerSnapshot.GetGroupByID(ctx, *groupID); err == nil && group != nil {
+			groupName = group.Name
+			groupPlatform = group.Platform
+		}
+	}
+	slog.Warn("openai.schedulable_account_pool_empty",
+		"group_id", derefGroupID(groupID),
+		"group_name", groupName,
+		"group_platform", groupPlatform,
+		"query_platform", platform,
+		"source", source,
+		"pool", 0,
+	)
 }
 
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {

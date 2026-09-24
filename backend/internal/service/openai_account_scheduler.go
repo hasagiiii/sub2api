@@ -1483,6 +1483,20 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		})
 	}
 	if len(filtered) == 0 {
+		for i := range accounts {
+			account := &accounts[i]
+			mappedModel, mappingMatched := account.ResolveMappedModel(req.RequestedModel)
+			slog.Warn("openai.account_model_mapping_check",
+				"account_id", account.ID,
+				"account_name", account.Name,
+				"group_id", derefGroupID(req.GroupID),
+				"account_platform", account.Platform,
+				"requested_model", req.RequestedModel,
+				"mapped_model", mappedModel,
+				"mapping_matched", mappingMatched,
+				"model_supported", account.IsModelSupported(req.RequestedModel),
+			)
+		}
 		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary(""))
 	}
 
@@ -2171,10 +2185,35 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	state := APIKeyRoutingStateFromContext(ctx)
-	if state == nil || len(state.Candidates(groupID)) == 0 {
+	routingCandidateCount := 0
+	if state != nil {
+		routingCandidateCount = len(state.Candidates(groupID))
+	}
+	if state == nil || routingCandidateCount == 0 {
+		if state != nil {
+			slog.Warn("openai.api_key_route_candidates_empty",
+				"group_id", derefGroupID(groupID),
+				"requested_model", requestedModel,
+				"api_key_group_id", func() int64 {
+					if state.apiKey != nil && state.apiKey.GroupID != nil {
+						return *state.apiKey.GroupID
+					}
+					return 0
+				}(),
+			)
+		}
 		return s.selectAccountWithSchedulerSingle(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 	}
+	routeTrace := routingCandidateCount > 1
 	start := state.EffectiveIndex()
+	if routeTrace {
+		slog.Info("openai.api_key_route_start",
+			"candidate_count", routingCandidateCount,
+			"start_index", start,
+			"requested_group_id", derefGroupID(groupID),
+			"requested_model", requestedModel,
+		)
+	}
 	var lastSelection *AccountSelectionResult
 	var lastDecision OpenAIAccountScheduleDecision
 	var lastErr error
@@ -2187,9 +2226,35 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 			return nil, lastDecision, err
 		}
 		effectiveGroupID := state.apiKey.GroupID
+		candidatePlatform := APIKeyRoutingCandidatePlatform(state, platform)
 		candidateModel := s.apiKeyFallbackCandidateModel(ctx, effectiveGroupID, requestedModel)
-		selection, decision, err := s.selectAccountWithSchedulerSingle(ctx, effectiveGroupID, previousResponseID, sessionHash, candidateModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+		if routeTrace {
+			groupName, groupPlatform := "", ""
+			if state.apiKey != nil && state.apiKey.Group != nil {
+				groupName = state.apiKey.Group.Name
+				groupPlatform = state.apiKey.Group.Platform
+			}
+			slog.Info("openai.api_key_route_candidate_attempt",
+				"candidate_index", index,
+				"candidate_count", routingCandidateCount,
+				"group_id", derefGroupID(effectiveGroupID),
+				"group_name", groupName,
+				"group_platform", groupPlatform,
+				"requested_model", requestedModel,
+				"candidate_model", candidateModel,
+				"scheduler_platform", candidatePlatform,
+			)
+		}
+		selection, decision, err := s.selectAccountWithSchedulerSingle(ctx, effectiveGroupID, previousResponseID, sessionHash, candidateModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, candidatePlatform, previousResponseCanMove, useUpstreamTokenCost)
 		if err == nil {
+			if routeTrace {
+				slog.Info("openai.api_key_route_candidate_selected",
+					"candidate_index", index,
+					"group_id", derefGroupID(effectiveGroupID),
+					"requested_model", requestedModel,
+					"candidate_model", candidateModel,
+				)
+			}
 			state.Commit(index)
 			if selection != nil {
 				selection.EffectiveGroupID = cloneInt64Pointer(effectiveGroupID)
@@ -2198,6 +2263,15 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		}
 		if !IsAPIKeyFallbackSelectionError(err) {
 			return selection, decision, err
+		}
+		if routeTrace {
+			slog.Warn("openai.api_key_route_candidate_failed",
+				"candidate_index", index,
+				"group_id", derefGroupID(effectiveGroupID),
+				"requested_model", requestedModel,
+				"candidate_model", candidateModel,
+				"error", err,
+			)
 		}
 		lastSelection, lastDecision, lastErr = selection, decision, err
 		start = index + 1

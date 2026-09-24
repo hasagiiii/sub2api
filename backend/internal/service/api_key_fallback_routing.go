@@ -51,6 +51,24 @@ func APIKeyRoutingStateFromContext(ctx context.Context) *APIKeyRoutingState {
 	return state
 }
 
+// APIKeyRoutingCandidatePlatform returns the concrete platform of the group
+// currently selected by API-key routing. A resolved composite target platform
+// is only a fallback: once routing activates a concrete group, account
+// scheduling must query that group's account platform. Otherwise a model such
+// as deepseek-v4.1-flash can leave ResolvedTargetPlatform=deepseek while the
+// selected OpenAI-compatible group correctly expects platform=openai.
+func APIKeyRoutingCandidatePlatform(state *APIKeyRoutingState, fallback string) string {
+	if state == nil {
+		return fallback
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	if state.apiKey != nil && state.apiKey.Group != nil && state.apiKey.Group.Platform != "" && state.apiKey.Group.Platform != PlatformComposite {
+		return state.apiKey.Group.Platform
+	}
+	return fallback
+}
+
 func (s *APIKeyRoutingState) SetEligibilityChecker(check func(context.Context, *APIKey, *Group, *UserSubscription) error) {
 	if s == nil {
 		return

@@ -107,3 +107,17 @@ func TestAPIKeyFallbackErrorClassification(t *testing.T) {
 	require.False(t, IsAPIKeyFallbackCandidateUnavailable(ErrBillingServiceUnavailable))
 	require.False(t, IsAPIKeyFallbackCandidateUnavailable(ErrAPIKeyRateLimit1dExceeded))
 }
+
+func TestAPIKeyRoutingCandidatePlatformPrefersConcreteGroup(t *testing.T) {
+	groupID := int64(8)
+	apiKey := &APIKey{GroupID: &groupID, Group: &Group{ID: groupID, Platform: PlatformOpenAI}}
+	state := NewAPIKeyRoutingState(apiKey, []APIKeyRoutingCandidate{{Group: apiKey.Group}})
+
+	require.Equal(t, PlatformOpenAI, APIKeyRoutingCandidatePlatform(state, PlatformDeepseek))
+
+	composite := &Group{ID: groupID, Platform: PlatformComposite}
+	apiKey.Group = composite
+	state = NewAPIKeyRoutingState(apiKey, []APIKeyRoutingCandidate{{Group: composite}})
+	require.Equal(t, PlatformDeepseek, APIKeyRoutingCandidatePlatform(state, PlatformDeepseek))
+	require.Equal(t, PlatformDeepseek, APIKeyRoutingCandidatePlatform(nil, PlatformDeepseek))
+}
