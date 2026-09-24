@@ -96,10 +96,19 @@
             </div>
           </template>
 
-          <template #cell-enabled="{ row }">
-            <span :class="['badge', row.enabled ? 'badge-success' : 'badge-default']">
-              {{ row.enabled ? t('admin.modelIntros.statusEnabled') : t('admin.modelIntros.statusDisabled') }}
-            </span>
+          <template #cell-scheduling_enabled="{ row }">
+            <div class="flex items-center gap-2">
+              <Toggle
+                :model-value="row.scheduling_enabled"
+                size="sm"
+                :disabled="schedulingUpdating.has(row.model_key)"
+                :aria-label="t('admin.modelIntros.schedulingToggleHint')"
+                @update:model-value="onSchedulingToggle(row, $event)"
+              />
+              <span class="text-xs text-gray-600 dark:text-gray-400">
+                {{ row.scheduling_enabled ? t('admin.modelIntros.schedulingEnabled') : t('admin.modelIntros.schedulingDisabled') }}
+              </span>
+            </div>
           </template>
 
           <template #cell-sort_order="{ value }">
@@ -114,8 +123,8 @@
             <div class="flex items-center gap-2">
               <button
                 class="btn btn-primary btn-xs"
-                :disabled="!row.enabled"
-                :title="row.enabled ? t('admin.modelIntros.tryIt') : t('admin.modelIntros.tryItDisabled')"
+                :disabled="!row.scheduling_enabled"
+                :title="row.scheduling_enabled ? t('admin.modelIntros.tryIt') : t('admin.modelIntros.tryItDisabled')"
                 @click="openPlayground(row)"
               >
                 {{ t('admin.modelIntros.tryIt') }}
@@ -278,10 +287,16 @@
             <label class="form-label">{{ t('admin.modelIntros.fields.sortOrder') }}</label>
             <input v-model.number="form.sort_order" type="number" class="input" step="1" />
           </div>
-          <div class="flex items-center gap-3 pt-6">
-            <input id="intro-enabled" v-model="form.enabled" type="checkbox" class="h-4 w-4" />
-            <label for="intro-enabled" class="form-label !mb-0">{{ t('admin.modelIntros.fields.enabled') }}</label>
+        </div>
+
+        <div class="rounded-lg border border-blue-200 bg-blue-50/70 p-3 dark:border-blue-900/60 dark:bg-blue-950/20">
+          <div class="flex items-center gap-3">
+            <Toggle v-model="form.scheduling_enabled" />
+            <span class="form-label !mb-0">{{ t('admin.modelIntros.fields.schedulingEnabled') }}</span>
           </div>
+          <p class="mt-1 pl-12 text-xs text-blue-700 dark:text-blue-300">
+            {{ t('admin.modelIntros.fields.schedulingEnabledHint') }}
+          </p>
         </div>
 
         <!-- Schema 段：包含"输入参数"与"输出参数"两个子区块；
@@ -598,8 +613,8 @@
               {{ detailRow.title }}
             </div>
             <div class="mt-2 flex flex-wrap items-center gap-2">
-              <span class="badge" :class="detailRow.enabled ? 'badge-success' : 'badge-default'">
-                {{ detailRow.enabled ? t('admin.modelIntros.statusEnabled') : t('admin.modelIntros.statusDisabled') }}
+              <span class="badge" :class="detailRow.scheduling_enabled ? 'badge-success' : 'badge-default'">
+                {{ detailRow.scheduling_enabled ? t('admin.modelIntros.schedulingEnabled') : t('admin.modelIntros.schedulingDisabled') }}
               </span>
               <span class="text-xs text-gray-500">
                 {{ t('admin.modelIntros.columns.sortOrder') }}: {{ detailRow.sort_order }}
@@ -725,6 +740,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
+import Toggle from '@/components/common/Toggle.vue'
 // ParamSchemaEditor：递归 JSON Schema 编辑器；输入参数与"输出参数 type=json"共用。
 import ParamSchemaEditor from '@/components/common/ParamSchemaEditor.vue'
 // VueDraggable：给顶层输入参数列表提供拖拽重排，与 ParamSchemaEditor 内的 ↑/↓
@@ -755,7 +771,7 @@ const router = useRouter()
 const appStore = useAppStore()
 
 function openPlayground(row: ModelIntro) {
-  if (!row.enabled) return
+  if (!row.scheduling_enabled) return
   const slug = String(row.model_key || '').split('/').filter(Boolean)
   if (slug.length === 0) return
   router.push({ name: 'VideoPlayground', params: { slug } })
@@ -1111,6 +1127,7 @@ watch(translationSelectedKeyId, (newId, oldId) => {
 
 
 const rows = ref<ModelIntro[]>([])
+const schedulingUpdating = ref(new Set<string>())
 const loading = ref(false)
 const listExporting = ref(false)
 const listImporting = ref(false)
@@ -1156,7 +1173,7 @@ interface FormState {
   description_en: string
   cover_url: string
   sort_order: number
-  enabled: boolean
+  scheduling_enabled: boolean
   outputFields: SchemaRow[]
   params: SchemaRow[]
   result_field: string
@@ -1169,7 +1186,7 @@ const form = reactive<FormState>({
   description_en: '',
   cover_url: '',
   sort_order: 0,
-  enabled: true,
+  scheduling_enabled: true,
   outputFields: [],
   params: [],
   result_field: '',
@@ -1278,11 +1295,11 @@ const resultFieldSelectOptions = computed<SelectOption[]>(() => [
 const columns = computed<Column[]>(() => [
   { key: 'cover_url', label: t('admin.modelIntros.columns.cover') },
   { key: 'model_key', label: t('admin.modelIntros.columns.modelKey') },
+  { key: 'scheduling_enabled', label: t('admin.modelIntros.columns.scheduling') },
   { key: 'description', label: t('admin.modelIntros.columns.description') },
   { key: 'default_params', label: t('admin.modelIntros.columns.defaultParams') },
   { key: 'output_fields', label: t('admin.modelIntros.columns.outputFields') },
   { key: 'sort_order', label: t('admin.modelIntros.columns.sortOrder') },
-  { key: 'enabled', label: t('admin.modelIntros.columns.status') },
   { key: 'updated_at', label: t('admin.modelIntros.columns.updatedAt') },
   { key: 'actions', label: t('admin.modelIntros.columns.actions') }
 ])
@@ -1338,7 +1355,7 @@ function resetForm() {
   form.description_en = ''
   form.cover_url = ''
   form.sort_order = 0
-  form.enabled = true
+  form.scheduling_enabled = true
   form.outputFields = []
   form.params = []
   form.result_field = ''
@@ -1401,10 +1418,27 @@ function modelIntroToUpsert(row: ModelIntro): UpsertModelIntroRequest {
     cover_url: row.cover_url || '',
     default_params: row.default_params && typeof row.default_params === 'object' ? row.default_params : {},
     sort_order: Number.isFinite(row.sort_order) ? row.sort_order : 0,
-    enabled: row.enabled !== false,
+    scheduling_enabled: row.scheduling_enabled !== false,
     output_fields: Array.isArray(row.output_fields) ? row.output_fields : [],
     result_field: row.result_field || '',
     result_type: row.result_type === 'image' ? 'image' : 'video'
+  }
+}
+
+async function onSchedulingToggle(row: ModelIntro, schedulingEnabled: boolean) {
+  if (schedulingUpdating.value.has(row.model_key)) return
+  const previous = row.scheduling_enabled
+  row.scheduling_enabled = schedulingEnabled
+  schedulingUpdating.value.add(row.model_key)
+  try {
+    const updated = await adminAPI.modelIntros.update(row.model_key, modelIntroToUpsert(row))
+    Object.assign(row, updated)
+    appStore.showSuccess(t('admin.modelIntros.schedulingUpdated'))
+  } catch (_e) {
+    row.scheduling_enabled = previous
+    appStore.showError(t('admin.modelIntros.saveFailed'))
+  } finally {
+    schedulingUpdating.value.delete(row.model_key)
   }
 }
 
@@ -1496,7 +1530,7 @@ function openEditDialog(row: ModelIntro) {
   form.description_en = row.description_en || ''
   form.cover_url = row.cover_url || ''
   form.sort_order = row.sort_order || 0
-  form.enabled = !!row.enabled
+  form.scheduling_enabled = row.scheduling_enabled !== false
         form.outputFields = outputFieldsToSchemaRows(row.output_fields)
   form.result_field = row.result_field || ''
   form.result_type = (row.result_type as ResultMediaType) || 'video'
@@ -2037,7 +2071,7 @@ async function submitForm() {
     cover_url: form.cover_url.trim(),
     default_params: paramsToMap(form.params),
     sort_order: Number.isFinite(form.sort_order) ? Number(form.sort_order) : 0,
-    enabled: !!form.enabled,
+    scheduling_enabled: !!form.scheduling_enabled,
     output_fields: schemaRowsToOutputFields(form.outputFields),
     result_field: (form.result_field || '').trim(),
     result_type: form.result_type === 'image' ? 'image' : 'video'

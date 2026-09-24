@@ -73,8 +73,8 @@ type videoModelPricingItem struct {
 }
 
 // videoModelIntroDTO 是管理员在“模型介绍”菜单里为该 model_key 配置的
-// 展示信息（封面图/描述/默认参数/输出字段声明）。model_intros.enabled=false 时不下发，
-// 前端拿到 nil 时应退化为一个普通卡片。
+// 展示信息（封面图/描述/默认参数/输出字段声明）。未配置模型介绍时，
+// 前端拿到 nil 后退化为一个普通卡片。
 //
 // OutputFields 供演练台在任务完成后按声明的字段提取并渲染（string / number / boolean / object / array，遵循 JSON Schema 标准）。
 // ResultField / ResultType 指示"主结果字段"：ResultField 为空时前端取第一个
@@ -181,6 +181,14 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 			low := strings.ToLower(slug)
 			if _, dup := seen[low]; dup {
 				continue
+			}
+			if h.modelIntroService != nil {
+				intro, introErr := h.modelIntroService.Get(ctx, slug)
+				if introErr == nil && intro != nil && !intro.SchedulingEnabled {
+					// Scheduling is a presentation switch for the playground only.
+					// Direct API calls remain available to the normal request path.
+					continue
+				}
 			}
 			seen[low] = seenValue{}
 			items = append(items, h.buildVideoModelItem(ctx, slug, userGroups))
@@ -297,12 +305,11 @@ func (h *VideoModelHandler) buildVideoModelItem(ctx context.Context, slug string
 // 返回 nil 的情况：
 //   - service 未注入（兼容历史部署）
 //   - 未配置该 model_key 的介绍
-//   - 配置了但 enabled=false（管理员下线了展示）
 //   - 读取报错（降级为无 intro，不阻断整个列表接口）
 func (h *VideoModelHandler) resolveModelIntro(ctx context.Context, slug string) *videoModelIntroDTO {
 	if h.modelIntroService != nil {
 		intro, err := h.modelIntroService.Get(ctx, slug)
-		if err == nil && intro != nil && intro.Enabled {
+		if err == nil && intro != nil {
 			fields := intro.OutputFields
 			if fields == nil {
 				fields = []service.OutputFieldSpec{}

@@ -55,16 +55,16 @@ type adminModelIntroDTO struct {
 	Description string `json:"description"`
 	// DescriptionEn 英文模型介绍（可为空）。与 Description 共同支持中英双文；
 	// 前端展示时按当前 locale 选择，缺失时回落到另一语种。
-	DescriptionEn string                    `json:"description_en"`
-	CoverURL      string                    `json:"cover_url"`
-	DefaultParams map[string]any            `json:"default_params"`
-	SortOrder     int                       `json:"sort_order"`
-	Enabled       bool                      `json:"enabled"`
-	OutputFields  []service.OutputFieldSpec `json:"output_fields"`
-	ResultField   string                    `json:"result_field"`
-	ResultType    string                    `json:"result_type"`
-	CreatedAt     time.Time                 `json:"created_at"`
-	UpdatedAt     time.Time                 `json:"updated_at"`
+	DescriptionEn     string                    `json:"description_en"`
+	CoverURL          string                    `json:"cover_url"`
+	DefaultParams     map[string]any            `json:"default_params"`
+	SortOrder         int                       `json:"sort_order"`
+	SchedulingEnabled bool                      `json:"scheduling_enabled"`
+	OutputFields      []service.OutputFieldSpec `json:"output_fields"`
+	ResultField       string                    `json:"result_field"`
+	ResultType        string                    `json:"result_type"`
+	CreatedAt         time.Time                 `json:"created_at"`
+	UpdatedAt         time.Time                 `json:"updated_at"`
 }
 
 func toAdminModelIntroDTO(m *service.ModelIntro) *adminModelIntroDTO {
@@ -80,19 +80,19 @@ func toAdminModelIntroDTO(m *service.ModelIntro) *adminModelIntroDTO {
 		fields = []service.OutputFieldSpec{}
 	}
 	return &adminModelIntroDTO{
-		ModelKey:      m.ModelKey,
-		Title:         m.Title,
-		Description:   m.Description,
-		DescriptionEn: m.DescriptionEn,
-		CoverURL:      m.CoverURL,
-		DefaultParams: params,
-		SortOrder:     m.SortOrder,
-		Enabled:       m.Enabled,
-		OutputFields:  fields,
-		ResultField:   m.ResultField,
-		ResultType:    m.ResultType,
-		CreatedAt:     m.CreatedAt,
-		UpdatedAt:     m.UpdatedAt,
+		ModelKey:          m.ModelKey,
+		Title:             m.Title,
+		Description:       m.Description,
+		DescriptionEn:     m.DescriptionEn,
+		CoverURL:          m.CoverURL,
+		DefaultParams:     params,
+		SortOrder:         m.SortOrder,
+		SchedulingEnabled: m.SchedulingEnabled,
+		OutputFields:      fields,
+		ResultField:       m.ResultField,
+		ResultType:        m.ResultType,
+		CreatedAt:         m.CreatedAt,
+		UpdatedAt:         m.UpdatedAt,
 	}
 }
 
@@ -103,29 +103,29 @@ type upsertModelIntroRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	// DescriptionEn 英文模型介绍；允许缺失（为空字符串）。
-	DescriptionEn string                    `json:"description_en"`
-	CoverURL      string                    `json:"cover_url"`
-	DefaultParams map[string]any            `json:"default_params"`
-	SortOrder     int                       `json:"sort_order"`
-	Enabled       bool                      `json:"enabled"`
-	OutputFields  []service.OutputFieldSpec `json:"output_fields"`
-	ResultField   string                    `json:"result_field"`
-	ResultType    string                    `json:"result_type"`
+	DescriptionEn     string                    `json:"description_en"`
+	CoverURL          string                    `json:"cover_url"`
+	DefaultParams     map[string]any            `json:"default_params"`
+	SortOrder         int                       `json:"sort_order"`
+	SchedulingEnabled bool                      `json:"scheduling_enabled"`
+	OutputFields      []service.OutputFieldSpec `json:"output_fields"`
+	ResultField       string                    `json:"result_field"`
+	ResultType        string                    `json:"result_type"`
 }
 
 func (r upsertModelIntroRequest) toServiceInput() service.UpsertModelIntroInput {
 	return service.UpsertModelIntroInput{
-		ModelKey:      r.ModelKey,
-		Title:         r.Title,
-		Description:   r.Description,
-		DescriptionEn: r.DescriptionEn,
-		CoverURL:      r.CoverURL,
-		DefaultParams: r.DefaultParams,
-		SortOrder:     r.SortOrder,
-		Enabled:       r.Enabled,
-		OutputFields:  r.OutputFields,
-		ResultField:   r.ResultField,
-		ResultType:    r.ResultType,
+		ModelKey:          r.ModelKey,
+		Title:             r.Title,
+		Description:       r.Description,
+		DescriptionEn:     r.DescriptionEn,
+		CoverURL:          r.CoverURL,
+		DefaultParams:     r.DefaultParams,
+		SortOrder:         r.SortOrder,
+		SchedulingEnabled: r.SchedulingEnabled,
+		OutputFields:      r.OutputFields,
+		ResultField:       r.ResultField,
+		ResultType:        r.ResultType,
 	}
 }
 

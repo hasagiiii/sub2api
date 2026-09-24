@@ -14,7 +14,7 @@ import (
 
 // ModelIntroService 管理"模型介绍"表的 CRUD。
 //
-// 该表面向 admin 配置，用户端可选择性展示（本期只做管理端）。表以对外模型名
+// 该表面向 admin 配置，用户端按调度开关展示。表以对外模型名
 // （如 "bytedance/seedance-2.5/text-to-video"、"gpt-4o"）作为主键，与定价条目按名字
 // 松耦合关联，不建立强外键，便于历史清理。
 //
@@ -96,16 +96,16 @@ type ModelIntro struct {
 	// DescriptionEn 英文文案。前端按当前 locale 挑选：
 	// 中文界面优先展示 Description，缺失回落到 DescriptionEn；
 	// 英文界面优先展示 DescriptionEn，缺失回落到 Description。
-	DescriptionEn string            `json:"description_en"`
-	CoverURL      string            `json:"cover_url"`
-	DefaultParams map[string]any    `json:"default_params"`
-	SortOrder     int               `json:"sort_order"`
-	Enabled       bool              `json:"enabled"`
-	OutputFields  []OutputFieldSpec `json:"output_fields"`
-	ResultField   string            `json:"result_field"`
-	ResultType    string            `json:"result_type"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
+	DescriptionEn     string            `json:"description_en"`
+	CoverURL          string            `json:"cover_url"`
+	DefaultParams     map[string]any    `json:"default_params"`
+	SortOrder         int               `json:"sort_order"`
+	SchedulingEnabled bool              `json:"scheduling_enabled"`
+	OutputFields      []OutputFieldSpec `json:"output_fields"`
+	ResultField       string            `json:"result_field"`
+	ResultType        string            `json:"result_type"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
 }
 
 // UpsertModelIntroInput 是 Create / Update 共享的输入。model_key 为空时 Create
@@ -115,14 +115,14 @@ type UpsertModelIntroInput struct {
 	Title       string
 	Description string
 	// DescriptionEn 英文文案；允许为空（前端展示时按 locale 兜底）。
-	DescriptionEn string
-	CoverURL      string
-	DefaultParams map[string]any
-	SortOrder     int
-	Enabled       bool
-	OutputFields  []OutputFieldSpec
-	ResultField   string
-	ResultType    string
+	DescriptionEn     string
+	CoverURL          string
+	DefaultParams     map[string]any
+	SortOrder         int
+	SchedulingEnabled bool
+	OutputFields      []OutputFieldSpec
+	ResultField       string
+	ResultType        string
 }
 
 const (
@@ -171,7 +171,7 @@ func (s *ModelIntroService) List(
 	}
 
 	listSQL := `SELECT model_key, title, description, description_en, cover_url, default_params,
-	                   sort_order, enabled, output_fields,
+	                   sort_order, scheduling_enabled, output_fields,
 	                   result_field, result_type,
 	                   created_at, updated_at
 	            FROM model_intros` + whereSQL +
@@ -208,7 +208,7 @@ func (s *ModelIntroService) Get(ctx context.Context, modelKey string) (*ModelInt
 		return nil, infraerrors.BadRequest(modelIntroErrCodeInvalid, "model_key is required")
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT model_key, title, description, description_en, cover_url,
-		default_params, sort_order, enabled, output_fields,
+		default_params, sort_order, scheduling_enabled, output_fields,
 		result_field, result_type,
 		created_at, updated_at
 		FROM model_intros WHERE model_key = $1`, key)
@@ -251,11 +251,11 @@ func (s *ModelIntroService) Create(ctx context.Context, in UpsertModelIntroInput
 
 	now := time.Now()
 	_, err = s.db.ExecContext(ctx, `INSERT INTO model_intros
-		(model_key, title, description, description_en, cover_url, default_params, sort_order, enabled,
+		(model_key, title, description, description_en, cover_url, default_params, sort_order, scheduling_enabled,
 		 output_fields, result_field, result_type, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)`,
 		in.ModelKey, in.Title, in.Description, in.DescriptionEn, in.CoverURL, paramsJSON,
-		in.SortOrder, in.Enabled, outputJSON, in.ResultField, in.ResultType, now,
+		in.SortOrder, in.SchedulingEnabled, outputJSON, in.ResultField, in.ResultType, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert model_intro: %w", err)
@@ -292,15 +292,15 @@ func (s *ModelIntroService) Update(ctx context.Context, modelKey string, in Upse
 		description_en = $4,
 		cover_url = $5,
 		default_params = $6,
-		sort_order = $7,
-		enabled = $8,
-		output_fields = $9,
-		result_field = $10,
-		result_type = $11,
-		updated_at = NOW()
-		WHERE model_key = $1`,
+		 sort_order = $7,
+		 scheduling_enabled = $8,
+		 output_fields = $9,
+		 result_field = $10,
+		 result_type = $11,
+		 updated_at = NOW()
+		 WHERE model_key = $1`,
 		key, in.Title, in.Description, in.DescriptionEn, in.CoverURL, paramsJSON,
-		in.SortOrder, in.Enabled, outputJSON, in.ResultField, in.ResultType,
+		in.SortOrder, in.SchedulingEnabled, outputJSON, in.ResultField, in.ResultType,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update model_intro %s: %w", key, err)
@@ -349,7 +349,7 @@ func scanModelIntroRow(rows *sql.Rows) (*ModelIntro, error) {
 		&item.CoverURL,
 		&paramsRaw,
 		&item.SortOrder,
-		&item.Enabled,
+		&item.SchedulingEnabled,
 		&outputRaw,
 		&item.ResultField,
 		&item.ResultType,

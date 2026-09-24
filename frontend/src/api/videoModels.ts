@@ -22,7 +22,7 @@ export interface VideoModelPricingItem {
 //   - result_field / result_type 用于指示"主结果字段"：result_field 为空时演练台
 //     按 output_fields 顺序取第一个 video/image 字段作为主结果；非空时强制将
 //     result_field 匹配到的字段以 result_type（video / image）大尺寸展示。
-// 若管理员未配置或已禁用 enabled，后端不会下发此字段。
+// 若管理员未配置模型介绍，后端不会下发此字段。
 export interface VideoModelIntro {
   title: string
   description: string

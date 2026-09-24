@@ -104,7 +104,7 @@ export interface ModelIntro {
   cover_url: string
   default_params: Record<string, unknown>
   sort_order: number
-  enabled: boolean
+  scheduling_enabled: boolean
   output_fields: OutputFieldSpec[]
   result_field: string
   result_type: ResultMediaType
@@ -133,7 +133,7 @@ export interface UpsertModelIntroRequest {
   cover_url: string
   default_params: Record<string, unknown>
   sort_order: number
-  enabled: boolean
+  scheduling_enabled: boolean
   output_fields: OutputFieldSpec[]
   result_field: string
   result_type: ResultMediaType
