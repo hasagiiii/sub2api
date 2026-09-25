@@ -14,6 +14,43 @@ export interface RemainingDurationParts {
   minutes: number
 }
 
+export type QuotaWindowEndReason = 'reset' | 'expiration'
+
+export interface EffectiveQuotaWindowEnd {
+  endAt: Date
+  reason: QuotaWindowEndReason
+}
+
+/**
+ * A quota window cannot outlive the subscription that owns it.
+ *
+ * This matters when an administrator shortens a subscription after its usage
+ * window has already started: the subscription expiry changes immediately,
+ * while the rolling window start remains unchanged.
+ */
+export function getEffectiveQuotaWindowEnd(
+  windowStart: Date | string | null | undefined,
+  windowHours: number,
+  expiresAt: Date | string | null | undefined,
+): EffectiveQuotaWindowEnd | null {
+  if (!windowStart || !Number.isFinite(windowHours) || windowHours <= 0) return null
+
+  const startAt = windowStart instanceof Date ? windowStart.getTime() : new Date(windowStart).getTime()
+  if (!Number.isFinite(startAt)) return null
+
+  const resetAt = startAt + windowHours * 60 * 60 * 1000
+  if (!Number.isFinite(resetAt)) return null
+
+  if (expiresAt) {
+    const expirationAt = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime()
+    if (Number.isFinite(expirationAt) && expirationAt <= resetAt) {
+      return { endAt: new Date(expirationAt), reason: 'expiration' }
+    }
+  }
+
+  return { endAt: new Date(resetAt), reason: 'reset' }
+}
+
 export function isOneTimeDailyQuota(
   subscription: Pick<UserSubscription, 'starts_at' | 'expires_at'>
 ): boolean {

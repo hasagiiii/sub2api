@@ -275,6 +275,12 @@ describe('admin subscription assignment by plan', () => {
     const usage = wrapper.find('[data-usage-cell]').text()
     expect(usage).toContain('$20.00')
     expect(usage).not.toContain('unlimited')
+
+    const usageCard = wrapper.get('[data-testid="subscription-usage-card"]')
+    expect(wrapper.findAll('[data-testid="subscription-usage-card"]')).toHaveLength(1)
+    expect(usageCard.find('[data-testid="subscription-usage-daily"]').exists()).toBe(true)
+    expect(usageCard.find('[data-testid="subscription-usage-weekly"]').exists()).toBe(true)
+    expect(usageCard.find('[data-testid="subscription-usage-monthly"]').exists()).toBe(true)
   })
 
   it('merges enterprise plan groups into one shared quota row with per-group usage', async () => {

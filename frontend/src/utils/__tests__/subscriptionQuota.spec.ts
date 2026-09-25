@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { getExpirationDateRelation, getRemainingExpiryDuration } from '../subscriptionQuota'
+import {
+  getEffectiveQuotaWindowEnd,
+  getExpirationDateRelation,
+  getRemainingExpiryDuration,
+} from '../subscriptionQuota'
 
 describe('subscription expiry timing', () => {
   it('uses local calendar dates for today and tomorrow', () => {
@@ -61,4 +65,25 @@ describe('subscription expiry timing', () => {
       days: 2
     })
   })
+  it('caps a rolling quota window at an earlier subscription expiry', () => {
+    const windowStart = new Date(2026, 8, 1, 9, 0)
+    const expiresAt = new Date(2026, 8, 20, 9, 0)
+
+    expect(getEffectiveQuotaWindowEnd(windowStart, 30 * 24, expiresAt)).toEqual({
+      endAt: expiresAt,
+      reason: 'expiration'
+    })
+  })
+
+  it('keeps the rolling reset when the subscription expires later', () => {
+    const windowStart = new Date(2026, 8, 1, 9, 0)
+    const expiresAt = new Date(2026, 9, 15, 9, 0)
+    const expectedReset = new Date(2026, 9, 1, 9, 0)
+
+    expect(getEffectiveQuotaWindowEnd(windowStart, 30 * 24, expiresAt)).toEqual({
+      endAt: expectedReset,
+      reason: 'reset'
+    })
+  })
+
 })

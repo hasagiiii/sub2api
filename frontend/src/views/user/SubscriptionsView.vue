@@ -189,8 +189,8 @@ import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/
 import { platformBorderClass, platformBadgeClass, platformButtonClass, platformLabel } from '@/utils/platformColors'
 import {
   getExpirationDateRelation,
+  getEffectiveQuotaWindowEnd,
   getRemainingDurationParts,
-  isOneTimeDailyQuota,
   type RemainingDurationParts
 } from '@/utils/subscriptionQuota'
 
@@ -432,17 +432,26 @@ function getGroupWindowStart(subscription: UserSubscription, groupID: number, pe
 }
 
 function getQuotaResetText(subscription: UserSubscription, period: QuotaPeriod, groupID?: number): string | null {
-  if (period === 'daily') {
-    if (groupID === undefined) return subscription.daily_window_start ? formatDailyUsageWindow(subscription) : null
-    const start = getGroupWindowStart(subscription, groupID, period)
-    return start ? formatResetTime(start, 24) : null
-  }
   const windowStart = groupID === undefined
-    ? (period === 'weekly' ? subscription.weekly_window_start : subscription.monthly_window_start)
+    ? period === 'daily'
+      ? subscription.daily_window_start
+      : period === 'weekly'
+        ? subscription.weekly_window_start
+        : subscription.monthly_window_start
     : getGroupWindowStart(subscription, groupID, period)
   if (!windowStart) return null
-  const windowHours = period === 'weekly' ? 168 : 720
-  return t('userSubscriptions.resetIn', { time: formatResetTime(windowStart, windowHours) })
+
+  const windowHours = period === 'daily' ? 24 : period === 'weekly' ? 168 : 720
+  const effectiveEnd = getEffectiveQuotaWindowEnd(windowStart, windowHours, subscription.expires_at)
+  if (!effectiveEnd) return null
+
+  const parts = getRemainingDurationParts(effectiveEnd.endAt)
+  if (!parts) return null
+
+  return t(
+    effectiveEnd.reason === 'expiration' ? 'userSubscriptions.quotaEndsIn' : 'userSubscriptions.resetIn',
+    { time: formatDurationParts(parts) },
+  )
 }
 
 async function loadSubscriptions() {
@@ -520,27 +529,6 @@ function formatDurationParts(parts: RemainingDurationParts): string {
   return `${parts.minutes}m`
 }
 
-function formatDailyUsageWindow(subscription: UserSubscription): string {
-  if (isOneTimeDailyQuota(subscription) && subscription.expires_at) {
-    const parts = getRemainingDurationParts(subscription.expires_at)
-    if (!parts) return t('userSubscriptions.windowNotActive')
-    return t('userSubscriptions.quotaEndsIn', { time: formatDurationParts(parts) })
-  }
-
-  return t('userSubscriptions.resetIn', {
-    time: formatResetTime(subscription.daily_window_start, 24)
-  })
-}
-
-function formatResetTime(windowStart: string | null, windowHours: number): string {
-  if (!windowStart) return t('userSubscriptions.windowNotActive')
-
-  const start = new Date(windowStart)
-  const end = new Date(start.getTime() + windowHours * 60 * 60 * 1000)
-  const parts = getRemainingDurationParts(end)
-
-  return parts ? formatDurationParts(parts) : t('userSubscriptions.windowNotActive')
-}
 
 onMounted(() => {
   loadSubscriptions()

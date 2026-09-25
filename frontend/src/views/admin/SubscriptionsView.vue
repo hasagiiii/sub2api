@@ -313,120 +313,68 @@
               </template>
 
               <template v-else>
-              <!-- Daily Usage -->
-              <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
-                <div class="flex items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-dark-600">
-                  <div class="flex items-center gap-2">
-                  <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
-                  <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.daily') }}</h4>
+                <div
+                  class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30"
+                  data-testid="subscription-usage-card"
+                >
+                  <div class="flex items-center gap-2 border-b border-gray-200 pb-3 dark:border-dark-600">
+                    <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
+                    <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                      {{ t('admin.subscriptions.usage') }}
+                    </h4>
                   </div>
-                  <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatUsageLimit(rowUsage(row, 'daily'), rowLimit(row, 'daily')) }}</span>
-                </div>
-                <div class="space-y-2 px-1 pt-1">
-                  <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                    <div
-                      class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                      :class="getProgressClass(row.daily_usage_usd, rowLimit(row, 'daily'))"
-                      :style="{
-                        width: getProgressWidth(row.daily_usage_usd, rowLimit(row, 'daily'))
-                      }"
-                    ></div>
-                  </div>
-                </div>
-                <div class="flex items-center gap-1 px-1 text-xs text-blue-600 dark:text-blue-400" v-if="row.daily_window_start">
-                  <svg
-                    class="h-3 w-3 shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span>{{ formatDailyUsageWindow(row) }}</span>
-                </div>
-              </div>
 
-              <!-- Weekly Usage -->
-              <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
-                <div class="flex items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-dark-600">
-                  <div class="flex items-center gap-2">
-                  <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
-                  <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.weekly') }}</h4>
-                  </div>
-                  <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatUsageLimit(rowUsage(row, 'weekly'), rowLimit(row, 'weekly')) }}</span>
-                </div>
-                <div class="space-y-2 px-1 pt-1">
-                  <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                  <div class="space-y-3">
                     <div
-                      class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                      :class="getProgressClass(row.weekly_usage_usd, rowLimit(row, 'weekly'))"
-                      :style="{
-                        width: getProgressWidth(row.weekly_usage_usd, rowLimit(row, 'weekly'))
-                      }"
-                    ></div>
-                  </div>
-                </div>
-                <div class="flex items-center gap-1 px-1 text-xs text-blue-600 dark:text-blue-400" v-if="row.weekly_window_start">
-                  <svg
-                    class="h-3 w-3 shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span>{{ formatResetTime(row.weekly_window_start, 'weekly') }}</span>
-                </div>
-              </div>
+                      v-for="window in (['daily', 'weekly', 'monthly'] as const)"
+                      :key="window"
+                      class="space-y-2 border-b border-gray-200 pb-3 last:border-b-0 last:pb-0 dark:border-dark-600"
+                      :data-testid="`subscription-usage-${window}`"
+                    >
+                      <div class="flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-2">
+                          <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
+                          <h5 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                            {{ t(`admin.subscriptions.${window}`) }}
+                          </h5>
+                        </div>
+                        <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">
+                          {{ formatUsageLimit(rowUsage(row, window), rowLimit(row, window)) }}
+                        </span>
+                      </div>
 
-              <!-- Monthly Usage -->
-              <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50/80 p-3 shadow-sm dark:border-dark-600 dark:bg-dark-700/30">
-                <div class="flex items-center justify-between gap-3 border-b border-gray-200 pb-3 dark:border-dark-600">
-                  <div class="flex items-center gap-2">
-                  <span class="h-2 w-1 shrink-0 rounded-full bg-primary-500" />
-                  <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">{{ t('admin.subscriptions.monthly') }}</h4>
-                  </div>
-                  <span class="shrink-0 text-sm text-gray-500 dark:text-dark-400">{{ formatUsageLimit(rowUsage(row, 'monthly'), rowLimit(row, 'monthly')) }}</span>
-                </div>
-                <div class="space-y-2 px-1 pt-1">
-                  <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
-                    <div
-                      class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
-                      :class="getProgressClass(row.monthly_usage_usd, rowLimit(row, 'monthly'))"
-                      :style="{
-                        width: getProgressWidth(row.monthly_usage_usd, rowLimit(row, 'monthly'))
-                      }"
-                    ></div>
-                  </div>
-                </div>
-                <div class="flex items-center gap-1 px-1 text-xs text-blue-600 dark:text-blue-400" v-if="row.monthly_window_start">
-                  <svg
-                    class="h-3 w-3 shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span>{{ formatResetTime(row.monthly_window_start, 'monthly') }}</span>
-                </div>
-              </div>
+                      <div class="space-y-2 px-1 pt-1">
+                        <div class="relative h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                          <div
+                            class="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+                            :class="getProgressClass(rowUsage(row, window), rowLimit(row, window))"
+                            :style="{ width: getProgressWidth(rowUsage(row, window), rowLimit(row, window)) }"
+                          />
+                        </div>
+                      </div>
 
+                      <div
+                        v-if="usageWindowResetText(row, window)"
+                        class="flex items-center gap-1 px-1 text-xs text-blue-600 dark:text-blue-400"
+                      >
+                        <svg
+                          class="h-3 w-3 shrink-0"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          stroke-width="2"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                        <span>{{ usageWindowResetText(row, window) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </template>
             </div>
           </template>
@@ -2114,6 +2062,15 @@ const formatResetTime = (windowStart: string | null, period: 'daily' | 'weekly' 
   const parts = getRemainingDurationParts(resetTime, now)
 
   return parts ? formatResetDuration(parts) : t('admin.subscriptions.windowNotActive')
+}
+
+const usageWindowResetText = (row: AdminSubscriptionRow, window: UsageWindow): string => {
+  if (window === 'daily') {
+    return row.daily_window_start ? formatDailyUsageWindow(row) : ''
+  }
+
+  const windowStart = window === 'weekly' ? row.weekly_window_start : row.monthly_window_start
+  return windowStart ? formatResetTime(windowStart, window) : ''
 }
 
 // Handle click outside to close dropdowns
