@@ -156,6 +156,8 @@ export default {
         pricePlaceholder: '默认',
         fastMultiplier: 'Fast 倍率',
         flexMultiplier: 'Flex 倍率',
+        maxReasoningEffortMultiplier: 'Max 思考等级倍率',
+        fable51DefaultMaxReasoningMultiplier: '默认：Claude Fable 5.1 为 3 倍',
         reasoningEffortMultipliers: '自定义思考等级倍率（可选）',
         reasoningEffortMultipliersHint: '按请求最终转发的思考等级，对整次请求的费用与额度消耗应用对应倍率。未配置的等级按 1 倍计费，可与其他计费倍率叠加。',
         reasoningEffortMultiplierLabel: '{effort} 思考等级倍率',
