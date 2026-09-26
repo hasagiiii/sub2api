@@ -796,7 +796,6 @@ func TestAffiliateRepository_ListAffiliateRebateRecords_IncludesNonOrderAccruals
 	require.Nil(t, record.PayAmount)
 	require.Empty(t, record.OutTradeNo)
 	require.Equal(t, inviter.ID, record.InviterID)
-	require.NotNil(t, record.InviteeID)
-	require.Equal(t, invitee.ID, *record.InviteeID)
+	require.Equal(t, invitee.ID, record.InviteeID)
 	require.InDelta(t, 2.0, record.RebateAmount, 1e-9)
 }

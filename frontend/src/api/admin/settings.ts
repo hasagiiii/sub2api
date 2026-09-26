@@ -17,7 +17,24 @@ export interface DefaultSubscriptionSetting {
 }
 
 // ── 平台限额类型 ──────────────────────────────────────────────────
-export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
+export type PlatformType =
+  | "anthropic"
+  | "openai"
+  | "gemini"
+  | "antigravity"
+  | "kiro"
+  | "grok"
+  | "fal"
+  | "leonardo"
+  | "atlascloud"
+  | "apiz"
+  | "higgsfield"
+  | "bytedance"
+  | "kimi"
+  | "zhipu"
+  | "deepseek"
+  | "minimax"
+  | "opencode_go"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
 
 /** 单平台三档限额；null = 不限制，undefined = 未填（等价 null） */
@@ -30,7 +47,25 @@ export interface PlatformQuotaLimits {
 /** 全平台默认限额 map（key = PlatformType） */
 export type DefaultPlatformQuotasMap = Partial<Record<PlatformType, PlatformQuotaLimits>>
 
-const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity", "grok"]
+export const PLATFORM_QUOTA_PLATFORMS: PlatformType[] = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "antigravity",
+  "kiro",
+  "grok",
+  "fal",
+  "leonardo",
+  "atlascloud",
+  "apiz",
+  "higgsfield",
+  "bytedance",
+  "kimi",
+  "zhipu",
+  "deepseek",
+  "minimax",
+  "opencode_go",
+]
 
 export type SchedulingThresholdPlatformType =
   | "openai"
@@ -74,10 +109,10 @@ export function sanitizeAccountSchedulingThresholdsMap(
   return normalizeAccountSchedulingThresholdsMap(input)
 }
 
-/** 归一化为全 4 平台 × 3 窗口（缺失填 null），供模板非空绑定 */
+/** 归一化为全部支持平台 × 3 窗口（缺失填 null），供模板非空绑定 */
 export function normalizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | null): DefaultPlatformQuotasMap {
   const result: DefaultPlatformQuotasMap = {}
-  for (const p of PLATFORMS) {
+  for (const p of PLATFORM_QUOTA_PLATFORMS) {
     const src = input?.[p]
     result[p] = {
       daily:   typeof src?.daily === "number" ? src.daily : null,
@@ -88,11 +123,11 @@ export function normalizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nu
   return result
 }
 
-/** 提交前清洗：非有限数/负数/空字符串 → null（保留 0 = 显式禁用），返回全 4 平台嵌套 map */
+/** 提交前清洗：非有限数/负数/空字符串 → null（保留 0 = 显式禁用），返回完整平台嵌套 map */
 export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | null): DefaultPlatformQuotasMap {
   const clean = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null)
   const result: DefaultPlatformQuotasMap = {}
-  for (const p of PLATFORMS) {
+  for (const p of PLATFORM_QUOTA_PLATFORMS) {
     const src = input?.[p]
     result[p] = { daily: clean(src?.daily), weekly: clean(src?.weekly), monthly: clean(src?.monthly) }
   }
@@ -483,12 +518,20 @@ export interface SystemSettings {
   contact_info: string;
   doc_url: string;
   home_content: string;
+  home_product_menu_items: CustomMenuItem[];
   support_chat_rag_doc_url?: string;
   compact_home_enabled: boolean;
   hide_ccs_import_button: boolean;
   table_default_page_size: number;
   table_page_size_options: number[];
   backend_mode_enabled: boolean;
+  company_upgrade_charge_enabled?: boolean;
+  company_upgrade_fee?: number;
+  company_applications_enabled: boolean;
+  company_iam_enabled: boolean;
+  company_public_ids_finalized?: boolean;
+  company_billing_integration_enabled?: boolean;
+  company_documentation_url: string;
   custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
   // SMTP settings
@@ -832,6 +875,14 @@ export interface UpdateSettingsRequest {
   contact_info?: string;
   doc_url?: string;
   home_content?: string;
+  home_product_menu_items?: CustomMenuItem[];
+  company_upgrade_charge_enabled?: boolean;
+  company_upgrade_fee?: number;
+  company_applications_enabled?: boolean;
+  company_iam_enabled?: boolean;
+  company_public_ids_finalized?: boolean;
+  company_billing_integration_enabled?: boolean;
+  company_documentation_url?: string;
   compact_home_enabled?: boolean;
   hide_ccs_import_button?: boolean;
   table_default_page_size?: number;

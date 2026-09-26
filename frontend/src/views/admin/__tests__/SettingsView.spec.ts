@@ -6,6 +6,7 @@ import enCommon from "@/i18n/locales/en/common";
 import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
+import { PLATFORM_QUOTA_PLATFORMS } from "@/api/admin/settings";
 import SettingsView from "../SettingsView.vue";
 
 const {
@@ -949,7 +950,7 @@ describe("admin SettingsView payment visible method controls", () => {
     const masterToggle = wrapper.get('[data-testid="captcha-enabled-toggle"]');
     await masterToggle.setValue(true);
     // 默认选中 Turnstile
-    expect(wrapper.text()).toContain("admin.settings.captcha.turnstileSiteKey");
+    expect(wrapper.text()).toContain("admin.settings.turnstile.siteKey");
 
     await wrapper.get('[data-testid="captcha-provider-tencent"]').trigger("click");
     await flushPromises();
@@ -2116,7 +2117,7 @@ describe("admin SettingsView platform quota matrix", () => {
     getProviders.mockResolvedValue({ data: [] });
   });
 
-  it("从 baseSettings 加载默认平台配额数据并在 Users tab 渲染 5 平台行", async () => {
+  it("从 baseSettings 加载默认平台配额数据并在 Users tab 渲染全部平台行", async () => {
     const wrapper = mountView();
     await flushPromises();
     await openUsersTab(wrapper);
@@ -2125,14 +2126,12 @@ describe("admin SettingsView platform quota matrix", () => {
 
     const html = wrapper.html();
     // 表格行的平台字段：font-mono 渲染纯英文 platform key
-    expect(html).toContain("anthropic");
-    expect(html).toContain("openai");
-    expect(html).toContain("gemini");
-    expect(html).toContain("antigravity");
-    expect(html).toContain("kiro");
+    for (const platform of PLATFORM_QUOTA_PLATFORMS) {
+      expect(html).toContain(platform);
+    }
   });
 
-  it("保存时 updateSettings payload 应包含嵌套 default_platform_quotas 对象（含全 5 平台）", async () => {
+  it("保存时 updateSettings payload 应包含嵌套 default_platform_quotas 对象", async () => {
     const wrapper = mountView();
     await flushPromises();
     await openUsersTab(wrapper);
@@ -2148,8 +2147,7 @@ describe("admin SettingsView platform quota matrix", () => {
     // 应携带嵌套对象，而非扁平字段
     expect(payload).toHaveProperty("default_platform_quotas");
     const quotas = payload["default_platform_quotas"] as Record<string, unknown>;
-    const platforms = ["anthropic", "openai", "gemini", "antigravity", "kiro", "grok"];
-    for (const p of platforms) {
+    for (const p of PLATFORM_QUOTA_PLATFORMS) {
       expect(quotas).toHaveProperty(p);
       const pq = quotas[p] as Record<string, unknown>;
       expect(pq).toHaveProperty("daily");
@@ -2162,7 +2160,7 @@ describe("admin SettingsView platform quota matrix", () => {
     expect(payload).not.toHaveProperty("default_platform_quota_openai_weekly");
   });
 
-  it("加载后 form.default_platform_quotas 含全 5 平台，从嵌套 JSON 正确读取数值", async () => {
+  it("加载后 form.default_platform_quotas 含全部平台，从嵌套 JSON 正确读取数值", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
       default_platform_quotas: {

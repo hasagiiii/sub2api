@@ -4055,7 +4055,7 @@
                       </tr>
                     </thead>
                     <tbody class="space-y-2">
-                      <tr v-for="p in (['anthropic', 'openai', 'gemini', 'antigravity', 'grok'] as const)" :key="p" class="align-top">
+                      <tr v-for="p in PLATFORM_QUOTA_PLATFORMS" :key="p" class="align-top">
                         <td class="pr-4 py-1">
                           <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                         </td>
@@ -4390,7 +4390,7 @@
                             </tr>
                           </thead>
                           <tbody>
-                            <tr v-for="p in (['anthropic', 'openai', 'gemini', 'antigravity', 'grok'] as const)" :key="`${authSource.source}-pq-${p}`" class="align-top">
+                            <tr v-for="p in PLATFORM_QUOTA_PLATFORMS" :key="`${authSource.source}-pq-${p}`" class="align-top">
                               <td class="pr-4 py-1">
                                 <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                               </td>
@@ -6927,6 +6927,30 @@
                       :remove-label="t('admin.settings.customMenu.removeSvg')"
                       @update:model-value="(v: string) => (item.icon_svg = v)"
                     />
+                    <div class="mt-3">
+                      <p class="mb-2 text-xs font-medium text-gray-600 dark:text-gray-400">
+                        {{ t("admin.settings.customMenu.iconPresets") }}
+                      </p>
+                      <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                        <button
+                          v-for="preset in menuIconPresets"
+                          :key="preset.key"
+                          type="button"
+                          data-test="custom-menu-icon-preset"
+                          :data-preset="preset.key"
+                          :aria-pressed="item.icon_svg === preset.svg"
+                          :title="preset.label"
+                          class="flex h-10 min-w-0 items-center gap-2 rounded-lg border px-2 text-left text-xs font-medium transition-colors"
+                          @click="applyCustomMenuIconPreset(item, preset.svg)"
+                        >
+                          <span
+                            class="flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-5 [&>svg]:w-5"
+                            v-html="preset.svg"
+                          ></span>
+                          <span class="min-w-0 truncate">{{ preset.label }}</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -6951,6 +6975,102 @@
                   />
                 </svg>
                 {{ t("admin.settings.customMenu.add") }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Home product menu items -->
+          <div class="card">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.homeProducts.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.homeProducts.description") }}
+              </p>
+            </div>
+            <div class="space-y-4 p-6">
+              <div
+                v-for="(item, index) in form.home_product_menu_items"
+                :key="item.id || index"
+                class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+              >
+                <div class="mb-3 flex items-center justify-between">
+                  <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ t("admin.settings.homeProducts.itemLabel", { n: index + 1 }) }}
+                  </span>
+                  <button
+                    type="button"
+                    class="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
+                    :title="t('admin.settings.homeProducts.remove')"
+                    @click="removeHomeProductMenuItem(index)"
+                  >
+                    <Icon name="trash" size="sm" />
+                  </button>
+                </div>
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {{ t("admin.settings.homeProducts.name") }}
+                    </label>
+                    <input v-model="item.label" type="text" class="input text-sm" />
+                  </div>
+                  <div>
+                    <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {{ t("admin.settings.homeProducts.action") }}
+                    </label>
+                    <select v-model="item.action" class="input text-sm">
+                      <option value="same_tab">{{ t("admin.settings.customMenu.actionSameTab") }}</option>
+                      <option value="new_tab">{{ t("admin.settings.customMenu.actionNewTab") }}</option>
+                    </select>
+                  </div>
+                  <div class="sm:col-span-2">
+                    <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {{ t("admin.settings.homeProducts.url") }}
+                    </label>
+                    <input v-model="item.url" type="url" class="input font-mono text-sm" />
+                  </div>
+                  <div class="sm:col-span-2">
+                    <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {{ t("admin.settings.customMenu.iconSvg") }}
+                    </label>
+                    <ImageUpload
+                      :model-value="item.icon_svg"
+                      mode="svg"
+                      size="sm"
+                      :upload-label="t('admin.settings.customMenu.uploadSvg')"
+                      :remove-label="t('admin.settings.customMenu.removeSvg')"
+                      @update:model-value="(v: string) => (item.icon_svg = v)"
+                    />
+                    <div class="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                      <button
+                        v-for="preset in menuIconPresets"
+                        :key="preset.key"
+                        type="button"
+                        data-test="home-product-icon-preset"
+                        :data-preset="preset.key"
+                        :aria-pressed="item.icon_svg === preset.svg"
+                        :title="preset.label"
+                        class="flex h-10 min-w-0 items-center gap-2 rounded-lg border px-2 text-left text-xs font-medium transition-colors"
+                        @click="applyHomeProductIconPreset(item, preset.svg)"
+                      >
+                        <span
+                          class="flex h-5 w-5 shrink-0 items-center justify-center [&>svg]:h-5 [&>svg]:w-5"
+                          v-html="preset.svg"
+                        ></span>
+                        <span class="min-w-0 truncate">{{ preset.label }}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 py-3 text-sm text-gray-500 hover:border-primary-400 hover:text-primary-600 dark:border-dark-600 dark:text-gray-400"
+                @click="addHomeProductMenuItem"
+              >
+                <Icon name="plus" size="sm" />
+                {{ t("admin.settings.homeProducts.add") }}
               </button>
             </div>
           </div>
@@ -7372,6 +7492,91 @@
                 rows="6"
                 class="input font-mono text-sm"
               ></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Company account feature settings -->
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.company.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.company.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.company.publicIdsFinalized') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.company.publicIdsFinalizedHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.company_public_ids_finalized" />
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.company.billingIntegrationEnabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.company.billingIntegrationEnabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.company_billing_integration_enabled" />
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.company.applicationsEnabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.company.applicationsEnabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.company_applications_enabled" />
+            </div>
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.company.iamEnabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.company.iamEnabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.company_iam_enabled" />
+            </div>
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.company.chargeEnabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.company.chargeEnabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.company_upgrade_charge_enabled" />
+            </div>
+            <div v-if="form.company_upgrade_charge_enabled">
+              <label class="input-label">{{ t('admin.settings.features.company.upgradeFee') }}</label>
+              <input v-model.number="form.company_upgrade_fee" type="number" min="0.01" step="0.01" class="input" />
+            </div>
+            <div>
+              <label class="input-label">{{ t('admin.settings.features.company.documentationURL') }}</label>
+              <input
+                v-model.trim="form.company_documentation_url"
+                type="url"
+                class="input"
+                placeholder="https://docs.example.com/company"
+              />
+              <p class="mt-1 text-xs text-gray-400">
+                {{ t('admin.settings.features.company.documentationURLHint') }}
+              </p>
             </div>
           </div>
         </div>
@@ -8965,6 +9170,7 @@ import {
   normalizePlatformQuotasMap,
   sanitizeAccountSchedulingThresholdsMap,
   sanitizePlatformQuotasMap,
+  PLATFORM_QUOTA_PLATFORMS,
   SCHEDULING_THRESHOLD_PLATFORMS,
   defaultWeChatConnectScopesForMode,
   deriveWeChatConnectStoredMode,
@@ -9727,6 +9933,10 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_upstream_cost: string;
   openai_advanced_scheduler_weight_previous_response: string;
   openai_advanced_scheduler_weight_session_sticky: string;
+  company_upgrade_charge_enabled: boolean;
+  company_upgrade_fee: number;
+  company_public_ids_finalized: boolean;
+  company_billing_integration_enabled: boolean;
   // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
   account_scheduling_thresholds: ReturnType<typeof normalizeAccountSchedulingThresholdsMap>;
@@ -9750,6 +9960,13 @@ const form = reactive<SettingsForm>({
   passkey_rp_origins: [],
   session_binding_enabled: false,
   step_up_enabled: false,
+  company_upgrade_charge_enabled: false,
+  company_upgrade_fee: 20,
+  company_applications_enabled: false,
+  company_iam_enabled: false,
+  company_public_ids_finalized: false,
+  company_billing_integration_enabled: false,
+  company_documentation_url: "",
   audit_log_retention_days: 180,
   login_agreement_enabled: false,
   login_agreement_mode: "modal",
@@ -9813,6 +10030,15 @@ const form = reactive<SettingsForm>({
     visibility: "user" | "admin";
     sort_order: number;
     hide_open_button?: boolean;
+  }>,
+  home_product_menu_items: [] as Array<{
+    id: string;
+    label: string;
+    icon_svg: string;
+    url: string;
+    action: "same_tab" | "new_tab";
+    visibility: "user";
+    sort_order: number;
   }>,
   custom_endpoints: [] as Array<{
     name: string;
@@ -10033,6 +10259,19 @@ const form = reactive<SettingsForm>({
 type CaptchaProviderSelection = "turnstile" | "tencent" | "aliyun";
 
 const captchaProviderSelection = ref<CaptchaProviderSelection>("turnstile");
+
+const menuIconPresets = [
+  {
+    key: "api",
+    label: "API",
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z"/></svg>',
+  },
+  {
+    key: "terminal",
+    label: "Terminal",
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>',
+  },
+];
 
 function applyCaptchaSelection(provider: CaptchaProviderSelection | null): void {
   form.turnstile_enabled = provider === "turnstile";
@@ -10817,6 +11056,64 @@ function moveMenuItem(index: number, direction: -1 | 1) {
   });
 }
 
+function normalizeMenuItems(
+  items: typeof form.custom_menu_items,
+): typeof form.custom_menu_items {
+  return Array.isArray(items)
+    ? items.map((item) => ({
+        ...item,
+        visibility: item.visibility === "admin" ? "admin" : "user",
+        hide_open_button: item.hide_open_button === true,
+      }))
+    : [];
+}
+
+function applyCustomMenuIconPreset(
+  item: (typeof form.custom_menu_items)[number],
+  svg: string,
+) {
+  item.icon_svg = svg;
+}
+
+function addHomeProductMenuItem() {
+  form.home_product_menu_items.push({
+    id: "",
+    label: "",
+    icon_svg: "",
+    url: "",
+    action: "same_tab",
+    visibility: "user",
+    sort_order: form.home_product_menu_items.length,
+  });
+}
+
+function applyHomeProductIconPreset(
+  item: (typeof form.home_product_menu_items)[number],
+  svg: string,
+) {
+  item.icon_svg = svg;
+}
+
+function removeHomeProductMenuItem(index: number) {
+  form.home_product_menu_items.splice(index, 1);
+  form.home_product_menu_items.forEach((item, i) => {
+    item.sort_order = i;
+  });
+}
+
+function normalizeHomeProductMenuItems(
+  items: typeof form.home_product_menu_items,
+): typeof form.home_product_menu_items {
+  return Array.isArray(items)
+    ? items.map((item, index) => ({
+        ...item,
+        action: item.action === "new_tab" ? "new_tab" : "same_tab",
+        visibility: "user" as const,
+        sort_order: index,
+      }))
+    : [];
+}
+
 // Custom endpoint management
 function addEndpoint() {
   form.custom_endpoints.push({ name: "", endpoint: "", description: "" });
@@ -11054,6 +11351,9 @@ async function loadSettings() {
     form.backend_mode_enabled = settings.backend_mode_enabled;
     form.default_subscriptions = normalizeDefaultSubscriptionSettings(
       settings.default_subscriptions,
+    );
+    form.home_product_menu_items = normalizeHomeProductMenuItems(
+      form.home_product_menu_items,
     );
     registrationEmailSuffixWhitelistTags.value =
       normalizeRegistrationEmailSuffixDomains(
@@ -11388,6 +11688,15 @@ async function saveSettings() {
     // Optional URL fields: auto-clear invalid values so they don't cause backend 400 errors
     if (!isValidHttpUrl(form.frontend_url)) form.frontend_url = "";
     if (!isValidHttpUrl(form.doc_url)) form.doc_url = "";
+    if (!isValidHttpUrl(form.company_documentation_url)) {
+      appStore.showError(t("admin.settings.features.company.documentationURLInvalid"));
+      return;
+    }
+    const normalizedCompanyUpgradeFee = Number(form.company_upgrade_fee);
+    if (!Number.isFinite(normalizedCompanyUpgradeFee) || normalizedCompanyUpgradeFee <= 0) {
+      appStore.showError(t("admin.settings.features.company.upgradeFeeInvalid"));
+      return;
+    }
     syncWeChatConnectMode();
     const wechatStoredMode = deriveWeChatConnectStoredMode(
       form.wechat_connect_open_enabled,
@@ -11428,6 +11737,13 @@ async function saveSettings() {
       passkey_enabled: form.passkey_enabled,
       session_binding_enabled: form.session_binding_enabled,
       step_up_enabled: form.step_up_enabled,
+      company_upgrade_charge_enabled: form.company_upgrade_charge_enabled,
+      company_upgrade_fee: normalizedCompanyUpgradeFee,
+      company_applications_enabled: form.company_applications_enabled,
+      company_iam_enabled: form.company_iam_enabled,
+      company_public_ids_finalized: form.company_public_ids_finalized,
+      company_billing_integration_enabled: form.company_billing_integration_enabled,
+      company_documentation_url: form.company_documentation_url.trim(),
       // 清空数字框时 v-model.number 会得到空串，后端 int 字段解析空串会 400 拒绝整次保存；
       // 空/非法值回退默认 180（与后端 parseAuditLogRetentionDays("") 语义一致，0 仍表示永久保留）。
       audit_log_retention_days: Number.isFinite(form.audit_log_retention_days)
@@ -11462,7 +11778,8 @@ async function saveSettings() {
       hide_ccs_import_button: form.hide_ccs_import_button,
       table_default_page_size: form.table_default_page_size,
       table_page_size_options: form.table_page_size_options,
-      custom_menu_items: form.custom_menu_items,
+      custom_menu_items: normalizeMenuItems(form.custom_menu_items),
+      home_product_menu_items: normalizeHomeProductMenuItems(form.home_product_menu_items),
       custom_endpoints: form.custom_endpoints,
       frontend_url: form.frontend_url,
       smtp_host: form.smtp_host,
