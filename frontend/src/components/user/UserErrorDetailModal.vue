@@ -81,7 +81,6 @@ import type { UserErrorRequestDetail } from '@/types'
 const props = defineProps<{
   show: boolean
   errorId: number | null
-  detailLoader?: (id: number) => Promise<UserErrorRequestDetail>
 }>()
 
 const emit = defineEmits<{
@@ -93,10 +92,12 @@ const { t } = useI18n()
 const loading = ref(false)
 const loadError = ref(false)
 const detail = ref<UserErrorRequestDetail | null>(null)
+let requestVersion = 0
 
 watch(
   () => [props.show, props.errorId] as const,
-  ([show, id]) => {
+  ([show, id], _, onCleanup) => {
+    onCleanup(() => { requestVersion++ })
     if (show && id != null) {
       fetchDetail(id)
     } else if (!show) {
@@ -107,16 +108,19 @@ watch(
 )
 
 async function fetchDetail(id: number) {
+  const version = ++requestVersion
   loading.value = true
   loadError.value = false
   detail.value = null
   try {
-    detail.value = await (props.detailLoader || getMyErrorDetail)(id)
+    const result = await getMyErrorDetail(id)
+    if (version === requestVersion) detail.value = result
   } catch (e) {
+    if (version !== requestVersion) return
     console.error('[UserErrorDetailModal] Failed to load error detail:', e)
     loadError.value = true
   } finally {
-    loading.value = false
+    if (version === requestVersion) loading.value = false
   }
 }
 

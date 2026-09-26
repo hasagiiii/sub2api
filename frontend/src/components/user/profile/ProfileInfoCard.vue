@@ -328,6 +328,7 @@ function normalizeProvider(value: string): UserAuthProvider | null {
   if (
     normalized === 'email' ||
     normalized === 'linuxdo' ||
+    normalized === 'dingtalk' ||
     normalized === 'wechat' ||
     normalized === 'github' ||
     normalized === 'google'

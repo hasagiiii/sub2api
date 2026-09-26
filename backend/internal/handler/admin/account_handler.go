@@ -68,6 +68,7 @@ type AccountHandler struct {
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
+	opencodeGoUsage         *service.OpenCodeGoUsageService
 	costCenter              *service.CostCenterService
 	billingService          *service.BillingService
 	codexTicketSettings     *service.SettingService
@@ -80,6 +81,12 @@ func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamB
 
 func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
 	h.ollamaCloudUsage = usage
+}
+
+func (h *AccountHandler) SetOpenCodeGoUsageService(usage *service.OpenCodeGoUsageService) {
+	if h != nil {
+		h.opencodeGoUsage = usage
+	}
 }
 
 func (h *AccountHandler) SetCostCenterService(costCenter *service.CostCenterService) {
@@ -118,9 +125,18 @@ func NewAccountHandler(
 	crsSyncService *service.CRSSyncService,
 	sessionLimitCache service.SessionLimitCache,
 	rpmCache service.RPMCache,
-	tokenCacheInvalidator service.TokenCacheInvalidator,
-	costCenters ...*service.CostCenterService,
+	optional ...any,
 ) *AccountHandler {
+	var tokenCacheInvalidator service.TokenCacheInvalidator
+	var costCenter *service.CostCenterService
+	for _, value := range optional {
+		switch typed := value.(type) {
+		case service.TokenCacheInvalidator:
+			tokenCacheInvalidator = typed
+		case *service.CostCenterService:
+			costCenter = typed
+		}
+	}
 	h := &AccountHandler{
 		adminService:            adminService,
 		oauthService:            oauthService,
@@ -138,9 +154,7 @@ func NewAccountHandler(
 		rpmCache:                rpmCache,
 		tokenCacheInvalidator:   tokenCacheInvalidator,
 	}
-	if len(costCenters) > 0 {
-		h.costCenter = costCenters[0]
-	}
+	h.costCenter = costCenter
 	return h
 }
 

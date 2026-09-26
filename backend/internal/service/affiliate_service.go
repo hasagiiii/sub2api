@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"math"
 	"strings"
@@ -19,6 +21,8 @@ var (
 	ErrAffiliateCodeTaken       = infraerrors.Conflict("AFFILIATE_CODE_TAKEN", "affiliate code already in use")
 	ErrAffiliateAlreadyBound    = infraerrors.Conflict("AFFILIATE_ALREADY_BOUND", "affiliate inviter already bound")
 	ErrAffiliateQuotaEmpty      = infraerrors.BadRequest("AFFILIATE_QUOTA_EMPTY", "no affiliate quota available to transfer")
+	ErrAffiliateQuotaInsufficient = infraerrors.BadRequest("AFFILIATE_QUOTA_INSUFFICIENT", "insufficient available affiliate quota")
+	ErrAffiliateWithdrawAmountInvalid = infraerrors.BadRequest("AFFILIATE_WITHDRAW_AMOUNT_INVALID", "invalid offline withdrawal amount")
 	ErrAffiliateInviteeNotFound = infraerrors.NotFound("AFFILIATE_INVITEE_NOT_FOUND", "invitee not found or not invited by current user")
 	ErrAffiliateNoteTooLong     = infraerrors.BadRequest("AFFILIATE_NOTE_TOO_LONG", "invitee note too long")
 )
@@ -112,6 +116,7 @@ type AffiliateRepository interface {
 	GetAccruedRebateFromInvitee(ctx context.Context, inviterID, inviteeUserID int64) (float64, error)
 	ThawFrozenQuota(ctx context.Context, userID int64) (float64, error)
 	TransferQuotaToBalance(ctx context.Context, userID int64) (float64, float64, error)
+	WithdrawQuota(ctx context.Context, userID int64, amount float64, operationID string) (*AffiliateWithdrawResult, error)
 	ListInvitees(ctx context.Context, inviterID int64, limit int) ([]AffiliateInvitee, error)
 	// ListInviteesPaged 返回按注册时间倒序的被邀请用户分页列表，用于用户 /affiliate 页面。
 	// 邮箱脱敏在 service 层完成，这里返回原始邮箱。
@@ -193,6 +198,7 @@ type AffiliateRebateRecord struct {
 
 type AffiliateTransferRecord struct {
 	LedgerID            int64     `json:"ledger_id"`
+	Action              string    `json:"action"`
 	UserID              int64     `json:"user_id"`
 	UserEmail           string    `json:"user_email"`
 	Username            string    `json:"username"`
@@ -207,6 +213,16 @@ type AffiliateTransferRecord struct {
 	FrozenQuota         float64   `json:"-"`
 	HistoryQuota        float64   `json:"-"`
 	CreatedAt           time.Time `json:"created_at"`
+}
+
+type AffiliateWithdrawResult struct {
+	LedgerID            int64   `json:"ledger_id"`
+	UserID              int64   `json:"user_id"`
+	Amount              float64 `json:"amount"`
+	AvailableQuotaAfter float64 `json:"available_quota_after"`
+	FrozenQuotaAfter    float64 `json:"frozen_quota_after"`
+	HistoryQuotaAfter   float64 `json:"history_quota_after"`
+	Replayed            bool    `json:"-"`
 }
 
 type AffiliateUserOverview struct {
@@ -239,7 +255,11 @@ func (s *AffiliateService) SetUserRepository(repo UserRepository) {
 	}
 }
 
-func NewAffiliateService(repo AffiliateRepository, settingService *SettingService, authCacheInvalidator APIKeyAuthCacheInvalidator, billingCacheService *BillingCacheService, inboxPub inbox.Publisher) *AffiliateService {
+func NewAffiliateService(repo AffiliateRepository, settingService *SettingService, authCacheInvalidator APIKeyAuthCacheInvalidator, billingCacheService *BillingCacheService, inboxPubOptional ...inbox.Publisher) *AffiliateService {
+	var inboxPub inbox.Publisher
+	if len(inboxPubOptional) > 0 {
+		inboxPub = inboxPubOptional[0]
+	}
 	return &AffiliateService{
 		repo:                 repo,
 		settingService:       settingService,
@@ -672,6 +692,35 @@ func (s *AffiliateService) AdminBatchSetUserRebateRate(ctx context.Context, user
 		return nil
 	}
 	return s.repo.BatchSetUserRebateRate(ctx, cleaned, ratePercent)
+}
+
+func (s *AffiliateService) AdminWithdrawQuota(ctx context.Context, userID int64, amount float64, idempotencyKey string) (*AffiliateWithdrawResult, error) {
+	if userID <= 0 {
+		return nil, infraerrors.BadRequest("INVALID_USER", "invalid user")
+	}
+	if s == nil || s.repo == nil {
+		return nil, infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "affiliate service unavailable")
+	}
+	key, err := NormalizeIdempotencyKey(idempotencyKey)
+	if err != nil {
+		return nil, err
+	}
+	if key == "" {
+		return nil, ErrIdempotencyKeyRequired
+	}
+	if math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return nil, ErrAffiliateWithdrawAmountInvalid
+	}
+	amount = roundTo(amount, 8)
+	if amount <= 0 || math.IsInf(amount, 0) {
+		return nil, ErrAffiliateWithdrawAmountInvalid
+	}
+	return s.repo.WithdrawQuota(ctx, userID, amount, affiliateWithdrawOperationID(key))
+}
+
+func affiliateWithdrawOperationID(idempotencyKey string) string {
+	sum := sha256.Sum256([]byte("admin.affiliates.withdraw\x00" + idempotencyKey))
+	return hex.EncodeToString(sum[:])
 }
 
 // AdminListCustomUsers 列出有专属配置的用户。

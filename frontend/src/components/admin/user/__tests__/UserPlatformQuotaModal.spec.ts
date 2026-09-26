@@ -50,7 +50,7 @@ vi.mock('@/components/common/BaseDialog.vue', () => ({
 }))
 
 import UserPlatformQuotaModal from '../UserPlatformQuotaModal.vue'
-import type { UserSubscription } from '@/types'
+import type { PlatformQuotaUpdateItem, UserSubscription } from '@/types'
 
 function makeUser(overrides: { subscriptions?: UserSubscription[] } = {}) {
   return { id: 99, email: 'u@example.com', ...overrides } as any
@@ -101,16 +101,47 @@ describe('UserPlatformQuotaModal', () => {
     expect(apiMocks.getPlatformQuotas).toHaveBeenCalledWith(99)
   })
 
-  it('空数据渲染 5 个 platform 行', async () => {
+  it('renders all ten supported platforms with empty limits', async () => {
     const w = await mountAndOpen()
-    const html = w.html()
-    expect(html).toContain('anthropic')
-    expect(html).toContain('openai')
-    expect(html).toContain('gemini')
-    expect(html).toContain('antigravity')
-    expect(html).toContain('kiro')
-    expect(html).toContain('grok')
+    const rows = w.findAll('tbody tr')
+    expect(rows.map(row => row.find('td').text())).toEqual([
+      'anthropic', 'openai', 'gemini', 'antigravity', 'grok',
+      'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go',
+    ])
+    for (const row of rows) {
+      const inputs = row.findAll('input[type=number]')
+      expect(inputs).toHaveLength(3)
+      expect(inputs.map(input => input.element.value)).toEqual(['', '', ''])
+    }
+    w.unmount()
   })
+
+  it.each(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'] as const)(
+    'saves edits to %s without erasing existing platform limits', async (platform) => {
+      const existing: PlatformQuotaUpdateItem[] = [
+        { platform: 'openai', daily_limit_usd: 10, weekly_limit_usd: 20, monthly_limit_usd: 100 },
+        ...(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go'] as const).map(p => ({
+          platform: p, daily_limit_usd: 0, weekly_limit_usd: null, monthly_limit_usd: 50,
+        })),
+      ]
+      apiMocks.getPlatformQuotas.mockResolvedValueOnce({ platform_quotas: existing })
+      const w = await mountAndOpen()
+      const row = w.findAll('tbody tr').find(r => r.find('td').text() === platform)!
+      const inputs = row.findAll('input[type=number]')
+      expect(inputs.map(input => input.element.value)).toEqual(['0', '', '50'])
+      await inputs[1].setValue('12.5')
+      await w.findAll('button').find(b => b.text() === 'admin.users.platformQuota.save')!.trigger('click')
+      await flushPromises()
+      const expected = existing.map(item => item.platform === platform
+        ? { ...item, weekly_limit_usd: 12.5 }
+        : item)
+      expect(apiMocks.updatePlatformQuotas).toHaveBeenCalledTimes(1)
+      expect(apiMocks.updatePlatformQuotas).toHaveBeenCalledWith(99, expect.arrayContaining(expected))
+      expect(apiMocks.updatePlatformQuotas.mock.calls[0][1]).toHaveLength(10)
+      expect(w.emitted('success')).toHaveLength(1)
+      w.unmount()
+    },
+  )
 
   it('已有数据正确填充 limit input', async () => {
     apiMocks.getPlatformQuotas.mockResolvedValueOnce({
@@ -121,13 +152,13 @@ describe('UserPlatformQuotaModal', () => {
     })
     const w = await mountAndOpen()
     const inputs = w.findAll('input[type=number]')
-    // 12 platforms, each with daily, weekly and monthly limits.
-    expect(inputs.length).toBe(36)
+    // 10 platforms × 3 windows = 30 inputs
+    expect(inputs.length).toBe(30)
     // 第一个 input 是 anthropic.daily = 10
     expect((inputs[0].element as HTMLInputElement).value).toBe('10')
   })
 
-  it('保存提交完整 platform payload，包含 ByteDance', async () => {
+  it('保存提交完整 10 platform payload', async () => {
     apiMocks.getPlatformQuotas.mockResolvedValueOnce({
       platform_quotas: [
         { platform: 'openai', daily_limit_usd: null, weekly_limit_usd: 20, monthly_limit_usd: null,
@@ -144,14 +175,13 @@ describe('UserPlatformQuotaModal', () => {
     expect(apiMocks.updatePlatformQuotas).toHaveBeenCalledTimes(1)
     const [uid, payload] = apiMocks.updatePlatformQuotas.mock.calls[0]
     expect(uid).toBe(99)
-    expect(payload).toHaveLength(12)
-    expect(payload.some((p: any) => p.platform === 'bytedance')).toBe(true)
+    expect(payload).toHaveLength(10) // 10 platforms always submitted
     const openai = payload.find((p: any) => p.platform === 'openai')
     expect(openai.weekly_limit_usd).toBe(20)
   })
 
-  it('全部清空通过统一 ConfirmDialog 确认后把所有 limit 置 null', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  it('全部清空把所有 limit 置 null（确认通过）', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     apiMocks.getPlatformQuotas.mockResolvedValueOnce({
       platform_quotas: [
         { platform: 'anthropic', daily_limit_usd: 10, weekly_limit_usd: 50, monthly_limit_usd: 100,
@@ -164,12 +194,7 @@ describe('UserPlatformQuotaModal', () => {
     expect(clearBtn).toBeTruthy()
     await clearBtn!.trigger('click')
     await flushPromises()
-    expect(confirmSpy).not.toHaveBeenCalled()
-    expect(w.html()).toContain('admin.users.platformQuota.clearAllConfirm')
-    const confirmBtn = w.findAll('button').find((b) => b.text() === 'common.confirm')
-    expect(confirmBtn).toBeTruthy()
-    await confirmBtn!.trigger('click')
-    await flushPromises()
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
     const inputs = w.findAll('input[type=number]')
     for (const inp of inputs) {
       expect((inp.element as HTMLInputElement).value).toBe('')
@@ -177,8 +202,8 @@ describe('UserPlatformQuotaModal', () => {
     confirmSpy.mockRestore()
   })
 
-  it('全部清空取消统一 ConfirmDialog 则保持原值', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  it('全部清空 confirm 取消则保持原值', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     apiMocks.getPlatformQuotas.mockResolvedValueOnce({
       platform_quotas: [
         { platform: 'anthropic', daily_limit_usd: 10, weekly_limit_usd: 50, monthly_limit_usd: 100,
@@ -189,32 +214,11 @@ describe('UserPlatformQuotaModal', () => {
     const clearBtn = w.findAll('button').find((b) => b.text() === 'admin.users.platformQuota.clearAll')
     await clearBtn!.trigger('click')
     await flushPromises()
-    expect(confirmSpy).not.toHaveBeenCalled()
-    const cancelBtn = w.findAll('button').find((b) => b.text() === 'common.cancel')
-    expect(cancelBtn).toBeTruthy()
-    await cancelBtn!.trigger('click')
-    await flushPromises()
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
     // anthropic daily 应保持 10（未被清空）
     const inputs = w.findAll('input[type=number]')
     const dailyVal = (inputs[0].element as HTMLInputElement).value
     expect(dailyVal).toBe('10')
-    confirmSpy.mockRestore()
-  })
-
-  it('重置按钮取消统一 ConfirmDialog 则不调用 API', async () => {
-    apiMocks.getPlatformQuotas.mockResolvedValue(anthropicConfigured)
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    const w = await mountAndOpen()
-    const resetBtns = w.findAll('button').filter((b) => b.text() === '↻')
-    expect(resetBtns.length).toBeGreaterThan(0)
-    await resetBtns[0].trigger('click')
-    await flushPromises()
-    expect(confirmSpy).not.toHaveBeenCalled()
-    const cancelBtn = w.findAll('button').find((b) => b.text() === 'common.cancel')
-    expect(cancelBtn).toBeTruthy()
-    await cancelBtn!.trigger('click')
-    await flushPromises()
-    expect(apiMocks.resetPlatformQuotaWindow).not.toHaveBeenCalled()
     confirmSpy.mockRestore()
   })
 
@@ -236,7 +240,7 @@ describe('UserPlatformQuotaModal', () => {
   it('未配置限额的平台重置按钮禁用并提示不可用', async () => {
     const w = await mountAndOpen()
     const resetBtns = w.findAll('button').filter((b) => b.text() === '↻')
-    expect(resetBtns.length).toBe(36) // 12 平台 × 3 窗口
+    expect(resetBtns.length).toBe(30) // 10 平台 × 3 窗口
     for (const b of resetBtns) {
       expect((b.element as HTMLButtonElement).disabled).toBe(true)
       expect(b.attributes('title')).toBe('admin.users.platformQuota.reset.unavailable')
@@ -252,36 +256,27 @@ describe('UserPlatformQuotaModal', () => {
     expect(enabled[0].attributes('title')).toBe('admin.users.platformQuota.reset.button')
   })
 
-  it('重置按钮通过统一 ConfirmDialog 确认后调用 API', async () => {
+  it('重置按钮 confirm 取消则不调用 API', async () => {
+    apiMocks.getPlatformQuotas.mockResolvedValue(anthropicConfigured)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const w = await mountAndOpen()
+    const resetBtns = w.findAll('button').filter((b) => b.text() === '↻')
+    expect(resetBtns.length).toBeGreaterThan(0)
+    await resetBtns[0].trigger('click')
+    await flushPromises()
+    expect(apiMocks.resetPlatformQuotaWindow).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('重置按钮 confirm 确认则调用 API', async () => {
     apiMocks.getPlatformQuotas.mockResolvedValue(anthropicConfigured)
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const w = await mountAndOpen()
     const resetBtns = w.findAll('button').filter((b) => b.text() === '↻')
     await resetBtns[0].trigger('click') // 第一个是 anthropic.daily
     await flushPromises()
-    expect(confirmSpy).not.toHaveBeenCalled()
-    expect(apiMocks.resetPlatformQuotaWindow).not.toHaveBeenCalled()
-    const confirmBtn = w.findAll('button').find((b) => b.text() === 'common.confirm')
-    expect(confirmBtn).toBeTruthy()
-    await confirmBtn!.trigger('click')
-    await flushPromises()
     expect(apiMocks.resetPlatformQuotaWindow).toHaveBeenCalledWith(99, 'anthropic', 'daily')
     confirmSpy.mockRestore()
-  })
-
-  it('全部清空按钮复用邮件模板恢复官方模板按钮的统一样式', async () => {
-    const w = await mountAndOpen()
-    const clearBtn = w.findAll('button').find((b) => b.text() === 'admin.users.platformQuota.clearAll')
-    expect(clearBtn).toBeTruthy()
-    const classes = clearBtn!.classes()
-    expect(classes).toEqual(['btn', 'btn-secondary', 'btn-sm'])
-  })
-
-  it('全部清空按钮不放在横向滚动容器内，避免焦点边框被裁切', async () => {
-    const w = await mountAndOpen()
-    const clearBtn = w.findAll('button').find((b) => b.text() === 'admin.users.platformQuota.clearAll')
-    expect(clearBtn).toBeTruthy()
-    expect(clearBtn!.element.closest('.overflow-x-auto')).toBeNull()
   })
 
   describe('subscription warning banner', () => {

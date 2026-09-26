@@ -298,6 +298,11 @@ func NewSettingService(settingRepo SettingRepository, cfg *config.Config) *Setti
 	}
 }
 
+// InvalidateClaudeCodeClientVersionCache is a compatibility hook for the
+// background version sync service. The custom branch resolves this value
+// directly from settings and has no separate cache for it.
+func (s *SettingService) InvalidateClaudeCodeClientVersionCache() {}
+
 // SetDefaultSubscriptionGroupReader injects an optional group reader for default subscription validation.
 func (s *SettingService) SetDefaultSubscriptionGroupReader(reader DefaultSubscriptionGroupReader) {
 	s.defaultSubGroupReader = reader
