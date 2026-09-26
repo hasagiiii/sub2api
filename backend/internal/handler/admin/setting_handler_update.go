@@ -577,6 +577,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	_, oauthSchedulingRateFieldSent := sentFields["openai_oauth_scheduling_rate_multiplier"]
 
 	// 两个安全开关的请求字段为指针：省略字段=保持现值，避免旧客户端/脚本
 	// 用不含新字段的全量 payload 保存设置时把安全开关静默重置。
@@ -2075,6 +2076,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				value := *req.OpenAIOAuthSchedulingRateMultiplier
 				return &value
 			}
+			if oauthSchedulingRateFieldSent {
+				// A JSON null explicitly clears the override; an omitted field keeps it.
+				return nil
+			}
 			return previousSettings.OpenAIOAuthSchedulingRateMultiplier
 		}(),
 		OpenAIAdvancedSchedulerEnabled: func() bool {
@@ -2811,7 +2816,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentVisibleMethodAlipayEnabled:                      updatedSettings.PaymentVisibleMethodAlipayEnabled,
 		PaymentVisibleMethodWxpayEnabled:                       updatedSettings.PaymentVisibleMethodWxpayEnabled,
 		OpenAILowUpstreamRatePriorityEnabled:                   updatedSettings.OpenAILowUpstreamRatePriorityEnabled,
-		OpenAIOAuthSchedulingRateMultiplier:                    func() float64 { if updatedSettings.OpenAIOAuthSchedulingRateMultiplier != nil { return *updatedSettings.OpenAIOAuthSchedulingRateMultiplier }; return 0 }(),
+		OpenAIOAuthSchedulingRateMultiplier:                    updatedSettings.OpenAIOAuthSchedulingRateMultiplier,
 		OpenAIAdvancedSchedulerEnabled:                         updatedSettings.OpenAIAdvancedSchedulerEnabled,
 		OpenAIAdvancedSchedulerStickyWeightedEnabled:           updatedSettings.OpenAIAdvancedSchedulerStickyWeightedEnabled,
 		OpenAIAdvancedSchedulerSubscriptionPriorityEnabled:     updatedSettings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled,

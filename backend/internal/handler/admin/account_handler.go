@@ -1866,8 +1866,19 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		return
 	}
 
-	// Drop SSO/password residue; re-auth must leave only OAuth tokens on disk.
-	req.Credentials = service.SanitizeStoredCredentials(existing.Platform, req.Credentials)
+	// Preserve non-sensitive account metadata such as model mappings and provider
+	// account IDs while replacing the OAuth token set. Never carry old secrets or
+	// SSO/password residue into the new credential map.
+	mergedCredentials := make(map[string]any, len(existing.Credentials)+len(req.Credentials))
+	for key, value := range existing.Credentials {
+		if !service.IsSensitiveCredentialKey(key) {
+			mergedCredentials[key] = value
+		}
+	}
+	for key, value := range req.Credentials {
+		mergedCredentials[key] = value
+	}
+	req.Credentials = service.SanitizeStoredCredentials(existing.Platform, mergedCredentials)
 
 	updatedAccount, err := h.adminService.UpdateAccount(ctx, accountID, &service.UpdateAccountInput{
 		Type:        req.Type,

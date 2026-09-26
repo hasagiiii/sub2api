@@ -228,9 +228,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyCyberSessionBlockTTLSeconds: "3600",
 
 		// Claude Code version check (default: empty = disabled)
-		SettingKeyMinClaudeCodeVersion: "",
-		SettingKeyMaxClaudeCodeVersion: "",
-		SettingKeyClaudeCodeClientVersion: "",
+		SettingKeyMinClaudeCodeVersion:             "",
+		SettingKeyMaxClaudeCodeVersion:             "",
+		SettingKeyClaudeCodeClientVersion:          "",
 		SettingKeyClaudeCodeVersionAutoSyncEnabled: "true",
 
 		// codex_cli_only 加固（默认：版本不检查、名单空、默认种子指纹信号）
@@ -986,7 +986,12 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.PaymentVisibleMethodAlipayEnabled = settings[SettingPaymentVisibleMethodAlipayEnabled] == "true"
 	result.PaymentVisibleMethodWxpayEnabled = settings[SettingPaymentVisibleMethodWxpayEnabled] == "true"
 	result.OpenAILowUpstreamRatePriorityEnabled = settings[SettingKeyOpenAILowUpstreamRatePriorityEnabled] == "true"
-	result.OpenAIOAuthSchedulingRateMultiplier = parseOpenAIOAuthSchedulingRateMultiplier(settings[SettingKeyOpenAIOAuthSchedulingRateMultiplier])
+	if raw, ok := settings[SettingKeyOpenAIOAuthSchedulingRateMultiplier]; ok {
+		result.OpenAIOAuthSchedulingRateMultiplier = parseOpenAIOAuthSchedulingRateMultiplier(raw)
+	} else {
+		defaultRate := defaultOpenAIOAuthSchedulingRateMultiplier
+		result.OpenAIOAuthSchedulingRateMultiplier = &defaultRate
+	}
 	result.OpenAIAdvancedSchedulerEnabled = settings[openAIAdvancedSchedulerSettingKey] == "true"
 	result.OpenAIAdvancedSchedulerStickyWeightedEnabled = settings[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled] == "true"
 	result.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled = settings[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled] == "true"

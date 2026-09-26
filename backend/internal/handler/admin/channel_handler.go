@@ -68,6 +68,7 @@ type channelModelPricingRequest struct {
 	FastMultiplier               *float64                   `json:"fast_multiplier" binding:"omitempty,gt=0"`
 	FlexMultiplier               *float64                   `json:"flex_multiplier" binding:"omitempty,gt=0"`
 	MaxReasoningEffortMultiplier *float64                   `json:"max_reasoning_effort_multiplier" binding:"omitempty,gt=0"`
+	ReasoningEffortMultipliers   map[string]float64         `json:"reasoning_effort_multipliers,omitempty"`
 	ImageInputPrice              *float64                   `json:"image_input_price" binding:"omitempty,min=0"`
 	ImageInputPricePerImage      *float64                   `json:"image_input_price_per_image" binding:"omitempty,min=0"`
 	ImageOutputPrice             *float64                   `json:"image_output_price" binding:"omitempty,min=0"`
@@ -145,7 +146,8 @@ type channelModelPricingResponse struct {
 	CacheReadPrice               *float64                    `json:"cache_read_price"`
 	FastMultiplier               *float64                    `json:"fast_multiplier"`
 	FlexMultiplier               *float64                    `json:"flex_multiplier"`
-	MaxReasoningEffortMultiplier *float64                    `json:"max_reasoning_effort_multiplier"`
+	MaxReasoningEffortMultiplier *float64                    `json:"max_reasoning_effort_multiplier,omitempty"`
+	ReasoningEffortMultipliers   map[string]float64          `json:"reasoning_effort_multipliers,omitempty"`
 	ImageInputPrice              *float64                    `json:"image_input_price"`
 	ImageInputPricePerImage      *float64                    `json:"image_input_price_per_image"`
 	ImageOutputPrice             *float64                    `json:"image_output_price"`
@@ -280,6 +282,7 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 		FastMultiplier:               p.FastMultiplier,
 		FlexMultiplier:               p.FlexMultiplier,
 		MaxReasoningEffortMultiplier: p.MaxReasoningEffortMultiplier,
+		ReasoningEffortMultipliers:   p.ReasoningEffortMultipliers,
 		ImageInputPrice:              p.ImageInputPrice,
 		ImageInputPricePerImage:      p.ImageInputPricePerImage,
 		ImageOutputPrice:             p.ImageOutputPrice,
@@ -386,6 +389,7 @@ func pricingRequestToService(reqs []channelModelPricingRequest, allowChannelMult
 			FastMultiplier:               fastMultiplier,
 			FlexMultiplier:               flexMultiplier,
 			MaxReasoningEffortMultiplier: maxReasoningEffortMultiplier,
+			ReasoningEffortMultipliers:   r.ReasoningEffortMultipliers,
 			ImageInputPrice:              r.ImageInputPrice,
 			ImageInputPricePerImage:      r.ImageInputPricePerImage,
 			ImageOutputPrice:             r.ImageOutputPrice,
