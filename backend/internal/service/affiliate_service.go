@@ -16,15 +16,15 @@ import (
 )
 
 var (
-	ErrAffiliateProfileNotFound = infraerrors.NotFound("AFFILIATE_PROFILE_NOT_FOUND", "affiliate profile not found")
-	ErrAffiliateCodeInvalid     = infraerrors.BadRequest("AFFILIATE_CODE_INVALID", "invalid affiliate code")
-	ErrAffiliateCodeTaken       = infraerrors.Conflict("AFFILIATE_CODE_TAKEN", "affiliate code already in use")
-	ErrAffiliateAlreadyBound    = infraerrors.Conflict("AFFILIATE_ALREADY_BOUND", "affiliate inviter already bound")
-	ErrAffiliateQuotaEmpty      = infraerrors.BadRequest("AFFILIATE_QUOTA_EMPTY", "no affiliate quota available to transfer")
-	ErrAffiliateQuotaInsufficient = infraerrors.BadRequest("AFFILIATE_QUOTA_INSUFFICIENT", "insufficient available affiliate quota")
+	ErrAffiliateProfileNotFound       = infraerrors.NotFound("AFFILIATE_PROFILE_NOT_FOUND", "affiliate profile not found")
+	ErrAffiliateCodeInvalid           = infraerrors.BadRequest("AFFILIATE_CODE_INVALID", "invalid affiliate code")
+	ErrAffiliateCodeTaken             = infraerrors.Conflict("AFFILIATE_CODE_TAKEN", "affiliate code already in use")
+	ErrAffiliateAlreadyBound          = infraerrors.Conflict("AFFILIATE_ALREADY_BOUND", "affiliate inviter already bound")
+	ErrAffiliateQuotaEmpty            = infraerrors.BadRequest("AFFILIATE_QUOTA_EMPTY", "no affiliate quota available to transfer")
+	ErrAffiliateQuotaInsufficient     = infraerrors.BadRequest("AFFILIATE_QUOTA_INSUFFICIENT", "insufficient available affiliate quota")
 	ErrAffiliateWithdrawAmountInvalid = infraerrors.BadRequest("AFFILIATE_WITHDRAW_AMOUNT_INVALID", "invalid offline withdrawal amount")
-	ErrAffiliateInviteeNotFound = infraerrors.NotFound("AFFILIATE_INVITEE_NOT_FOUND", "invitee not found or not invited by current user")
-	ErrAffiliateNoteTooLong     = infraerrors.BadRequest("AFFILIATE_NOTE_TOO_LONG", "invitee note too long")
+	ErrAffiliateInviteeNotFound       = infraerrors.NotFound("AFFILIATE_INVITEE_NOT_FOUND", "invitee not found or not invited by current user")
+	ErrAffiliateNoteTooLong           = infraerrors.BadRequest("AFFILIATE_NOTE_TOO_LONG", "invitee note too long")
 )
 
 // AffiliateInviteeNoteMaxLen 与 migration 183 里 inviter_note VARCHAR(500) 保持一致。
@@ -180,16 +180,16 @@ type AffiliateInviteRecord struct {
 }
 
 type AffiliateRebateRecord struct {
-	OrderID         int64     `json:"order_id"`
+	OrderID         *int64    `json:"order_id"`
 	OutTradeNo      string    `json:"out_trade_no"`
 	InviterID       int64     `json:"inviter_id"`
 	InviterEmail    string    `json:"inviter_email"`
 	InviterUsername string    `json:"inviter_username"`
-	InviteeID       int64     `json:"invitee_id"`
+	InviteeID       *int64    `json:"invitee_id"`
 	InviteeEmail    string    `json:"invitee_email"`
 	InviteeUsername string    `json:"invitee_username"`
-	OrderAmount     float64   `json:"order_amount"`
-	PayAmount       float64   `json:"pay_amount"`
+	OrderAmount     *float64  `json:"order_amount"`
+	PayAmount       *float64  `json:"pay_amount"`
 	RebateAmount    float64   `json:"rebate_amount"`
 	PaymentType     string    `json:"payment_type"`
 	OrderStatus     string    `json:"order_status"`

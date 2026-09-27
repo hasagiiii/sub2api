@@ -806,18 +806,10 @@ LIMIT $`+fmt.Sprint(len(args)-1)+` OFFSET $`+fmt.Sprint(len(args)), args...)
 		); err != nil {
 			return nil, 0, err
 		}
-		if orderID.Valid {
-			item.OrderID = orderID.Int64
-		}
-		if inviteeID.Valid {
-			item.InviteeID = inviteeID.Int64
-		}
-		if orderAmount.Valid {
-			item.OrderAmount = orderAmount.Float64
-		}
-		if payAmount.Valid {
-			item.PayAmount = payAmount.Float64
-		}
+		item.OrderID = nullableInt64Ptr(orderID)
+		item.InviteeID = nullableInt64Ptr(inviteeID)
+		item.OrderAmount = nullableFloat64Ptr(orderAmount)
+		item.PayAmount = nullableFloat64Ptr(payAmount)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
