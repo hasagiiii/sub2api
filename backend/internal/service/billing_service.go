@@ -1761,19 +1761,32 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 	var unitPrice float64
 
 	if input.SizeTier != "" {
-		if resolved.Mode == BillingModeImage && imageTierLabel(input.SizeTier) == "" && len(resolved.RequestTiers) > 0 {
-			dimensions, err := ParseImageRequestDimensions(input.SizeTier)
-			if err != nil {
-				return nil, err
-			}
+		if resolved.Mode == BillingModeImage && len(resolved.RequestTiers) > 0 {
 			pixelMode := imagePricingUsesPixels(resolved.RequestTiers)
 			if pixelMode {
-				unitPrice, _, err = input.Resolver.GetImagePixelTierPrice(resolved, dimensions, input.Quality)
-			} else {
+				dimensions, err := ParseImageRequestDimensions(input.SizeTier)
+				if err == nil {
+					unitPrice, _, err = input.Resolver.GetImagePixelTierPrice(resolved, dimensions, input.Quality)
+					if err != nil {
+						return nil, err
+					}
+				} else {
+					// Named sizes such as 2K do not contain actual pixels. Use
+					// the highest configured tier only for pre-authorization;
+					// final settlement uses the provider's output dimensions.
+					unitPrice, _ = input.Resolver.GetMaxImagePixelTierPrice(resolved, input.Quality)
+				}
+			} else if imageTierLabel(input.SizeTier) == "" {
+				dimensions, err := ParseImageRequestDimensions(input.SizeTier)
+				if err != nil {
+					return nil, err
+				}
 				unitPrice, _, err = input.Resolver.GetImageTierPrice(resolved, dimensions, input.Quality)
-			}
-			if err != nil {
-				return nil, err
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				unitPrice = input.Resolver.GetRequestTierPriceWithQuality(resolved, input.SizeTier, input.Quality)
 			}
 		} else {
 			unitPrice = input.Resolver.GetRequestTierPriceWithQuality(resolved, input.SizeTier, input.Quality)

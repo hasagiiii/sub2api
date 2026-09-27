@@ -108,6 +108,65 @@ func TestCalculateCostUnified_ImageQuality_LegacyNoQuality(t *testing.T) {
 	require.InDelta(t, 0.08, cost.TotalCost, 1e-9)
 }
 
+func TestCalculateCostUnified_ImagePixelPricingUsesActualDimensions(t *testing.T) {
+	billing := newTestBillingService()
+	resolver := NewModelPricingResolver(nil, billing)
+	maxPixels := int64(5_000_000)
+	price := 0.12
+	resolved := &ResolvedPricing{
+		Mode: BillingModeImage,
+		RequestTiers: []PricingInterval{{
+			TierLabel:       "P1",
+			MaxPixels:       &maxPixels,
+			PerRequestPrice: &price,
+		}},
+	}
+
+	// Pixel pricing uses the actual width*height rather than a named 2K/4K
+	// label. 1200x1200 is 1.44M pixels and fits this tier.
+	cost, err := billing.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          "bytedance/seedream-v5.0-pro/layer",
+		RequestCount:   1,
+		SizeTier:       "1200x1200",
+		RateMultiplier: 1,
+		Resolver:       resolver,
+		Resolved:       resolved,
+	})
+	require.NoError(t, err)
+	require.InDelta(t, price, cost.TotalCost, 1e-9)
+}
+
+func TestCalculateCostUnified_ImagePixelPricingPreauthorizationUsesMaxTierWithoutDimensions(t *testing.T) {
+	billing := newTestBillingService()
+	resolver := NewModelPricingResolver(nil, billing)
+	firstMaxPixels := int64(2_000_000)
+	firstPrice := 0.12
+	lastPrice := 0.24
+	resolved := &ResolvedPricing{
+		Mode: BillingModeImage,
+		RequestTiers: []PricingInterval{
+			{TierLabel: "P1", MaxPixels: &firstMaxPixels, PerRequestPrice: &firstPrice},
+			{TierLabel: "P2", PerRequestPrice: &lastPrice},
+		},
+	}
+
+	// A named provider size has no actual dimensions. The pre-authorization
+	// must reserve the highest configured pixel price; final settlement uses
+	// the provider's returned dimensions.
+	cost, err := billing.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          "bytedance/seedream-v5.0-pro/layer",
+		RequestCount:   1,
+		SizeTier:       "2K",
+		RateMultiplier: 1,
+		Resolver:       resolver,
+		Resolved:       resolved,
+	})
+	require.NoError(t, err)
+	require.InDelta(t, lastPrice, cost.TotalCost, 1e-9)
+}
+
 // TestGetRequestTierPriceWithQuality_Priority 直接验证二维查找的优先级与回退。
 func TestGetRequestTierPriceWithQuality_Priority(t *testing.T) {
 	resolver := &ModelPricingResolver{}

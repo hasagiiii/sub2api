@@ -312,6 +312,30 @@ func (s *AsyncMediaService) settleBytedanceResult(ctx context.Context, task *Asy
 	}
 	count, countErr := bytedance.BillableImages(e.ResultPayload, e.RequestPayload["layer_decomposition"] == true)
 	final := (e.UnitPrice*float64(count) + e.InputImagePrice*float64(e.InputImageCount)) * task.RateMultiplier
+	if countErr == nil {
+		if exactCost, applied, exactErr := s.estimateBytedancePixelFinalCost(
+			ctx,
+			task.RequestedModel,
+			amDerefStr(task.UpstreamModel),
+			task.GroupID,
+			task.Quality,
+			bytedanceOutputSizes(task, e.ResultPayload),
+			count,
+			task.RateMultiplier,
+			e.InputImageCount,
+		); applied {
+			if exactErr == nil {
+				final = exactCost
+			} else {
+				logger.L().Warn("async_media.bytedance_pixel_settlement_fallback",
+					zap.Int64("task_id", task.ID),
+					zap.String("requested_model", task.RequestedModel),
+					zap.String("upstream_model", amDerefStr(task.UpstreamModel)),
+					zap.Strings("output_sizes", bytedanceOutputSizes(task, e.ResultPayload)),
+					zap.Error(exactErr))
+			}
+		}
+	}
 	reason := ""
 	if countErr != nil {
 		count = -1
@@ -324,6 +348,96 @@ func (s *AsyncMediaService) settleBytedanceResult(ctx context.Context, task *Asy
 	}
 	s.refreshBytedanceStatus(ctx, task)
 	return err
+}
+
+// estimateBytedancePixelFinalCost settles pixel-priced Seedream output from
+// the provider's actual dimensions. Submission has no output dimensions yet,
+// so estimateCost pre-authorizes using the highest configured pixel tier.
+func (s *AsyncMediaService) estimateBytedancePixelFinalCost(
+	ctx context.Context,
+	requestedModel, upstreamModel string,
+	groupID *int64,
+	quality *string,
+	outputSizes []string,
+	count int,
+	rateMultiplier float64,
+	inputImageCount int,
+) (float64, bool, error) {
+	if s == nil || s.resolver == nil || count < 0 {
+		return 0, false, nil
+	}
+	group, _ := s.loadPricingGroup(ctx, groupID)
+	_, resolved := s.resolveConfiguredImagePricing(ctx, requestedModel, upstreamModel, groupID, group)
+	if resolved == nil || resolved.Mode != BillingModeImage || !imagePricingUsesPixels(resolved.RequestTiers) {
+		return 0, false, nil
+	}
+	if count > 0 && len(outputSizes) == 0 {
+		return 0, true, fmt.Errorf("provider returned no output dimensions for pixel-priced image")
+	}
+	qualityValue := ""
+	if quality != nil {
+		qualityValue = *quality
+	}
+	finalCost := 0.0
+	for i := 0; i < count; i++ {
+		size := strings.TrimSpace(outputSizes[minInt(i, len(outputSizes)-1)])
+		if _, err := ParseImageRequestDimensions(size); err != nil {
+			return 0, true, fmt.Errorf("invalid provider output dimensions %q: %w", size, err)
+		}
+		_, actualCost, err := s.estimateCost(
+			ctx,
+			requestedModel,
+			upstreamModel,
+			groupID,
+			size,
+			size,
+			qualityValue,
+			1,
+			rateMultiplier,
+			0,
+		)
+		if err != nil {
+			return 0, true, err
+		}
+		finalCost += actualCost
+	}
+	if inputImageCount > 0 {
+		inputPrice := s.resolveImageInputPrice(ctx, requestedModel, upstreamModel, groupID)
+		finalCost += inputPrice * float64(inputImageCount) * rateMultiplier
+	}
+	return finalCost, true, nil
+}
+
+func bytedanceOutputSizes(task *AsyncMediaTask, result map[string]any) []string {
+	var sizes []string
+	if task != nil {
+		for _, metadata := range task.ImageMetadata {
+			if metadata.Width > 0 && metadata.Height > 0 {
+				sizes = append(sizes, fmt.Sprintf("%dx%d", metadata.Width, metadata.Height))
+			}
+		}
+	}
+	if len(sizes) > 0 {
+		return sizes
+	}
+	data, _ := result["data"].([]any)
+	for _, raw := range data {
+		entry, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if size, ok := entry["size"].(string); ok && strings.TrimSpace(size) != "" {
+			sizes = append(sizes, strings.TrimSpace(size))
+		}
+	}
+	return sizes
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func bytedanceInputImageCount(payload map[string]any) int {

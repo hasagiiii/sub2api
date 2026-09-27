@@ -280,3 +280,38 @@ func TestBytedanceDoesNotUseGenericImageFallbackWhenPricingIsMissing(t *testing.
 	// In particular, the old generic 2K fallback ($0.201/image) must not be used.
 	require.Empty(t, repo.byID)
 }
+
+func TestBytedancePixelSettlementUsesProviderOutputDimensions(t *testing.T) {
+	groupID := int64(29)
+	maxPixels := int64(2_000_000)
+	price := 0.12
+	group := &Group{
+		ID: groupID,
+		ModelPricing: []ChannelModelPricing{{
+			Models:      []string{domain.SeedreamLayerModel},
+			BillingMode: BillingModeImage,
+			Intervals: []PricingInterval{{
+				TierLabel:       "P1",
+				MaxPixels:       &maxPixels,
+				PerRequestPrice: &price,
+			}},
+		}},
+	}
+	billing := newTestBillingService()
+	svc := NewAsyncMediaService(nil, nil, &asyncMediaPricingGroupRepo{group: group}, billing, NewModelPricingResolver(nil, billing), nil)
+
+	finalCost, applied, err := svc.estimateBytedancePixelFinalCost(
+		context.Background(),
+		domain.SeedreamLayerModel,
+		domain.SeedreamModel,
+		&groupID,
+		nil,
+		[]string{"1200x1200"},
+		1,
+		1,
+		0,
+	)
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.InDelta(t, price, finalCost, 1e-9)
+}

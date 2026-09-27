@@ -1268,6 +1268,12 @@ func (s *AsyncMediaService) estimateCost(
 		groupCfg.RawInputImageCount = imageInputCount
 	}
 	fallbackModel := strings.TrimSpace(upstreamModel)
+	if resolved != nil && strings.TrimSpace(pricingModel) != "" {
+		// Keep diagnostics and provider-specific guards on the model whose
+		// configured pricing was selected. The upstream model is only the
+		// provider transport name and must not replace the public billing model.
+		fallbackModel = strings.TrimSpace(pricingModel)
+	}
 	if fallbackModel == "" {
 		fallbackModel = strings.TrimSpace(requestedModel)
 	}

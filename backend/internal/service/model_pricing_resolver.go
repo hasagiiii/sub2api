@@ -492,6 +492,26 @@ func (r *ModelPricingResolver) GetImagePixelTierPrice(resolved *ResolvedPricing,
 	return r.GetRequestTierPriceWithQuality(resolved, last.TierLabel, quality), last.TierLabel, nil
 }
 
+// GetMaxImagePixelTierPrice returns the highest positive price available in a
+// pixel-based image card. It is used for async pre-authorization when the
+// provider has not returned actual output dimensions yet. Final settlement
+// must use GetImagePixelTierPrice with the real dimensions.
+func (r *ModelPricingResolver) GetMaxImagePixelTierPrice(resolved *ResolvedPricing, quality string) (float64, bool) {
+	if resolved == nil {
+		return 0, false
+	}
+	maxPrice := resolved.DefaultPerRequestPrice
+	for _, interval := range resolved.RequestTiers {
+		if !isImagePixelPricingInterval(interval) {
+			continue
+		}
+		if price := r.GetRequestTierPriceWithQuality(resolved, interval.TierLabel, quality); price > maxPrice {
+			maxPrice = price
+		}
+	}
+	return maxPrice, maxPrice > 0
+}
+
 // GetRequestTierPriceByContext 根据 context token 数获取按次价格
 func (r *ModelPricingResolver) GetRequestTierPriceByContext(resolved *ResolvedPricing, totalContextTokens int) float64 {
 	iv := FindMatchingInterval(resolved.RequestTiers, totalContextTokens)
