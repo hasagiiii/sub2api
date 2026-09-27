@@ -810,7 +810,7 @@ func (h *OrganizationHandler) CancelSubscription(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.organization.CancelOrganizationSubscription(c.Request.Context(), userID, subscriptionID); err != nil {
+	if err := h.organization.CancelOrganizationSubscription(c.Request.Context(), userID, subscriptionID); err != nil { //nolint:staticcheck // SA4023: paid organization subscriptions are intentionally non-cancellable
 		response.ErrorFrom(c, err)
 		return
 	}

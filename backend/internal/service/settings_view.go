@@ -261,9 +261,9 @@ type SystemSettings struct {
 	PluginManagementEnabled bool   `json:"plugin_management_enabled"`
 
 	// Claude Code version check
-	MinClaudeCodeVersion string
-	MaxClaudeCodeVersion string
-	ClaudeCodeClientVersion string
+	MinClaudeCodeVersion             string
+	MaxClaudeCodeVersion             string
+	ClaudeCodeClientVersion          string
 	ClaudeCodeVersionAutoSyncEnabled bool
 
 	// 分组隔离：允许未分组 Key 调度（默认 false → 403）
