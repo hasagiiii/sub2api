@@ -13,7 +13,11 @@ import (
 func TestRedeemReductionPreservesPartialDay(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)
-	user, err := client.User.Create().SetEmail("reduction-remainder@example.com").SetPasswordHash("test").Save(ctx)
+	user, err := client.User.Create().
+		SetEmail("reduction-remainder@example.com").
+		SetAccountID(mustGenerateRootAccountID(t)).
+		SetPasswordHash("test").
+		Save(ctx)
 	require.NoError(t, err)
 	group, err := client.Group.Create().SetName("reduction-remainder").Save(ctx)
 	require.NoError(t, err)

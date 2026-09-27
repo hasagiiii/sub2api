@@ -33,7 +33,11 @@ func newReductionLockFixture(t *testing.T, name string) (*service.RedeemService,
 	t.Helper()
 	ctx := context.Background()
 	client := testEntClient(t)
-	user, err := client.User.Create().SetEmail(name + "@example.com").SetPasswordHash("test").Save(ctx)
+	user, err := client.User.Create().
+		SetEmail(name + "@example.com").
+		SetAccountID(mustGenerateRootAccountID(t)).
+		SetPasswordHash("test").
+		Save(ctx)
 	require.NoError(t, err)
 	group, err := client.Group.Create().SetName(name).Save(ctx)
 	require.NoError(t, err)
