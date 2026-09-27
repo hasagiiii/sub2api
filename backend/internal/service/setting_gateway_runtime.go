@@ -297,8 +297,8 @@ func (s *SettingService) GetOpenAICodexUserAgent(ctx context.Context) string {
 			})
 			return fallback, nil
 		}
-		ua := strings.TrimSpace(value)
-		if ua == "" {
+		ua := value
+		if strings.TrimSpace(ua) == "" {
 			ua = fallback
 		}
 		s.openAICodexUACache.Store(&cachedOpenAICodexUserAgent{
@@ -535,16 +535,19 @@ func (s *SettingService) GetOpenAICodexCanonicalUserAgent(ctx context.Context) s
 		return codexCLIUserAgent
 	}
 	version := s.GetOpenAICodexClientVersion(ctx)
-	ua := strings.TrimSpace(s.GetOpenAICodexUserAgent(ctx))
-	if ua == "" {
+	rawUA := s.GetOpenAICodexUserAgent(ctx)
+	if strings.TrimSpace(rawUA) == "" {
 		return buildCodexCLIUserAgent(version)
 	}
-	if rebuilt := openai.SetCodexUserAgentVersion(ua, version); rebuilt != "" {
-		return rebuilt
+	if _, pairedUA, recognized := openai.PairCodexClientIdentity(rawUA); recognized {
+		if rebuilt := openai.SetCodexUserAgentVersion(pairedUA, version); rebuilt != "" {
+			return rebuilt
+		}
 	}
-	// 非 `{client}/{version}` 形态：交给 PairCodexClientIdentity 判定，
-	// 推导不出官方身份时由收口整体回退规范身份。
-	return ua
+	// 非 `{client}/{version}` 形态不能作为 Codex 出站身份使用；回退到
+	// 当前生效版本的规范 TUI 身份，避免把浏览器或任意自定义 UA 透传到
+	// ChatGPT 内部接口。
+	return buildCodexCLIUserAgent(version)
 }
 
 var legacyClaudeCodeCodexWhitelistEntry = openai.AllowedClientEntry{

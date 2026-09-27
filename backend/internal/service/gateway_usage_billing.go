@@ -73,17 +73,17 @@ type usageLogBestEffortWriter interface {
 
 // postUsageBillingParams 统一扣费所需的参数
 type postUsageBillingParams struct {
-	Cost                  *CostBreakdown
-	User                  *User
-	APIKey                *APIKey
-	Account               *Account
-	Subscription          *UserSubscription
-	RequestPayloadHash    string
-	IsSubscriptionBill    bool
-	AccountRateMultiplier float64
-	APIKeyService         APIKeyQuotaUpdater
-	Platform              string // 来自 APIKey 关联 Group 的平台标识
-	BillingContext        *BillingContext
+	Cost                       *CostBreakdown
+	User                       *User
+	APIKey                     *APIKey
+	Account                    *Account
+	Subscription               *UserSubscription
+	RequestPayloadHash         string
+	IsSubscriptionBill         bool
+	AccountRateMultiplier      float64
+	APIKeyService              APIKeyQuotaUpdater
+	Platform                   string // 来自 APIKey 关联 Group 的平台标识
+	BillingContext             *BillingContext
 	SimpleModeKeyRateLimitOnly bool
 }
 
@@ -1050,17 +1050,17 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 	requestID := usageLog.RequestID
 	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
-		Cost:                  cost,
-		User:                  user,
-		APIKey:                apiKey,
-		Account:               account,
-		Subscription:          subscription,
-		RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-		IsSubscriptionBill:    isSubscriptionBilling && !simpleModeKeyRateLimitOnly,
-		AccountRateMultiplier: accountRateMultiplier,
-		APIKeyService:         input.APIKeyService,
-		Platform:              quotaPlatform,
-		BillingContext:        resolvedBillingContext,
+		Cost:                       cost,
+		User:                       user,
+		APIKey:                     apiKey,
+		Account:                    account,
+		Subscription:               subscription,
+		RequestPayloadHash:         resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+		IsSubscriptionBill:         isSubscriptionBilling && !simpleModeKeyRateLimitOnly,
+		AccountRateMultiplier:      accountRateMultiplier,
+		APIKeyService:              input.APIKeyService,
+		Platform:                   quotaPlatform,
+		BillingContext:             resolvedBillingContext,
 		SimpleModeKeyRateLimitOnly: simpleModeKeyRateLimitOnly,
 	}, s.billingDeps(), s.usageBillingRepo)
 
@@ -1160,7 +1160,8 @@ func (s *GatewayService) calculateRecordUsageCost(
 			cost, err := s.billingService.CalculateCostUnified(CostInput{
 				Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 				UsageUnits: result.AudioUsage.DurationOrUnits, SizeTier: result.AudioUsage.Mode,
-				RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
+				RateMultiplier: multiplier, ReasoningEffort: optionalStringValue(result.ReasoningEffort),
+				Resolver: s.resolver, Resolved: resolved,
 			})
 			if err == nil {
 				return cost
@@ -1303,7 +1304,8 @@ func (s *GatewayService) calculateImageCost(
 		cost, err := s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			RequestCount: result.ImageCount, SizeTier: billingSize,
-			RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
+			RateMultiplier: multiplier, ReasoningEffort: optionalStringValue(result.ReasoningEffort),
+			Resolver: s.resolver, Resolved: resolved,
 		})
 		if err == nil {
 			return cost
@@ -1321,16 +1323,17 @@ func (s *GatewayService) calculateImageCost(
 		}
 		gid := apiKey.Group.ID
 		cost, err := s.billingService.CalculateCostUnified(CostInput{
-			Ctx:            ctx,
-			Model:          billingModel,
-			GroupID:        &gid,
-			Group:          apiKey.Group,
-			Tokens:         tokens,
-			RequestCount:   result.ImageCount,
-			SizeTier:       billingSize,
-			RateMultiplier: multiplier,
-			Resolver:       s.resolver,
-			Resolved:       resolved,
+			Ctx:             ctx,
+			Model:           billingModel,
+			GroupID:         &gid,
+			Group:           apiKey.Group,
+			Tokens:          tokens,
+			RequestCount:    result.ImageCount,
+			SizeTier:        billingSize,
+			RateMultiplier:  multiplier,
+			ReasoningEffort: optionalStringValue(result.ReasoningEffort),
+			Resolver:        s.resolver,
+			Resolved:        resolved,
 		})
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Calculate image token cost failed: %v", err)

@@ -1531,7 +1531,9 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	if platform != "" {
 		filtered := make([]Account, 0)
 		for _, acc := range accounts {
-			if acc.Platform == platform {
+			if acc.Platform == platform ||
+				((platform == PlatformGemini || platform == PlatformAnthropic) &&
+					acc.Platform == PlatformAntigravity && acc.IsMixedSchedulingEnabled()) {
 				filtered = append(filtered, acc)
 			}
 		}
@@ -1557,7 +1559,17 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		mapping := acc.GetModelMapping()
 		if len(mapping) > 0 {
 			hasAnyMapping = true
-			for model := range mapping {
+			for model, target := range mapping {
+				// Mixed-scheduling Antigravity accounts may expose both Claude and
+				// Gemini aliases. A Gemini/Anthropic model listing must only publish
+				// aliases whose mapped upstream model belongs to that platform.
+				if acc.Platform == PlatformAntigravity &&
+					(platform == PlatformGemini || platform == PlatformAnthropic) {
+					mappedPlatform, recognized := DetectModelPlatform(target)
+					if !recognized || mappedPlatform != platform {
+						continue
+					}
+				}
 				modelSet[model] = struct{}{}
 			}
 		}

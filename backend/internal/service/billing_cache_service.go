@@ -777,8 +777,31 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 }
 
 func (s *BillingCacheService) checkBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
-	// 简易模式：跳过所有计费检查
+	// 简易模式默认跳过计费检查；显式开启 API Key 窗口限额时，仍需从 DB
+	// 读取最新状态并 fail-closed，避免缓存缺失或数据库异常绕过限额。
 	if s.cfg.RunMode == config.RunModeSimple {
+		if s.cfg.SimpleModeKeyRateLimitEnabled && apiKey != nil && apiKey.HasRateLimits() {
+			if s.apiKeyRateLimitLoader == nil {
+				return ErrBillingServiceUnavailable
+			}
+			data, err := s.apiKeyRateLimitLoader.GetRateLimitData(ctx, apiKey.ID)
+			if err != nil || data == nil {
+				return ErrBillingServiceUnavailable.WithCause(err)
+			}
+			// Simple-mode preflight is DB-authoritative but must remain read-only:
+			// do not launch the normal cache/window-reset goroutine here. The
+			// request path only needs effective usage for admission, and reset
+			// side effects can race test/degraded repositories or typed-nil mocks.
+			if apiKey.RateLimit5h > 0 && data.EffectiveUsage5h() >= apiKey.RateLimit5h {
+				return ErrAPIKeyRateLimit5hExceeded
+			}
+			if apiKey.RateLimit1d > 0 && data.EffectiveUsage1d() >= apiKey.RateLimit1d {
+				return ErrAPIKeyRateLimit1dExceeded
+			}
+			if apiKey.RateLimit7d > 0 && data.EffectiveUsage7d() >= apiKey.RateLimit7d {
+				return ErrAPIKeyRateLimit7dExceeded
+			}
+		}
 		logger.LegacyPrintf("service.billing_cache",
 			"DIAG_BILLING_BYPASS preflight_skip_simple_mode user_id=%d api_key_id=%d",
 			user.ID, func() int64 {

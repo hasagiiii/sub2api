@@ -45,7 +45,7 @@ const (
 
 type cachedOpenAIAdvancedSchedulerSetting struct {
 	lowUpstreamRatePriorityEnabled bool
-	oauthSchedulingRateMultiplier  float64
+	oauthSchedulingRateMultiplier  *float64
 	enabled                        bool
 	stickyWeightedEnabled          bool
 	subscriptionPriorityEnabled    bool
@@ -56,7 +56,7 @@ type cachedOpenAIAdvancedSchedulerSetting struct {
 
 type openAIAdvancedSchedulerRuntimeSettings struct {
 	lowUpstreamRatePriorityEnabled bool
-	oauthSchedulingRateMultiplier  float64
+	oauthSchedulingRateMultiplier  *float64
 	enabled                        bool
 	stickyWeightedEnabled          bool
 	subscriptionPriorityEnabled    bool
@@ -1923,7 +1923,7 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 		}
 
 		lowUpstreamRatePriorityEnabled := false
-			oauthSchedulingRateMultiplier := defaultOpenAIOAuthSchedulingRateMultiplier
+		oauthSchedulingRateMultiplier := float64Ptr(defaultOpenAIOAuthSchedulingRateMultiplier)
 		enabled := false
 		stickyWeightedEnabled := false
 		subscriptionPriorityEnabled := false
@@ -1935,7 +1935,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 
 			if values, err := repo.GetMultiple(dbCtx, openAIAdvancedSchedulerRuntimeSettingKeys()); err == nil {
 				lowUpstreamRatePriorityEnabled = strings.EqualFold(strings.TrimSpace(values[SettingKeyOpenAILowUpstreamRatePriorityEnabled]), "true")
-				if value := parseOpenAIOAuthSchedulingRateMultiplier(values[SettingKeyOpenAIOAuthSchedulingRateMultiplier]); value != nil { oauthSchedulingRateMultiplier = *value }
+				if raw, present := values[SettingKeyOpenAIOAuthSchedulingRateMultiplier]; present {
+					oauthSchedulingRateMultiplier = parseOpenAIOAuthSchedulingRateMultiplier(raw)
+				}
 				enabled = strings.EqualFold(strings.TrimSpace(values[openAIAdvancedSchedulerSettingKey]), "true")
 				stickyWeightedEnabled = strings.EqualFold(strings.TrimSpace(values[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled]), "true")
 				subscriptionPriorityEnabled = strings.EqualFold(strings.TrimSpace(values[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled]), "true")
@@ -1952,7 +1954,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 					}
 				}
 				lowUpstreamRatePriorityEnabled = strings.EqualFold(strings.TrimSpace(fallbackValues[SettingKeyOpenAILowUpstreamRatePriorityEnabled]), "true")
-				if value := parseOpenAIOAuthSchedulingRateMultiplier(fallbackValues[SettingKeyOpenAIOAuthSchedulingRateMultiplier]); value != nil { oauthSchedulingRateMultiplier = *value }
+				if raw, present := fallbackValues[SettingKeyOpenAIOAuthSchedulingRateMultiplier]; present {
+					oauthSchedulingRateMultiplier = parseOpenAIOAuthSchedulingRateMultiplier(raw)
+				}
 				enabled = strings.EqualFold(strings.TrimSpace(fallbackValues[openAIAdvancedSchedulerSettingKey]), "true")
 				stickyWeightedEnabled = strings.EqualFold(strings.TrimSpace(fallbackValues[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled]), "true")
 				subscriptionPriorityEnabled = strings.EqualFold(strings.TrimSpace(fallbackValues[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled]), "true")
@@ -1995,7 +1999,7 @@ func (s *OpenAIGatewayService) isOpenAILowUpstreamRatePriorityEnabled(ctx contex
 	return !settings.enabled && settings.lowUpstreamRatePriorityEnabled
 }
 
-func (s *OpenAIGatewayService) openAIOAuthSchedulingRateMultiplier(ctx context.Context) float64 {
+func (s *OpenAIGatewayService) openAIOAuthSchedulingRateMultiplier(ctx context.Context) *float64 {
 	return s.openAIAdvancedSchedulerRuntimeSettings(ctx).oauthSchedulingRateMultiplier
 }
 
@@ -2489,6 +2493,17 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		if preserveGuardianParentBinding {
 			legacySessionHash = ""
 		}
+		legacyStickyAccountID := int64(0)
+		if legacySessionHash != "" && s.cache != nil {
+			legacyStickyAccountID, _ = s.getStickySessionAccountID(ctx, groupID, legacySessionHash)
+		}
+		applyLegacySelection := func(selection *AccountSelectionResult) {
+			applyLegacySelectionDecision(&decision, selection)
+			if legacyStickyAccountID > 0 && selection != nil && selection.Account != nil && selection.Account.ID == legacyStickyAccountID {
+				decision.Layer = openAIAccountScheduleLayerSessionSticky
+				decision.StickySessionHit = true
+			}
+		}
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
 			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 			for {
@@ -2500,7 +2515,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 					return selection, decision, nil
 				}
 				if accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
-					applyLegacySelectionDecision(&decision, selection)
+					applyLegacySelection(selection)
 					return selection, decision, nil
 				}
 				if selection.ReleaseFunc != nil {
@@ -2527,7 +2542,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			}
 			if s.isOpenAIAccountTransportCompatible(selection.Account, requiredTransport) &&
 				accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
-				applyLegacySelectionDecision(&decision, selection)
+				applyLegacySelection(selection)
 				return selection, decision, nil
 			}
 			if selection.ReleaseFunc != nil {
@@ -3100,18 +3115,23 @@ func openAISchedulingRate(account *Account, now time.Time, oauthSchedulingRateMu
 		return 0, false
 	}
 	if account.IsOpenAIOAuthLike() {
-		rate := defaultOpenAIOAuthSchedulingRateMultiplier
 		switch value := oauthSchedulingRateMultiplier.(type) {
 		case float64:
-			rate = value
+			if value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0) {
+				return value, true
+			}
 		case *float64:
 			if value != nil {
-				rate = *value
+				if *value >= 0 && !math.IsNaN(*value) && !math.IsInf(*value, 0) {
+					return *value, true
+				}
 			}
 		}
-		if rate >= 0 && !math.IsNaN(rate) && !math.IsInf(rate, 0) {
+		rate := account.BillingRateMultiplier()
+		if !math.IsNaN(rate) && !math.IsInf(rate, 0) {
 			return rate, true
 		}
+		return 0, false
 	} else if rate, ok := openAIFreshUpstreamBillingRate(account, now); ok {
 		return rate, true
 	}

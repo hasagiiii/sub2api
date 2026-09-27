@@ -103,6 +103,8 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 		"AutoPauseOnExpired": {}, "CreatedAt": {}, "UpdatedAt": {}, "Schedulable": {},
 		"RateLimitedAt": {}, "RateLimitResetAt": {}, "OverloadUntil": {},
 		"TempUnschedulableUntil": {}, "TempUnschedulableReason": {},
+		"KiroQuotaState": {}, "KiroQuotaReason": {}, "KiroQuotaResetAt": {},
+		"KiroRuntimeState": {}, "KiroRuntimeReason": {}, "KiroRuntimeResetAt": {},
 		"SessionWindowStart": {}, "SessionWindowEnd": {}, "SessionWindowStatus": {},
 		"ParentAccountID": {}, "QuotaDimension": {}, "GroupIDs": {},
 	}

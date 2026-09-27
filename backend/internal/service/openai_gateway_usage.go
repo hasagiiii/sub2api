@@ -524,7 +524,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		return err
 	}
 
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	simpleModeKeyRateLimitOnly := simpleModeKeyRateLimitBillingEnabled(s.cfg, apiKey)
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && !simpleModeKeyRateLimitOnly {
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 		writeCostCenterUsageEvents(ctx, s.costCenter, usageLog, isSubscriptionBilling)
 		logger.LegacyPrintf("service.openai_gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
@@ -541,17 +542,18 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	billingErr := func() error {
 		_, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
-			Cost:                  cost,
-			User:                  user,
-			APIKey:                apiKey,
-			Account:               account,
-			Subscription:          subscription,
-			RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
-			IsSubscriptionBill:    isSubscriptionBilling,
-			AccountRateMultiplier: accountRateMultiplier,
-			APIKeyService:         input.APIKeyService,
-			Platform:              quotaPlatform,
-			BillingContext:        resolvedBillingContext,
+			Cost:                       cost,
+			User:                       user,
+			APIKey:                     apiKey,
+			Account:                    account,
+			Subscription:               subscription,
+			RequestPayloadHash:         resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+			IsSubscriptionBill:         isSubscriptionBilling,
+			AccountRateMultiplier:      accountRateMultiplier,
+			APIKeyService:              input.APIKeyService,
+			Platform:                   quotaPlatform,
+			BillingContext:             resolvedBillingContext,
+			SimpleModeKeyRateLimitOnly: simpleModeKeyRateLimitOnly,
 		}, s.billingDeps(), s.usageBillingRepo)
 		return err
 	}()
@@ -631,7 +633,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 			return s.billingService.CalculateCostUnified(CostInput{
 				Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 				UsageUnits: result.AudioUsage.DurationOrUnits, SizeTier: result.AudioUsage.Mode,
-				RateMultiplier: webSearchMultiplier, Resolver: s.resolver, Resolved: resolved,
+				RateMultiplier: webSearchMultiplier, ReasoningEffort: optionalStringValue(result.ReasoningEffort), Resolver: s.resolver, Resolved: resolved,
 			})
 		}
 		cfg := groupAudioPriceConfigFromAPIKey(apiKey)
@@ -797,7 +799,7 @@ func (s *OpenAIGatewayService) calculateOpenAIImageCost(
 		cost, err := s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			RequestCount: result.ImageCount, SizeTier: billingSize,
-			Quality: result.ImageQuality, RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
+			Quality: result.ImageQuality, RateMultiplier: multiplier, ReasoningEffort: optionalStringValue(result.ReasoningEffort), Resolver: s.resolver, Resolved: resolved,
 		})
 		if err == nil {
 			return cost
@@ -818,16 +820,17 @@ func (s *OpenAIGatewayService) calculateOpenAIImageCost(
 		(resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage) {
 		gid := apiKey.Group.ID
 		cost, err := s.billingService.CalculateCostUnified(CostInput{
-			Ctx:            ctx,
-			Model:          billingModel,
-			GroupID:        &gid,
-			Group:          apiKey.Group,
-			RequestCount:   result.ImageCount,
-			SizeTier:       billingSize,
-			Quality:        result.ImageQuality,
-			RateMultiplier: multiplier,
-			Resolver:       s.resolver,
-			Resolved:       resolved,
+			Ctx:             ctx,
+			Model:           billingModel,
+			GroupID:         &gid,
+			Group:           apiKey.Group,
+			RequestCount:    result.ImageCount,
+			SizeTier:        billingSize,
+			Quality:         result.ImageQuality,
+			RateMultiplier:  multiplier,
+			ReasoningEffort: optionalStringValue(result.ReasoningEffort),
+			Resolver:        s.resolver,
+			Resolved:        resolved,
 		})
 		if err == nil {
 			return cost
@@ -857,7 +860,7 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 		cost, err := s.billingService.CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			UsageUnits: float64(videoCount * durationSeconds), SizeTier: resolution,
-			RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
+			RateMultiplier: multiplier, ReasoningEffort: optionalStringValue(result.ReasoningEffort), Resolver: s.resolver, Resolved: resolved,
 		})
 		if err == nil {
 			return cost
@@ -883,16 +886,17 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 			units = float64(videoCount * durationSeconds)
 		}
 		cost, err := s.billingService.CalculateCostUnified(CostInput{
-			Ctx:            ctx,
-			Model:          billingModel,
-			GroupID:        &gid,
-			Group:          apiKey.Group,
-			RequestCount:   videoCount,
-			UsageUnits:     units,
-			SizeTier:       resolution,
-			RateMultiplier: multiplier,
-			Resolver:       s.resolver,
-			Resolved:       resolved,
+			Ctx:             ctx,
+			Model:           billingModel,
+			GroupID:         &gid,
+			Group:           apiKey.Group,
+			RequestCount:    videoCount,
+			UsageUnits:      units,
+			SizeTier:        resolution,
+			RateMultiplier:  multiplier,
+			ReasoningEffort: optionalStringValue(result.ReasoningEffort),
+			Resolver:        s.resolver,
+			Resolved:        resolved,
 		})
 		if err == nil {
 			cost.BillingMode = string(BillingModeVideo)

@@ -77,17 +77,9 @@ func (s *GatewayService) ForwardAsResponses(
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
 
-	// 3. Convert Responses → Anthropic
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
-	if err != nil {
-		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
-	}
-
-	// 3. Force upstream streaming (Anthropic works best with streaming)
-	anthropicReq.Stream = true
-	reqStream := true
-
-	// 4. Model mapping
+	// 3. Resolve the upstream model before conversion. Opus 5.5 requires
+	// adaptive thinking, and the converter must see the mapped model rather
+	// than a public alias to select that protocol.
 	mappedModel := originalModel
 	if account.Platform == PlatformKiro {
 		if next := account.GetMappedModel(originalModel); next != "" {
@@ -107,10 +99,20 @@ func (s *GatewayService) ForwardAsResponses(
 			mappedModel = normalized
 		}
 	}
+	responsesReq.Model = mappedModel
+
+	// 4. Convert Responses → Anthropic
+	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
+	if err != nil {
+		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
+	}
+
+	// 5. Force upstream streaming (Anthropic works best with streaming)
+	anthropicReq.Stream = true
+	reqStream := true
 
 	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, mappedModel, originalModel)
-	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
@@ -120,13 +122,17 @@ func (s *GatewayService) ForwardAsResponses(
 		zap.Bool("client_stream", clientStream),
 	)
 
-	// 5. Marshal Anthropic request body
+	// 6. Marshal Anthropic request body
 	anthropicBody, err := json.Marshal(anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
+	// Only record the default effort when thinking was actually forwarded to
+	// Anthropic. An unrelated client-side `thinking` field must not create a
+	// billing multiplier for a request that was sent without thinking.
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, anthropicBody, mappedModel)
 
-	// 6. Apply Claude Code mimicry for OAuth accounts (non-Claude-Code endpoints).
+	// 7. Apply Claude Code mimicry for OAuth accounts (non-Claude-Code endpoints).
 	// OpenAI Responses 协议进来的请求永远不是 Claude Code 客户端，所以对 OAuth 账号
 	// 必须完整执行 /v1/messages 主路径上的伪装链路（system 重写 + normalize + metadata 注入），
 	// 否则会被 Anthropic 判为第三方应用并扣 extra usage。
@@ -314,6 +320,11 @@ func ExtractResponsesReasoningEffortFromBody(body []byte, modelCandidates ...str
 		model = strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	}
 	normalized := normalizeOpenAIReasoningEffortForModel(raw, model)
+	if normalized == "xhigh" && strings.Contains(strings.ToLower(model), "claude") {
+		// ResponsesToAnthropicRequest maps xhigh to Anthropic's max level;
+		// usage billing must use the forwarded level as well.
+		normalized = "max"
+	}
 	if normalized == "" {
 		return nil
 	}
@@ -473,6 +484,8 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 					finalResp.Content[idx].Thinking += event.Delta.Thinking
 				case "input_json_delta":
 					finalResp.Content[idx].Input = appendRawJSON(finalResp.Content[idx].Input, event.Delta.PartialJSON)
+				case "signature_delta":
+					finalResp.Content[idx].Signature += event.Delta.Signature
 				}
 			}
 		}

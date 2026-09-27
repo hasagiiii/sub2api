@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"math"
 	"strings"
 	"sync"
@@ -96,7 +97,7 @@ type BillingCache interface {
 
 // ModelPricing 模型价格配置（per-token价格，与LiteLLM格式一致）
 type ModelPricing struct {
-	ReasoningEffortMultipliers          map[string]float64
+	ReasoningEffortMultipliers         map[string]float64
 	InputPricePerToken                 float64  // 每token输入价格 (USD)
 	InputPricePerTokenPriority         float64  // priority service tier 下每token输入价格 (USD)
 	ImageInputPricePerToken            float64  // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
@@ -264,6 +265,19 @@ func resolvedChannelTimeMultiplier(resolved *ResolvedPricing, at time.Time) floa
 	return resolved.channelPricing.TimePricing.MultiplierAt(at)
 }
 
+func resolvedReasoningEffortMultipliers(resolved *ResolvedPricing) map[string]float64 {
+	if resolved == nil {
+		return nil
+	}
+	if resolved.channelPricing != nil {
+		return resolved.channelPricing.ReasoningEffortMultipliers
+	}
+	if resolved.BasePricing != nil {
+		return resolved.BasePricing.ReasoningEffortMultipliers
+	}
+	return nil
+}
+
 // ErrModelPricingUnavailable indicates that none of the configured pricing
 // sources can price the requested model.
 var ErrModelPricingUnavailable = errors.New("pricing not found")
@@ -429,6 +443,15 @@ func (s *BillingService) initFallbackPricing() {
 	// 缺少这两条时 getFallbackPricing 会掉到 claude-3-opus（$15/$75），造成 3 倍超收。
 	s.fallbackPrices["claude-opus-4.8"] = pricingWithPriorityMultiplier(s.fallbackPrices["claude-opus-4.7"], 2)
 	s.fallbackPrices["claude-opus-5"] = pricingWithPriorityMultiplier(s.fallbackPrices["claude-opus-4.8"], 2)
+	s.fallbackPrices["claude-opus-5-5"] = &ModelPricing{
+		InputPricePerToken:         4e-6,
+		OutputPricePerToken:        20e-6,
+		CacheCreationPricePerToken: 5e-6,
+		CacheCreation5mPrice:       5e-6,
+		CacheCreation1hPrice:       8e-6,
+		CacheReadPricePerToken:     0.2e-6,
+		SupportsCacheBreakdown:     true,
+	}
 
 	// Claude Sonnet 4.5/4.6 当前与 Sonnet 4 同价
 	s.fallbackPrices["claude-sonnet-4.5"] = s.fallbackPrices["claude-sonnet-4"]
@@ -542,6 +565,32 @@ func (s *BillingService) initFallbackPricing() {
 		CacheCreationPricePerTokenPriority: 25e-6,
 		CacheReadPricePerToken:             1e-6,
 		CacheReadPricePerTokenPriority:     2e-6,
+		LongContextInputThreshold:          272_000,
+		LongContextInputMultiplier:         2,
+		LongContextOutputMultiplier:        1.5,
+	}
+	s.fallbackPrices["gpt-6-sol"] = &ModelPricing{
+		InputPricePerToken:                 2e-6,
+		InputPricePerTokenPriority:         4e-6,
+		OutputPricePerToken:                10e-6,
+		OutputPricePerTokenPriority:        20e-6,
+		CacheCreationPricePerToken:         2.5e-6,
+		CacheCreationPricePerTokenPriority: 5e-6,
+		CacheReadPricePerToken:             0.2e-6,
+		CacheReadPricePerTokenPriority:     0.4e-6,
+		LongContextInputThreshold:          272_000,
+		LongContextInputMultiplier:         2,
+		LongContextOutputMultiplier:        1.5,
+	}
+	s.fallbackPrices["gpt-6-luna"] = &ModelPricing{
+		InputPricePerToken:                 0.1e-6,
+		InputPricePerTokenPriority:         0.2e-6,
+		OutputPricePerToken:                0.5e-6,
+		OutputPricePerTokenPriority:        1e-6,
+		CacheCreationPricePerToken:         0.125e-6,
+		CacheCreationPricePerTokenPriority: 0.25e-6,
+		CacheReadPricePerToken:             0.01e-6,
+		CacheReadPricePerTokenPriority:     0.02e-6,
 		LongContextInputThreshold:          272_000,
 		LongContextInputMultiplier:         2,
 		LongContextOutputMultiplier:        1.5,
@@ -940,6 +989,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		return s.fallbackPrices["claude-fable-5"]
 	}
 	if strings.Contains(modelLower, "opus") {
+		if strings.Contains(modelLower, "opus-5-5") || strings.Contains(modelLower, "opus5-5") || strings.Contains(modelLower, "opus-5.5") {
+			return s.fallbackPrices["claude-opus-5-5"]
+		}
 		// "opus-5" 必须先判：不能用裸 "5" 匹配，否则 claude-opus-4-5 会被误判。
 		if strings.Contains(modelLower, "opus-5") || strings.Contains(modelLower, "opus5") {
 			return s.fallbackPrices["claude-opus-5"]
@@ -1128,6 +1180,10 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 		switch normalized {
 		case "gpt-6-astra":
 			return s.fallbackPrices["gpt-6-astra"]
+		case "gpt-6-sol":
+			return s.fallbackPrices["gpt-6-sol"]
+		case "gpt-6-luna":
+			return s.fallbackPrices["gpt-6-luna"]
 		case "gpt-5.6-sol", "gpt-5.6-sol-wm":
 			return s.fallbackPrices["gpt-5.6-sol"]
 		case "gpt-5.6-terra":
@@ -1330,6 +1386,7 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 	applyChannelTokenPriceOverrides(pricing, channelPricing)
 	pricing.FastMultiplier = channelPricing.FastMultiplier
 	pricing.FlexMultiplier = channelPricing.FlexMultiplier
+	pricing.ReasoningEffortMultipliers = maps.Clone(channelPricing.ReasoningEffortMultipliers)
 	if channelPricing.MaxReasoningEffortMultiplier != nil {
 		pricing.MaxReasoningEffortMultiplier = channelPricing.MaxReasoningEffortMultiplier
 	}
@@ -1431,7 +1488,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 			applyLongContextBilling,
 		)
 		if err == nil {
-			applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, nil))
+			if pricing, pricingErr := s.GetModelPricing(input.Model); pricingErr == nil {
+				applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, pricing.ReasoningEffortMultipliers))
+			}
 		}
 		return breakdown, err
 	}
@@ -1519,7 +1578,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 
 	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx)
 	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))
-	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing))
+	applyCostBreakdownMultiplier(breakdown, reasoningEffortBillingMultiplier(input.ReasoningEffort, pricing.ReasoningEffortMultipliers))
 	return breakdown, nil
 }
 
@@ -1555,6 +1614,13 @@ func (s *BillingService) computeTokenBreakdown(
 		if pricing.CacheCreationPricePerTokenPriority > 0 {
 			cacheCreationPrice = pricing.CacheCreationPricePerTokenPriority
 		}
+		// LiteLLM exposes one priority cache-write price, while Anthropic
+		// breakdown pricing has separate 5m/1h prices. Preserve that breakdown
+		// and scale both buckets by the same priority ratio instead of treating
+		// the 5m/1h detail as standard-tier-only.
+		if pricing.SupportsCacheBreakdown && pricing.CacheCreationPricePerToken > 0 && pricing.CacheCreationPricePerTokenPriority > 0 {
+			cacheCreationMultiplier = pricing.CacheCreationPricePerTokenPriority / pricing.CacheCreationPricePerToken
+		}
 	} else {
 		tierMultiplier = configuredServiceTierMultiplier(serviceTier, pricing)
 	}
@@ -1574,7 +1640,7 @@ func (s *BillingService) computeTokenBreakdown(
 		// 缓存创建（cache_write）也是输入侧操作，三档价格（标准 / 5m / 1h）
 		// 都通过 computeCacheCreationCost 直接读取 pricing.*，不会经过这里
 		// 的倍率修改，因此显式向下传一个倍率，避免长上下文场景下被漏乘。
-		cacheCreationMultiplier = longCtxInputMultiplier
+		cacheCreationMultiplier *= longCtxInputMultiplier
 	}
 
 	bd := &CostBreakdown{}
@@ -1731,6 +1797,7 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 			totalCost += inputPrice * float64(input.ImageInputCount)
 		}
 	}
+	totalCost *= reasoningEffortBillingMultiplier(input.ReasoningEffort, resolvedReasoningEffortMultipliers(resolved))
 	actualCost := totalCost * input.RateMultiplier
 
 	return &CostBreakdown{
@@ -1878,7 +1945,7 @@ func (s *BillingService) applyModelSpecificPricingPolicyEx(model string, pricing
 // 档的模型（如 gpt-5.5-pro、gpt-5.4-mini/nano）返回 0。
 func openAIModelFastPricingRatio(normalized string) float64 {
 	switch normalized {
-	case "gpt-5.4", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra":
+	case "gpt-5.4", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna":
 		return 2.0
 	case "gpt-5.5":
 		return 2.5

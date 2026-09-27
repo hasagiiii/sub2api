@@ -798,7 +798,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
 		lowUpstreamRatePriorityEnabled: settings.OpenAILowUpstreamRatePriorityEnabled,
-		oauthSchedulingRateMultiplier:  func() float64 { if settings.OpenAIOAuthSchedulingRateMultiplier != nil { return *settings.OpenAIOAuthSchedulingRateMultiplier }; return defaultOpenAIOAuthSchedulingRateMultiplier }(),
+		oauthSchedulingRateMultiplier:  settings.OpenAIOAuthSchedulingRateMultiplier,
 		enabled:                        settings.OpenAIAdvancedSchedulerEnabled,
 		stickyWeightedEnabled:          settings.OpenAIAdvancedSchedulerStickyWeightedEnabled,
 		subscriptionPriorityEnabled:    settings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled,

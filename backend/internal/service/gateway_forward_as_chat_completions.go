@@ -62,22 +62,8 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	clientStream := ccReq.Stream
 	includeUsage := ccReq.StreamOptions != nil && ccReq.StreamOptions.IncludeUsage
 
-	// 2. Convert CC → Responses → Anthropic (chained conversion)
-	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
-	if err != nil {
-		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
-	}
-
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
-	if err != nil {
-		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
-	}
-
-	// 3. Force upstream streaming
-	anthropicReq.Stream = true
-	reqStream := true
-
-	// 4. Model mapping
+	// 2. Resolve the upstream model before conversion so Opus 5.5 aliases are
+	// converted with adaptive thinking rather than generic enabled thinking.
 	mappedModel := originalModel
 	if account.Platform == PlatformKiro {
 		if next := account.GetMappedModel(originalModel); next != "" {
@@ -97,6 +83,23 @@ func (s *GatewayService) ForwardAsChatCompletions(
 			mappedModel = normalized
 		}
 	}
+	ccReq.Model = mappedModel
+
+	// 3. Convert CC → Responses → Anthropic (chained conversion)
+	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
+	if err != nil {
+		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
+	}
+
+	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
+	if err != nil {
+		writeGatewayCCError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
+	}
+
+	// 4. Force upstream streaming
+	anthropicReq.Stream = true
+	reqStream := true
 	anthropicReq.Model = mappedModel
 
 	logger.L().Debug("gateway forward_as_chat_completions: model mapping applied",
@@ -106,13 +109,17 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		zap.Bool("client_stream", clientStream),
 	)
 
-	// 5. Marshal Anthropic request body
+	// 6. Marshal Anthropic request body
 	anthropicBody, err := json.Marshal(anthropicReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
+	// Apply the default only when the converted Anthropic request really has
+	// thinking enabled; arbitrary client fields must not affect billing.
+	reasoningEffort := extractCCReasoningEffortFromBody(body, mappedModel, originalModel)
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, anthropicBody, mappedModel)
 
-	// 6. Apply Claude Code mimicry for OAuth accounts.
+	// 7. Apply Claude Code mimicry for OAuth accounts.
 	// Chat Completions 协议进来的请求永远不是 Claude Code 客户端，所以对 OAuth 账号
 	// 必须完整执行 /v1/messages 主路径上的伪装链路（system 重写 + normalize + metadata 注入），
 	// 否则会被 Anthropic 判为第三方应用并扣 extra usage。
@@ -218,14 +225,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("upstream error: %d %s", resp.StatusCode, upstreamMsg)
 	}
 
-	// 13. Extract reasoning effort from CC request body
-	reasoningEffort := extractCCReasoningEffortFromBody(body, mappedModel, originalModel)
-	// 国产模型默认 effort 补充：本路径是客户端 CC 请求 → Anthropic 上游，
-	// 如果上游是 passback-required 国产模型 (Kimi-anthropic / GLM-anthropic / MiniMax)
-	// 且客户端在 body 里传了 thinking.type=enabled，补中默认 effort。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
-
-	// 14. Handle normal response
+	// 13. Handle normal response
 	// Read Anthropic SSE → convert to Responses events → convert to CC format
 	var result *ForwardResult
 	var handleErr error
@@ -254,6 +254,11 @@ func extractCCReasoningEffortFromBody(body []byte, modelCandidates ...string) *s
 		model = strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	}
 	normalized := normalizeOpenAIReasoningEffortForModel(raw, model)
+	if normalized == "xhigh" && strings.Contains(strings.ToLower(model), "claude") {
+		// ResponsesToAnthropicRequest maps xhigh to Anthropic's max level;
+		// usage billing must use the forwarded level as well.
+		normalized = "max"
+	}
 	if normalized == "" {
 		return nil
 	}

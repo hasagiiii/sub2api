@@ -3064,7 +3064,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// boundaries, so every subsequent response.create needs a fresh check.
 				if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 					reqLog.Info("openai.websocket_turn_billing_eligibility_check_failed", zap.Int("turn", turn), zap.Error(err))
-					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, openAIWSBillingErrorMessage(err), err)
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "billing check failed", err)
 				}
 				// 防御式清理：避免异常路径下旧槽位覆盖导致泄漏。
 				releaseTurnSlots()
