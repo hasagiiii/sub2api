@@ -1371,8 +1371,9 @@ func (h *AccountHandler) Test(c *gin.Context) {
 }
 
 const (
-	defaultIQTestModel  = "gpt-6-astra"
-	defaultIQTestPrompt = "创建一个HTML，内容是SVG绘制一个鹈鹏骑自行车的2D动画，你不需要任何测试"
+	defaultIQTestModel   = "gpt-6-astra"
+	defaultIQTestPrompt  = "创建一个HTML，内容是SVG绘制一个鹈鹏骑自行车的2D动画，你不需要任何测试"
+	iqTestMaxConcurrency = 10
 )
 
 type iqTestRequest struct {
@@ -1491,7 +1492,7 @@ func (h *AccountHandler) IQTest(c *gin.Context) {
 	}
 
 	results := make([]iqTestResult, len(targets))
-	sem := make(chan struct{}, 4)
+	sem := make(chan struct{}, iqTestMaxConcurrency)
 	var wg sync.WaitGroup
 	for i := range targets {
 		wg.Add(1)

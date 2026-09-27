@@ -32,3 +32,7 @@ func TestResolveIQTestModel(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "model with spaces", model)
 }
+
+func TestIQTestMaxConcurrency(t *testing.T) {
+	require.Equal(t, 10, iqTestMaxConcurrency)
+}

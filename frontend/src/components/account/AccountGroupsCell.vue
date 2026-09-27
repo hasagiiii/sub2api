@@ -1,7 +1,7 @@
 <template>
   <div v-if="groups && groups.length > 0" class="relative max-w-56">
-    <!-- 分组容器：固定最大宽度，最多显示2行 -->
-    <div class="flex flex-wrap gap-1 max-h-14 overflow-hidden">
+    <!-- 只限制徽标数量，避免第二行徽标被固定高度裁掉；完整列表由 +N 弹窗承载。 -->
+    <div data-test="account-groups-list" class="flex flex-wrap gap-1">
       <GroupBadge
         v-for="group in displayGroups"
         :key="group.id"

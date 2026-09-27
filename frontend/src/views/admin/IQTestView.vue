@@ -230,9 +230,8 @@ const prompt = ref(DEFAULT_PROMPT)
 const selectedModelId = ref(DEFAULT_IQ_TEST_MODEL)
 const models = ref<IQTestModel[]>([])
 const overloadMessage = 'Our servers are currently overloaded. Please try again later.'
-// 账号并行测试的上限，与后端 IQTest 批量探测的信号量容量保持一致：既让多个号
-// 同时开跑，又不会一次把所有账号压向同一上游导致过载（503）。
-const MAX_CONCURRENCY = 4
+// 账号并行测试的上限，与后端 IQTest 批量探测的信号量容量保持一致。
+const MAX_CONCURRENCY = 10
 
 type TestStatus = 'pending' | 'running' | 'success' | 'failed'
 
