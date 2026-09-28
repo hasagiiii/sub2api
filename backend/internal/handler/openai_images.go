@@ -434,6 +434,10 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				zap.Int("image_count", result.ImageCount),
 				zap.String("image_size", result.ImageSize),
 				zap.Strings("image_output_sizes", result.ImageOutputSizes),
+				zap.Int("image_output_url_count", len(result.ImageOutputURLs)),
+				zap.Int("image_output_url_non_empty_count", countNonEmptyStrings(result.ImageOutputURLs)),
+				zap.Int("image_output_base64_count", len(result.ImageOutputBase64)),
+				zap.Int("image_output_base64_non_empty_count", countNonEmptyStrings(result.ImageOutputBase64)),
 				zap.Strings("image_output_base64_lens", func() []string {
 					lens := make([]string, len(result.ImageOutputBase64))
 					for i, s := range result.ImageOutputBase64 {
@@ -651,6 +655,16 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		)
 		return
 	}
+}
+
+func countNonEmptyStrings(values []string) int {
+	count := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			count++
+		}
+	}
+	return count
 }
 
 func (h *OpenAIGatewayHandler) openAIImagesJSONKeepaliveInterval() time.Duration {

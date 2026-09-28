@@ -12,6 +12,7 @@ package service
 import (
 	"context"
 	"encoding/base64"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -39,11 +40,36 @@ func (s *OpenAIGatewayService) scheduleOpenAIImageCosUpload(ctx context.Context,
 	}
 	base64s := result.ImageOutputBase64
 	sourceURLs := result.ImageOutputURLs
+	requestID := strings.TrimSpace(result.RequestID)
+	model := strings.TrimSpace(result.Model)
+	base64NonEmpty := countNonEmptyImageStrings(base64s)
+	urlNonEmpty := countNonEmptyImageStrings(sourceURLs)
 	if len(base64s) == 0 && len(sourceURLs) == 0 {
+		logger.L().Debug("openai.images.cos_upload.skipped",
+			zap.String("component", "service.openai_gateway"),
+			zap.String("request_id", requestID),
+			zap.String("model", model),
+			zap.String("reason", "no_output_payload"),
+			zap.Int("base64_count", len(base64s)),
+			zap.Int("base64_non_empty_count", base64NonEmpty),
+			zap.Int("source_url_count", len(sourceURLs)),
+			zap.Int("source_url_non_empty_count", urlNonEmpty),
+			zap.Strings("image_output_sizes", result.ImageOutputSizes),
+		)
 		s.SucceedResponsesImageStatus(ctx, result)
 		return
 	}
 	if s.cosService == nil {
+		logger.L().Debug("openai.images.cos_upload.skipped",
+			zap.String("component", "service.openai_gateway"),
+			zap.String("request_id", requestID),
+			zap.String("model", model),
+			zap.String("reason", "cos_service_unavailable"),
+			zap.Int("base64_count", len(base64s)),
+			zap.Int("base64_non_empty_count", base64NonEmpty),
+			zap.Int("source_url_count", len(sourceURLs)),
+			zap.Int("source_url_non_empty_count", urlNonEmpty),
+		)
 		s.SucceedResponsesImageStatus(ctx, result)
 		return
 	}
@@ -56,13 +82,50 @@ func (s *OpenAIGatewayService) scheduleOpenAIImageCosUpload(ctx context.Context,
 	if ctx != nil {
 		configCtx = context.WithoutCancel(ctx)
 	}
-	if !s.cosService.IsEnabled(configCtx) {
+	cfg, configErr := s.cosService.GetConfig(configCtx)
+	configEnabled := cfg != nil && cfg.Enabled
+	configComplete := cfg != nil && cfg.IsConfigured()
+	if configErr != nil {
+		logger.L().Warn("openai.images.cos_upload.skipped",
+			zap.String("component", "service.openai_gateway"),
+			zap.String("request_id", requestID),
+			zap.String("model", model),
+			zap.String("reason", "cos_config_load_failed"),
+			zap.Bool("config_enabled", configEnabled),
+			zap.Bool("config_complete", configComplete),
+			zap.Error(configErr),
+		)
+		s.SucceedResponsesImageStatus(ctx, result)
+		return
+	}
+	if !configEnabled || !configComplete {
+		logger.L().Debug("openai.images.cos_upload.skipped",
+			zap.String("component", "service.openai_gateway"),
+			zap.String("request_id", requestID),
+			zap.String("model", model),
+			zap.String("reason", "cos_disabled_or_not_configured"),
+			zap.Bool("config_enabled", configEnabled),
+			zap.Bool("config_complete", configComplete),
+			zap.Int("base64_count", len(base64s)),
+			zap.Int("base64_non_empty_count", base64NonEmpty),
+			zap.Int("source_url_count", len(sourceURLs)),
+			zap.Int("source_url_non_empty_count", urlNonEmpty),
+		)
 		s.SucceedResponsesImageStatus(ctx, result)
 		return
 	}
 
-	requestID := strings.TrimSpace(result.RequestID)
-	model := strings.TrimSpace(result.Model)
+	logger.L().Info("openai.images.cos_upload.started",
+		zap.String("component", "service.openai_gateway"),
+		zap.String("request_id", requestID),
+		zap.String("model", model),
+		zap.Int("base64_count", len(base64s)),
+		zap.Int("base64_non_empty_count", base64NonEmpty),
+		zap.Int("source_url_count", len(sourceURLs)),
+		zap.Int("source_url_non_empty_count", urlNonEmpty),
+		zap.Strings("source_url_hosts", imageOutputURLHosts(sourceURLs)),
+		zap.Strings("image_output_sizes", result.ImageOutputSizes),
+	)
 
 	// 预分配 cos urls 切片（优先与 base64 同序）。失败 slot 保持空串。
 	cosURLCount := len(base64s)
@@ -97,7 +160,14 @@ func (s *OpenAIGatewayService) scheduleOpenAIImageCosUpload(ctx context.Context,
 			}
 		}
 		if len(sourceURLs) > 0 && needsURLTransfer {
-			transferred, _ := s.cosService.TransferImages(uploadCtx, sourceURLs)
+			transferred, allOK := s.cosService.TransferImages(uploadCtx, sourceURLs)
+			logger.L().Info("openai.images.cos_upload.url_transfer_completed",
+				zap.String("component", "service.openai_gateway"),
+				zap.String("request_id", requestID),
+				zap.Int("source_url_count", len(sourceURLs)),
+				zap.Int("success_count", countNonEmptyImageStrings(transferred)),
+				zap.Bool("all_succeeded", allOK),
+			)
 			if len(base64s) == 0 {
 				copy(cosURLs, transferred)
 			} else {
@@ -164,6 +234,33 @@ func (s *OpenAIGatewayService) scheduleOpenAIImageCosUpload(ctx context.Context,
 			zap.Int("success", successCount))
 		s.SucceedResponsesImageStatus(uploadCtx, result)
 	}()
+}
+
+func countNonEmptyImageStrings(values []string) int {
+	count := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func imageOutputURLHosts(values []string) []string {
+	hosts := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		parsed, err := url.Parse(strings.TrimSpace(value))
+		if err != nil || parsed.Host == "" {
+			continue
+		}
+		if _, ok := seen[parsed.Host]; ok {
+			continue
+		}
+		seen[parsed.Host] = struct{}{}
+		hosts = append(hosts, parsed.Host)
+	}
+	return hosts
 }
 
 func decodeOpenAIImageBase64(payload string) ([]byte, error) {
