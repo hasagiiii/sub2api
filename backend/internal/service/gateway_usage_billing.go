@@ -1023,6 +1023,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 				ImageOutputTokens:   result.Usage.ImageOutputTokens,
 			},
 			cost.TotalCost, pricingAt,
+			accountStatsLongContextPricingEnabled(nil),
 		)
 	}
 	resolvedBillingContext, err := resolveAndSnapshotBillingContext(ctx, usageLog, user, apiKey, s.billingContextResolver, cost.ActualCost)
