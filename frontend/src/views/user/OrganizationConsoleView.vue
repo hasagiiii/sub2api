@@ -1561,6 +1561,10 @@ function formatUsageCost(value: string | number | null | undefined): string {
 
 function organizationImageUnitPrice(row: OrganizationUsageRow): string {
   if (row.image_count <= 0) return '0.000000'
+  const configuredUnitPrice = row.request_parameters?.billing_unit_price
+  if (typeof configuredUnitPrice === 'number' && Number.isFinite(configuredUnitPrice) && configuredUnitPrice > 0) {
+    return configuredUnitPrice.toFixed(6)
+  }
   return (Number(row.total_cost || 0) / row.image_count).toFixed(6)
 }
 

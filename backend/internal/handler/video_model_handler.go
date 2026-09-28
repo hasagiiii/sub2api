@@ -837,6 +837,9 @@ func toMediaTaskItem(t *service.AsyncMediaTask) videoTaskItem {
 
 func isImagePlaygroundModel(model string) bool {
 	normalized := strings.ToLower(strings.Trim(strings.TrimSpace(model), "/"))
+	if domain.IsSeedreamPublicModel(normalized) {
+		return true
+	}
 	if _, ok := domain.DefaultLeonardoModelMapping[normalized]; ok {
 		return true
 	}

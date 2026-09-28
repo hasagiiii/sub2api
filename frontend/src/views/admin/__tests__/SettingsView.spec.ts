@@ -676,6 +676,35 @@ async function openFeaturesTab(wrapper: ReturnType<typeof mountView>) {
   await flushPromises();
 }
 
+describe("admin SettingsView provider and media configuration tabs", () => {
+  beforeEach(() => {
+    getProviders.mockResolvedValue({ data: [] });
+  });
+
+  it("keeps OIDC, COS image, and async media settings reachable", async () => {
+    const wrapper = mountView();
+
+    await flushPromises();
+
+    const oidcTabButton = wrapper
+      .findAll("button")
+      .find((node) => node.text().includes("admin.settings.tabs.oidc"));
+    const mediaTabButton = wrapper
+      .findAll("button")
+      .find((node) => node.text().includes("admin.settings.tabs.media"));
+
+    expect(oidcTabButton).toBeDefined();
+    expect(mediaTabButton).toBeDefined();
+
+    await oidcTabButton?.trigger("click");
+    expect(wrapper.find("oidc-provider-settings-section-stub").isVisible()).toBe(true);
+
+    await mediaTabButton?.trigger("click");
+    expect(wrapper.find("cos-image-settings-section-stub").isVisible()).toBe(true);
+    expect(wrapper.find("async-media-config-section-stub").isVisible()).toBe(true);
+  });
+});
+
 describe("admin SettingsView email domain quota copy", () => {
   it("documents the email domain quota and empty-whitelist behavior in both locales", () => {
     expect(zhCommon.auth.emailDomainRegistrationLimit).toContain("主流邮箱");

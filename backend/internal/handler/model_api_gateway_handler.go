@@ -320,6 +320,15 @@ func (h *ModelAPIGatewayHandler) nativeImageSubmit(
 	if h.imagesService != nil {
 		rateMultiplier = h.imagesService.ResolveImageRateMultiplier(c.Request.Context(), subject.UserID, apiKey)
 	}
+	reqLog.Info("model_api.image_billing_multiplier_applied",
+		zap.Int64("user_id", subject.UserID),
+		zap.Int64("api_key_id", apiKey.ID),
+		zap.Int64("group_id", modelAPIDerefInt64(apiKey.GroupID)),
+		zap.Int64("account_id", account.ID),
+		zap.String("model", model),
+		zap.String("platform", account.Platform),
+		zap.Float64("resolved_rate_multiplier", rateMultiplier),
+	)
 	submitInput := &service.AsyncMediaSubmitInput{
 		Account:           account,
 		User:              apiKey.User,
@@ -365,6 +374,13 @@ func (h *ModelAPIGatewayHandler) nativeImageSubmit(
 		ResponseURL: base,
 		CancelURL:   base + "/cancel",
 	})
+}
+
+func modelAPIDerefInt64(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func (h *ModelAPIGatewayHandler) nativeVideoSubmit(

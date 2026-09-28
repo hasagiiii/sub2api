@@ -32,6 +32,16 @@ func TestVideoModelSlugsForAccountUsesPlatformMappingDirection(t *testing.T) {
 	}
 }
 
+func TestSeedreamModelsUseImagePlaygroundHistory(t *testing.T) {
+	for _, model := range []string{
+		domain.SeedreamEditModel,
+		domain.SeedreamLayerModel,
+		domain.SeedreamTextToImageModel,
+	} {
+		require.True(t, isImagePlaygroundModel(model), model)
+	}
+}
+
 func TestResolveVideoPricingUsesConfiguredGroupAndSkipsEmptyGroup(t *testing.T) {
 	const model = "bytedance/seedance-2.5/text-to-video"
 	price := 0.12

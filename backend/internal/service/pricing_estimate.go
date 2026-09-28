@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"go.uber.org/zap"
 )
 
 var ErrImagePricingModelUnsupported = errors.New("group does not support model")
@@ -75,7 +78,9 @@ func (s *GatewayService) EstimateImagePricing(
 			if err != nil {
 				return nil, err
 			}
-			return newImagePricingEstimate(endpoint, dimensions, imageCount, multiplier, tier, resolved.Source, cost), nil
+			estimate := newImagePricingEstimate(endpoint, dimensions, imageCount, multiplier, tier, resolved.Source, cost)
+			s.logImagePricingEstimate(apiKey, endpoint, dimensions, quality, estimate, cost, resolved, "resolved_pricing", nil)
+			return estimate, nil
 		}
 	}
 
@@ -90,7 +95,100 @@ func (s *GatewayService) EstimateImagePricing(
 	if err != nil {
 		return nil, err
 	}
-	return newImagePricingEstimate(endpoint, dimensions, imageCount, multiplier, matched.Label, PricingSourceGroup, cost), nil
+	estimate := newImagePricingEstimate(endpoint, dimensions, imageCount, multiplier, matched.Label, PricingSourceGroup, cost)
+	s.logImagePricingEstimate(apiKey, endpoint, dimensions, quality, estimate, cost, nil, "group_fallback", apiKey.Group.ImagePricingTiers())
+	return estimate, nil
+}
+
+// logImagePricingEstimate records every input that contributes to the public
+// estimate response. It intentionally excludes request bodies and image URLs.
+func (s *GatewayService) logImagePricingEstimate(
+	apiKey *APIKey,
+	endpoint string,
+	dimensions ImageDimensions,
+	quality string,
+	estimate *ImagePricingEstimate,
+	cost *CostBreakdown,
+	resolved *ResolvedPricing,
+	pricingPath string,
+	groupTiers []ImagePricingTier,
+) {
+	if estimate == nil {
+		return
+	}
+	fields := []zap.Field{
+		zap.Int64("api_key_id", apiKey.ID),
+		zap.Int64("group_id", apiKey.Group.ID),
+		zap.String("group_name", apiKey.Group.Name),
+		zap.String("endpoint", endpoint),
+		zap.String("pricing_path", pricingPath),
+		zap.String("pricing_source", estimate.PricingSource),
+		zap.String("billing_mode", estimate.BillingMode),
+		zap.String("matched_tier", estimate.Tier),
+		zap.String("quality", quality),
+		zap.Int("width", dimensions.Width),
+		zap.Int("height", dimensions.Height),
+		zap.Int64("pixels", dimensions.Pixels()),
+		zap.Int("image_count", estimate.ImageCount),
+		zap.Float64("rate_multiplier", estimate.RateMultiplier),
+		zap.Float64("cost_total", estimate.TotalCost),
+		zap.Float64("cost_actual", estimate.EstimatedPrice),
+		zap.Float64("returned_unit_price", estimate.UnitPrice),
+		zap.Float64("returned_total_price", estimate.EstimatedPrice),
+	}
+	if cost != nil {
+		fields = append(fields, zap.String("cost_billing_mode", cost.BillingMode))
+	}
+	if resolved != nil {
+		fields = append(fields,
+			zap.String("resolved_source", resolved.Source),
+			zap.String("resolved_mode", string(resolved.Mode)),
+			zap.Int("resolved_request_tier_count", len(resolved.RequestTiers)),
+			zap.Float64("resolved_default_per_request_price", resolved.DefaultPerRequestPrice),
+			zap.Any("resolved_request_tiers", imagePricingEstimateIntervalDiagnostics(s.resolver, resolved, quality)),
+		)
+	}
+	if len(groupTiers) > 0 {
+		fields = append(fields, zap.Any("group_image_tiers", imagePricingEstimateGroupTierDiagnostics(groupTiers)))
+	}
+	logger.L().Info("image.pricing_estimate_resolved", fields...)
+}
+
+func imagePricingEstimateIntervalDiagnostics(
+	resolver *ModelPricingResolver,
+	resolved *ResolvedPricing,
+	quality string,
+) []map[string]any {
+	if resolved == nil {
+		return nil
+	}
+	rows := make([]map[string]any, 0, len(resolved.RequestTiers))
+	for _, interval := range resolved.RequestTiers {
+		row := map[string]any{
+			"tier_label":        interval.TierLabel,
+			"resolution":        interval.Resolution,
+			"quality":           interval.Quality,
+			"max_pixels":        interval.MaxPixels,
+			"per_request_price": interval.PerRequestPrice,
+		}
+		if resolver != nil {
+			row["effective_price"] = resolver.GetRequestTierPriceWithQuality(resolved, interval.TierLabel, quality)
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func imagePricingEstimateGroupTierDiagnostics(tiers []ImagePricingTier) []map[string]any {
+	rows := make([]map[string]any, 0, len(tiers))
+	for _, tier := range tiers {
+		rows = append(rows, map[string]any{
+			"label":      tier.Label,
+			"resolution": tier.Resolution,
+			"price":      tier.Price,
+		})
+	}
+	return rows
 }
 
 func (s *GatewayService) validateGroupSupportsPricingModel(ctx context.Context, apiKey *APIKey, endpoint string) error {

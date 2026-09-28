@@ -10,9 +10,11 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 const maxBatchPricingEstimateModels = 50
@@ -50,15 +52,33 @@ func (h *ModelAPIGatewayHandler) estimatePricing(c *gin.Context, path string) {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	count, err := extractEstimateImageCount(params)
-	if endpoint == domain.SeedreamLayerModel || (params["layer_decomposition"] == true && endpoint == domain.SeedreamModel) {
-		count = 16
-	}
+	requestedCount, err := extractEstimateImageCount(params)
 	if err != nil {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	count := requestedCount
+	layerEstimateForced := false
+	if endpoint == domain.SeedreamLayerModel || (params["layer_decomposition"] == true && endpoint == domain.SeedreamModel) {
+		count = 16
+		layerEstimateForced = true
+	}
 	quality, _ := params["quality"].(string)
+	logger.L().Info("model_api.image_pricing_estimate_request",
+		zap.Int64("api_key_id", apiKey.ID),
+		zap.Int64("group_id", apiKey.Group.ID),
+		zap.String("group_name", apiKey.Group.Name),
+		zap.String("endpoint", endpoint),
+		zap.Int("requested_image_count", requestedCount),
+		zap.Int("effective_image_count", count),
+		zap.Bool("layer_estimate_forced_count", layerEstimateForced),
+		zap.Int("width", dimensions.Width),
+		zap.Int("height", dimensions.Height),
+		zap.Int64("pixels", dimensions.Pixels()),
+		zap.String("quality", quality),
+		zap.String("requested_size", estimateParamString(params, "size")),
+		zap.String("requested_image_size", estimateParamString(params, "image_size")),
+	)
 	estimate, err := h.gatewayService.EstimateImagePricing(c.Request.Context(), apiKey, endpoint, dimensions, quality, count)
 	if err != nil {
 		if errors.Is(err, service.ErrImagePricingModelUnsupported) {
@@ -68,7 +88,23 @@ func (h *ModelAPIGatewayHandler) estimatePricing(c *gin.Context, path string) {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	logger.L().Info("model_api.image_pricing_estimate_response",
+		zap.String("endpoint", estimate.Endpoint),
+		zap.String("billing_mode", estimate.BillingMode),
+		zap.String("pricing_source", estimate.PricingSource),
+		zap.String("matched_tier", estimate.Tier),
+		zap.Int("image_count", estimate.ImageCount),
+		zap.Float64("unit_price", estimate.UnitPrice),
+		zap.Float64("total_cost", estimate.TotalCost),
+		zap.Float64("rate_multiplier", estimate.RateMultiplier),
+		zap.Float64("estimated_price", estimate.EstimatedPrice),
+	)
 	c.JSON(http.StatusOK, estimate)
+}
+
+func estimateParamString(params map[string]any, key string) string {
+	value, _ := params[key].(string)
+	return strings.TrimSpace(value)
 }
 
 // estimatePricingBatch handles POST /api/v1/model/estimate_pricing. The

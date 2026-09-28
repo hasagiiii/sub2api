@@ -224,6 +224,7 @@ export interface OrganizationUsageRow {
   image_output_size?: string | null
   image_size_source?: 'output' | 'input' | 'default' | 'legacy' | null
   image_size_breakdown?: Record<string, number> | null
+  request_parameters?: Record<string, unknown> | null
   video_count?: number | null
   video_resolution?: string | null
   video_duration_seconds?: number | null

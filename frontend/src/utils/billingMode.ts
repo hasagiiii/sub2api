@@ -25,6 +25,7 @@ interface ImageBillingRow {
   image_count: number
   billing_mode?: string | null
   total_cost: number
+  request_parameters?: Record<string, unknown> | null
 }
 
 interface VideoBillingRow {
@@ -56,8 +57,12 @@ export function getDisplayBillingMode(row: Pick<ImageBillingRow, 'billing_mode' 
   return row?.billing_mode
 }
 
-export function imageUnitPrice(row: Pick<ImageBillingRow, 'image_count' | 'total_cost'> | null): number {
+export function imageUnitPrice(row: Pick<ImageBillingRow, 'image_count' | 'total_cost' | 'request_parameters'> | null): number {
   if (!row || row.image_count <= 0) return 0
+  const configuredUnitPrice = row.request_parameters?.billing_unit_price
+  if (typeof configuredUnitPrice === 'number' && Number.isFinite(configuredUnitPrice) && configuredUnitPrice > 0) {
+    return configuredUnitPrice
+  }
   const total = row.total_cost ?? 0
   const price = total / row.image_count
   return Number.isFinite(price) ? price : 0

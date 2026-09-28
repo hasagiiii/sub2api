@@ -106,6 +106,28 @@ func seedreamFixture(t *testing.T) (*AsyncMediaService, *seedreamTestRepo, *Acco
 	in.RawRequestBody = []byte(`{"prompt":"separate layers","image":"https://example.com/reference.png","layer_decomposition":true}`)
 	return svc, repo, account, in
 }
+
+func TestBytedanceTerminalUsageUsesSettledCostForUsageLog(t *testing.T) {
+	task := &AsyncMediaTask{
+		ID:                1,
+		InternalRequestID: "req-1",
+		RateMultiplier:    1,
+		RequestParameters: map[string]any{
+			"input_image_price_per_image": float64(0.02),
+			"input_image_count":           float64(1),
+		},
+	}
+
+	log := BytedanceTerminalUsageInput(task, 5, 1.22, 0.4, BillingTypeBalance, BillingStatusCharged)
+
+	// The old formula produced 0.4*5+0.02=2.02, which the usage UI then
+	// displayed as a misleading per-image price of 0.404. Usage records must
+	// preserve the settled pixel-priced total instead.
+	require.InDelta(t, 1.22, log.TotalCost, 1e-12)
+	require.InDelta(t, 1.22, log.ActualCost, 1e-12)
+	require.Equal(t, 5, log.ImageCount)
+}
+
 func TestBytedanceSubmissionIsDurableBeforeBackgroundCall(t *testing.T) {
 	svc, repo, account, in := seedreamFixture(t)
 	started := make(chan struct{})
@@ -300,7 +322,7 @@ func TestBytedancePixelSettlementUsesProviderOutputDimensions(t *testing.T) {
 	billing := newTestBillingService()
 	svc := NewAsyncMediaService(nil, nil, &asyncMediaPricingGroupRepo{group: group}, billing, NewModelPricingResolver(nil, billing), nil)
 
-	finalCost, applied, err := svc.estimateBytedancePixelFinalCost(
+	finalCost, billingUnitPrice, applied, err := svc.estimateBytedancePixelFinalCost(
 		context.Background(),
 		domain.SeedreamLayerModel,
 		domain.SeedreamModel,
@@ -314,4 +336,5 @@ func TestBytedancePixelSettlementUsesProviderOutputDimensions(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, applied)
 	require.InDelta(t, price, finalCost, 1e-9)
+	require.InDelta(t, price, billingUnitPrice, 1e-9)
 }

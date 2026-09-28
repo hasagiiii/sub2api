@@ -9086,8 +9086,22 @@
           <BackupSettings />
         </div>
 
+        <!-- Tab: OIDC Provider -->
+        <div v-show="activeTab === 'oidc'">
+          <OidcProviderSettingsSection />
+        </div>
+
+        <!-- Tab: Image Transfer -->
+        <div v-show="activeTab === 'media'" class="space-y-6">
+          <CosImageSettingsSection />
+          <AsyncMediaConfigSection />
+        </div>
+
         <!-- Save Button -->
-        <div v-show="activeTab !== 'backup'" class="flex justify-end">
+        <div
+          v-show="activeTab !== 'backup' && activeTab !== 'oidc' && activeTab !== 'media'"
+          class="flex justify-end"
+        >
           <button
             type="submit"
             :disabled="saving || loadFailed"
@@ -9216,6 +9230,9 @@ import Toggle from "@/components/common/Toggle.vue";
 import ProxySelector from "@/components/common/ProxySelector.vue";
 import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
+import OidcProviderSettingsSection from "@/components/admin/OidcProviderSettingsSection.vue";
+import CosImageSettingsSection from "@/components/admin/CosImageSettingsSection.vue";
+import AsyncMediaConfigSection from "@/components/admin/AsyncMediaConfigSection.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import { useClipboard } from "@/composables/useClipboard";
@@ -9276,7 +9293,9 @@ type SettingsTab =
   | "gateway"
   | "payment"
   | "email"
-  | "backup";
+  | "backup"
+  | "oidc"
+  | "media";
 const activeTab = ref<SettingsTab>("general");
 const settingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
@@ -9288,6 +9307,8 @@ const settingsTabs = [
   { key: "payment" as SettingsTab, icon: "creditCard" as const },
   { key: "email" as SettingsTab, icon: "mail" as const },
   { key: "backup" as SettingsTab, icon: "database" as const },
+  { key: "oidc" as SettingsTab, icon: "key" as const },
+  { key: "media" as SettingsTab, icon: "cloud" as const },
 ];
 
 const settingsTabKeyboardActions = {

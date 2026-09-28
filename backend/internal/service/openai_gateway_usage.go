@@ -129,17 +129,61 @@ func (s *OpenAIGatewayService) ResolveUserGroupRateMultiplier(ctx context.Contex
 // ResolveImageRateMultiplier resolves the effective downstream image multiplier
 // using the same precedence as OpenAI image usage billing.
 func (s *OpenAIGatewayService) ResolveImageRateMultiplier(ctx context.Context, userID int64, apiKey *APIKey) float64 {
-	multiplier := 1.0
+	defaultMultiplier := 1.0
 	if s != nil && s.cfg != nil {
-		multiplier = s.cfg.Default.RateMultiplier
+		defaultMultiplier = s.cfg.Default.RateMultiplier
 	}
+	groupID := int64(0)
+	groupName := ""
+	groupMultiplier := defaultMultiplier
+	userGroupMultiplier := defaultMultiplier
+	userGroupOverride := false
+	imageRateIndependent := false
+	imageRateMultiplier := 1.0
 	if apiKey != nil && apiKey.GroupID != nil && apiKey.Group != nil {
-		multiplier = apiKey.Group.RateMultiplier
+		groupID = *apiKey.GroupID
+		groupName = apiKey.Group.Name
+		groupMultiplier = apiKey.Group.RateMultiplier
+		userGroupMultiplier = groupMultiplier
 		if s != nil {
-			multiplier = s.ResolveUserGroupRateMultiplier(ctx, userID, *apiKey.GroupID, multiplier)
+			userGroupMultiplier = s.ResolveUserGroupRateMultiplier(ctx, userID, groupID, groupMultiplier)
 		}
+		userGroupOverride = userGroupMultiplier != groupMultiplier
+		imageRateIndependent = apiKey.Group.ImageRateIndependent
+		imageRateMultiplier = apiKey.Group.ImageRateMultiplier
 	}
-	return resolveImageRateMultiplier(apiKey, multiplier)
+	resolvedMultiplier := resolveImageRateMultiplier(apiKey, userGroupMultiplier)
+	source := "default"
+	switch {
+	case imageRateIndependent:
+		source = "image_independent"
+	case userGroupOverride:
+		source = "user_group_rate"
+	case groupMultiplier != defaultMultiplier:
+		source = "group_rate"
+	}
+	logger.FromContext(ctx).Info("image.billing_multiplier_resolved",
+		zap.Int64("user_id", userID),
+		zap.Int64("api_key_id", apiKeyIDForBillingLog(apiKey)),
+		zap.Int64("group_id", groupID),
+		zap.String("group_name", groupName),
+		zap.Float64("default_rate_multiplier", defaultMultiplier),
+		zap.Float64("group_rate_multiplier", groupMultiplier),
+		zap.Float64("user_group_rate_multiplier", userGroupMultiplier),
+		zap.Bool("user_group_override_detected", userGroupOverride),
+		zap.Bool("image_rate_independent", imageRateIndependent),
+		zap.Float64("image_rate_multiplier", imageRateMultiplier),
+		zap.Float64("resolved_rate_multiplier", resolvedMultiplier),
+		zap.String("resolved_source", source),
+	)
+	return resolvedMultiplier
+}
+
+func apiKeyIDForBillingLog(apiKey *APIKey) int64 {
+	if apiKey == nil {
+		return 0
+	}
+	return apiKey.ID
 }
 
 // openAIUsagePricingAt 返回本次用量记录使用的定价时刻：优先请求级 PricingAt
