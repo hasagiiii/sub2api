@@ -79,6 +79,13 @@ type AdjustSubscriptionRequest struct {
 	Days int `json:"days" binding:"required,min=-36500,max=36500"` // negative to shorten, positive to extend
 }
 
+// AdjustSubscriptionUsageRequest represents an administrator-entered usage
+// amount for one group inside a plan subscription.
+type AdjustSubscriptionUsageRequest struct {
+	GroupID int64   `json:"group_id" binding:"required,min=1"`
+	Amount  float64 `json:"amount" binding:"required,gt=0"`
+}
+
 // List handles listing all subscriptions with pagination and filters
 // GET /api/v1/admin/subscriptions
 func (h *SubscriptionHandler) List(c *gin.Context) {
@@ -296,6 +303,34 @@ func (h *SubscriptionHandler) ResetQuota(c *gin.Context) {
 		return
 	}
 	response.Success(c, dto.UserSubscriptionFromServiceAdmin(sub))
+}
+
+// AdjustUsage increases both the package shared usage and the selected
+// covered group's usage.
+// POST /api/v1/admin/subscriptions/:id/adjust-usage
+func (h *SubscriptionHandler) AdjustUsage(c *gin.Context) {
+	subscriptionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid subscription ID")
+		return
+	}
+	var req AdjustSubscriptionUsageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	idempotencyPayload := struct {
+		SubscriptionID int64                          `json:"subscription_id"`
+		Body           AdjustSubscriptionUsageRequest `json:"body"`
+	}{SubscriptionID: subscriptionID, Body: req}
+	executeAdminIdempotentJSON(c, "admin.subscriptions.adjust-usage", idempotencyPayload, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		subscription, execErr := h.subscriptionService.AdminAdjustUsage(ctx, subscriptionID, req.GroupID, req.Amount)
+		if execErr != nil {
+			return nil, execErr
+		}
+		return dto.UserSubscriptionFromServiceAdmin(subscription), nil
+	})
 }
 
 // Revoke handles revoking a subscription.

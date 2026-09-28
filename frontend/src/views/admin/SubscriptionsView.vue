@@ -455,6 +455,15 @@
                 <Icon name="refresh" size="sm" />
                 <span class="text-xs">{{ t('admin.subscriptions.restore') }}</span>
               </button>
+              <button
+                v-if="row.subject_type !== 'organization' && row.plan_id != null"
+                type="button"
+                @click="handleUsageAdjustment(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-emerald-50 hover:text-emerald-600 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400"
+              >
+                <Icon name="plus" size="sm" />
+                <span class="text-xs">{{ t('admin.subscriptions.adjustUsage') }}</span>
+              </button>
             </div>
           </template>
 
@@ -812,6 +821,72 @@
       @confirm="confirmResetQuota"
       @cancel="showResetQuotaConfirm = false"
     />
+    <!-- Adjust package usage modal -->
+    <BaseDialog
+      :show="showUsageAdjustmentModal"
+      :title="t('admin.subscriptions.adjustUsageTitle')"
+      width="narrow"
+      @close="closeUsageAdjustmentModal"
+    >
+      <form
+        v-if="usageAdjustmentSubscription"
+        id="adjust-subscription-usage-form"
+        class="space-y-5"
+        @submit.prevent="handleUsageAdjustmentSubmit"
+      >
+        <div class="rounded-lg bg-gray-50 p-4 dark:bg-dark-700">
+          <p class="text-sm text-gray-600 dark:text-gray-400">
+            {{ t('admin.subscriptions.adjustingFor') }}
+            <span class="font-medium text-gray-900 dark:text-white">
+              {{ subscriptionSubjectName(usageAdjustmentSubscription) }}
+            </span>
+          </p>
+          <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            {{ t('admin.subscriptions.adjustUsageHint') }}
+          </p>
+        </div>
+        <div>
+          <label class="input-label" for="adjust-subscription-usage-group">
+            {{ t('admin.subscriptions.form.group') }}
+          </label>
+          <Select
+            id="adjust-subscription-usage-group"
+            v-model="usageAdjustmentForm.group_id"
+            :options="usageAdjustmentGroupOptions"
+            :placeholder="t('admin.subscriptions.selectGroup')"
+          />
+        </div>
+        <div>
+          <label class="input-label" for="adjust-subscription-usage-amount">
+            {{ t('admin.subscriptions.adjustUsageAmount') }}
+          </label>
+          <input
+            id="adjust-subscription-usage-amount"
+            v-model.number="usageAdjustmentForm.amount"
+            type="number"
+            min="0.000001"
+            step="0.000001"
+            required
+            class="input"
+          />
+        </div>
+      </form>
+      <template #footer>
+        <div v-if="usageAdjustmentSubscription" class="flex justify-end gap-3">
+          <button type="button" class="btn btn-secondary" @click="closeUsageAdjustmentModal">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="submit"
+            form="adjust-subscription-usage-form"
+            class="btn btn-primary"
+            :disabled="usageAdjustmentSubmitting"
+          >
+            {{ usageAdjustmentSubmitting ? t('admin.subscriptions.adjustingUsage') : t('admin.subscriptions.adjustUsage') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
     <!-- Subscription Guide Modal -->
     <teleport to="body">
       <transition name="modal">
@@ -1161,6 +1236,13 @@ const resettingQuota = ref(false)
 const extendingSubscription = ref<AdminSubscriptionRow | null>(null)
 const revokingSubscription = ref<AdminSubscriptionRow | null>(null)
 const restoringSubscription = ref<UserSubscription | null>(null)
+const showUsageAdjustmentModal = ref(false)
+const usageAdjustmentSubscription = ref<AdminSubscriptionRow | null>(null)
+const usageAdjustmentSubmitting = ref(false)
+const usageAdjustmentForm = reactive({
+  group_id: null as number | null,
+  amount: 0
+})
 
 const assignForm = reactive({
   user_id: null as number | null,
@@ -1295,6 +1377,12 @@ const groupById = computed(() => {
 /** 分组名；分组列表尚未加载或分组已被删除时退回 #id，避免显示成空白。 */
 const groupName = (groupId: number): string => groupById.value.get(groupId)?.name || `#${groupId}`
 const groupPlatform = (groupId: number): GroupPlatform | undefined => groupById.value.get(groupId)?.platform
+
+const usageAdjustmentGroupOptions = computed(() => {
+  const row = usageAdjustmentSubscription.value
+  if (!row) return []
+  return rowGroupIds(row).map(groupID => ({ value: groupID, label: groupName(groupID) }))
+})
 
 /**
  * 订阅覆盖的全部分组。套餐订阅是一条覆盖多个分组的订阅，只展示 `group` 这个主分组
@@ -1945,6 +2033,44 @@ const confirmResetQuota = async () => {
     console.error('Error resetting quota:', error)
   } finally {
     resettingQuota.value = false
+  }
+}
+
+function handleUsageAdjustment(subscription: AdminSubscriptionRow) {
+  const groupIDs = rowGroupIds(subscription)
+  if (subscription.subject_type === 'organization' || subscription.plan_id == null || groupIDs.length === 0) return
+  usageAdjustmentSubscription.value = subscription
+  usageAdjustmentForm.group_id = groupIDs[0]
+  usageAdjustmentForm.amount = 0
+  showUsageAdjustmentModal.value = true
+}
+
+function closeUsageAdjustmentModal() {
+  if (usageAdjustmentSubmitting.value) return
+  showUsageAdjustmentModal.value = false
+  usageAdjustmentSubscription.value = null
+  usageAdjustmentForm.group_id = null
+  usageAdjustmentForm.amount = 0
+}
+
+async function handleUsageAdjustmentSubmit() {
+  const subscription = usageAdjustmentSubscription.value
+  const groupID = usageAdjustmentForm.group_id
+  const amount = Number(usageAdjustmentForm.amount)
+  if (!subscription || groupID == null || !Number.isFinite(amount) || amount <= 0 || usageAdjustmentSubmitting.value) return
+
+  usageAdjustmentSubmitting.value = true
+  try {
+    await adminAPI.subscriptions.adjustUsage(subscription.id, { group_id: groupID, amount })
+    appStore.showSuccess(t('admin.subscriptions.adjustUsageSuccess'))
+    usageAdjustmentSubmitting.value = false
+    closeUsageAdjustmentModal()
+    await loadSubscriptions()
+  } catch (error: any) {
+    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToAdjustUsage'))
+    console.error('Error adjusting subscription usage:', error)
+  } finally {
+    usageAdjustmentSubmitting.value = false
   }
 }
 

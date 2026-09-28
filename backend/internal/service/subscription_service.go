@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -27,23 +28,27 @@ var MaxExpiresAt = time.Date(2099, 12, 31, 23, 59, 59, 0, time.UTC)
 const MaxValidityDays = 36500
 
 var (
-	ErrSubscriptionNotFound        = infraerrors.NotFound("SUBSCRIPTION_NOT_FOUND", "subscription not found")
-	ErrSubscriptionExpired         = infraerrors.Forbidden("SUBSCRIPTION_EXPIRED", "subscription has expired")
-	ErrSubscriptionSuspended       = infraerrors.Forbidden("SUBSCRIPTION_SUSPENDED", "subscription is suspended")
-	ErrSubscriptionAlreadyExists   = infraerrors.Conflict("SUBSCRIPTION_ALREADY_EXISTS", "subscription already exists for this user and group")
-	ErrSubscriptionAssignConflict  = infraerrors.Conflict("SUBSCRIPTION_ASSIGN_CONFLICT", "subscription exists but request conflicts with existing assignment semantics")
-	ErrSubscriptionNotRevoked      = infraerrors.Conflict("SUBSCRIPTION_NOT_REVOKED", "subscription is not revoked")
-	ErrSubscriptionRestoreConflict = infraerrors.Conflict("SUBSCRIPTION_RESTORE_CONFLICT", "subscription already exists for this user and group")
-	ErrGroupNotSubscriptionType    = infraerrors.BadRequest("GROUP_NOT_SUBSCRIPTION_TYPE", "group is not a subscription type")
-	ErrSubscriptionGroupRequired   = infraerrors.BadRequest("SUBSCRIPTION_GROUP_REQUIRED", "subscription assignment requires at least one group")
-	ErrSubscriptionPlanNotFound    = infraerrors.NotFound("SUBSCRIPTION_PLAN_NOT_FOUND", "subscription plan not found")
-	ErrSubscriptionPlanNoGroup     = infraerrors.BadRequest("SUBSCRIPTION_PLAN_NO_GROUP", "subscription plan has no subscription group")
-	ErrInvalidInput                = infraerrors.BadRequest("INVALID_INPUT", "at least one of resetDaily, resetWeekly, or resetMonthly must be true")
-	ErrDailyLimitExceeded          = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
-	ErrWeeklyLimitExceeded         = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
-	ErrMonthlyLimitExceeded        = infraerrors.TooManyRequests("MONTHLY_LIMIT_EXCEEDED", "monthly usage limit exceeded")
-	ErrSubscriptionNilInput        = infraerrors.BadRequest("SUBSCRIPTION_NIL_INPUT", "subscription input cannot be nil")
-	ErrAdjustWouldExpire           = infraerrors.BadRequest("ADJUST_WOULD_EXPIRE", "adjustment would result in expired subscription (remaining days must be > 0)")
+	ErrSubscriptionNotFound         = infraerrors.NotFound("SUBSCRIPTION_NOT_FOUND", "subscription not found")
+	ErrSubscriptionExpired          = infraerrors.Forbidden("SUBSCRIPTION_EXPIRED", "subscription has expired")
+	ErrSubscriptionSuspended        = infraerrors.Forbidden("SUBSCRIPTION_SUSPENDED", "subscription is suspended")
+	ErrSubscriptionAlreadyExists    = infraerrors.Conflict("SUBSCRIPTION_ALREADY_EXISTS", "subscription already exists for this user and group")
+	ErrSubscriptionAssignConflict   = infraerrors.Conflict("SUBSCRIPTION_ASSIGN_CONFLICT", "subscription exists but request conflicts with existing assignment semantics")
+	ErrSubscriptionNotRevoked       = infraerrors.Conflict("SUBSCRIPTION_NOT_REVOKED", "subscription is not revoked")
+	ErrSubscriptionRestoreConflict  = infraerrors.Conflict("SUBSCRIPTION_RESTORE_CONFLICT", "subscription already exists for this user and group")
+	ErrGroupNotSubscriptionType     = infraerrors.BadRequest("GROUP_NOT_SUBSCRIPTION_TYPE", "group is not a subscription type")
+	ErrSubscriptionGroupRequired    = infraerrors.BadRequest("SUBSCRIPTION_GROUP_REQUIRED", "subscription assignment requires at least one group")
+	ErrSubscriptionPlanNotFound     = infraerrors.NotFound("SUBSCRIPTION_PLAN_NOT_FOUND", "subscription plan not found")
+	ErrSubscriptionPlanNoGroup      = infraerrors.BadRequest("SUBSCRIPTION_PLAN_NO_GROUP", "subscription plan has no subscription group")
+	ErrInvalidInput                 = infraerrors.BadRequest("INVALID_INPUT", "at least one of resetDaily, resetWeekly, or resetMonthly must be true")
+	ErrDailyLimitExceeded           = infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily usage limit exceeded")
+	ErrWeeklyLimitExceeded          = infraerrors.TooManyRequests("WEEKLY_LIMIT_EXCEEDED", "weekly usage limit exceeded")
+	ErrMonthlyLimitExceeded         = infraerrors.TooManyRequests("MONTHLY_LIMIT_EXCEEDED", "monthly usage limit exceeded")
+	ErrSubscriptionNilInput         = infraerrors.BadRequest("SUBSCRIPTION_NIL_INPUT", "subscription input cannot be nil")
+	ErrAdjustWouldExpire            = infraerrors.BadRequest("ADJUST_WOULD_EXPIRE", "adjustment would result in expired subscription (remaining days must be > 0)")
+	ErrSubscriptionUsageAmount      = infraerrors.BadRequest("SUBSCRIPTION_USAGE_AMOUNT_INVALID", "usage adjustment amount must be greater than zero")
+	ErrSubscriptionUsagePlanOnly    = infraerrors.BadRequest("SUBSCRIPTION_USAGE_PLAN_REQUIRED", "usage adjustment requires a plan subscription")
+	ErrSubscriptionGroupNotCovered  = infraerrors.BadRequest("SUBSCRIPTION_GROUP_NOT_COVERED", "group is not covered by this subscription")
+	ErrSubscriptionUsageUnsupported = infraerrors.InternalServer("SUBSCRIPTION_USAGE_UNSUPPORTED", "per-group subscription usage is not supported")
 )
 
 // SubscriptionService 订阅服务
@@ -1202,6 +1207,49 @@ func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionI
 		_ = s.billingCacheService.InvalidateSubscription(ctx, sub.UserID, sub.GroupID)
 	}
 	// Return the refreshed subscription from DB
+	return s.userSubRepo.GetByID(ctx, subscriptionID)
+}
+
+// AdminAdjustUsage increases the consumed amount for one group in a plan
+// subscription. The repository updates the package-level counters and the
+// selected group's counters together, so the package shared total stays in
+// sync with the group usage shown in the admin UI.
+func (s *SubscriptionService) AdminAdjustUsage(ctx context.Context, subscriptionID, groupID int64, amount float64) (*UserSubscription, error) {
+	if subscriptionID <= 0 || groupID <= 0 || amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return nil, ErrSubscriptionUsageAmount
+	}
+
+	sub, err := s.userSubRepo.GetByID(ctx, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+	if sub.PlanID == nil || *sub.PlanID <= 0 {
+		return nil, ErrSubscriptionUsagePlanOnly
+	}
+	if !sub.CoversGroup(groupID) {
+		return nil, ErrSubscriptionGroupNotCovered
+	}
+
+	groupRepo, ok := s.userSubRepo.(UserSubscriptionGroupUsageRepository)
+	if !ok {
+		return nil, ErrSubscriptionUsageUnsupported
+	}
+	now := s.now()
+	if err := s.withSubscriptionUpdateTx(ctx, func(txCtx context.Context) error {
+		if err := s.userSubRepo.ActivateWindows(txCtx, subscriptionID, timezone.StartOfDay(now), now); err != nil {
+			return err
+		}
+		if err := groupRepo.ActivateGroupWindows(txCtx, subscriptionID, groupID, timezone.StartOfDay(now), now); err != nil {
+			return err
+		}
+		return groupRepo.IncrementUsageForGroup(txCtx, subscriptionID, groupID, amount)
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := s.invalidateSubscriptionCaches(sub); err != nil {
+		return nil, err
+	}
 	return s.userSubRepo.GetByID(ctx, subscriptionID)
 }
 

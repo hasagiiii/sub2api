@@ -188,6 +188,21 @@ export async function resetQuota(
 }
 
 /**
+ * Increase consumed usage for one group inside a plan subscription. The
+ * backend also increments the package-level shared counters.
+ */
+export async function adjustUsage(
+  id: number,
+  request: { group_id: number; amount: number }
+): Promise<UserSubscription> {
+  const { data } = await apiClient.post<UserSubscription>(
+    `/admin/subscriptions/${id}/adjust-usage`,
+    request
+  )
+  return data
+}
+
+/**
  * List subscriptions by group
  * @param groupId - Group ID
  * @param page - Page number
@@ -240,6 +255,7 @@ export const subscriptionsAPI = {
   revoke,
   restore,
   resetQuota,
+  adjustUsage,
   listByGroup,
   listByUser
 }
