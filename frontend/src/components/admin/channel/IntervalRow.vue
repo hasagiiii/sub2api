@@ -73,24 +73,31 @@
         <label class="text-xs text-gray-400">
           {{ mode === 'video' ? t('admin.channels.form.resolution') : t('admin.channels.form.tierLabel') }}
         </label>
-        <div v-if="mode === 'image'" class="mt-1 flex h-8 items-center rounded border border-gray-200 bg-gray-50 px-2 text-xs font-medium text-gray-600 dark:border-dark-500 dark:bg-dark-600 dark:text-gray-300">
-          {{ interval.tier_label }}
-        </div>
-        <input v-else :value="interval.tier_label" @input="emitTierLabel(($event.target as HTMLInputElement).value)"
+        <input :value="interval.tier_label" @input="emitTierLabel(($event.target as HTMLInputElement).value)"
           type="text" class="input mt-0.5 text-xs"
-          :placeholder="mode === 'video' ? '480p / 720p / 1080p' : ''" />
+          :placeholder="mode === 'image' ? '1K / 2K / 4K' : (mode === 'video' ? '480p / 720p / 1080p' : '')" />
+      </div>
+      <div v-if="mode === 'image' && imageTierType === 'standard'" class="w-32">
+        <label class="text-xs text-gray-400">{{ t('admin.channels.form.resolutionThreshold') }}</label>
+        <input :value="interval.resolution" @input="emitField('resolution', ($event.target as HTMLInputElement).value)"
+          type="text" class="input mt-0.5 font-mono text-xs" placeholder="1024x1024" />
+      </div>
+      <div v-if="mode === 'image' && imageTierType === 'standard'" class="w-24">
+        <label class="text-xs text-gray-400">{{ t('admin.channels.form.quality') }}</label>
+        <input :value="interval.quality" @input="emitField('quality', ($event.target as HTMLInputElement).value)"
+          type="text" class="input mt-0.5 text-xs" placeholder="low / medium / high" />
       </div>
       <div v-if="mode === 'image' && imageTierType === 'pixel'" class="image-pixel-max-field">
         <label class="text-xs text-gray-400">{{ t('admin.channels.form.maxPixels', 'Max pixels') }}</label>
         <input :value="interval.max_pixels ?? ''" @input="emitField('max_pixels', toIntOrNull(($event.target as HTMLInputElement).value))"
           type="number" min="1" class="input mt-0.5 font-mono text-xs" placeholder="-" />
       </div>
-      <div v-if="mode !== 'image'" class="w-20">
+      <div v-if="mode !== 'image' || imageTierType !== 'pixel'" class="w-20">
         <label class="text-xs text-gray-400">{{ t('admin.channels.form.minTokens') }}</label>
         <input :value="interval.min_tokens" @input="emitField('min_tokens', toInt(($event.target as HTMLInputElement).value))"
           type="number" min="0" class="input mt-0.5 text-xs" />
       </div>
-      <div v-if="mode !== 'image'" class="w-20">
+      <div v-if="mode !== 'image' || imageTierType !== 'pixel'" class="w-20">
         <label class="text-xs text-gray-400">{{ t('admin.channels.form.maxTokens') }} <span class="text-gray-300">{{ t('admin.channels.form.inclusive') }}</span></label>
         <input :value="interval.max_tokens ?? ''" @input="emitField('max_tokens', toIntOrNull(($event.target as HTMLInputElement).value))"
           type="number" min="0" class="input mt-0.5 text-xs" :placeholder="'∞'" />
@@ -158,7 +165,7 @@ function emitTierLabel(value: string) {
   const normalized = props.mode === 'image'
     ? value.replace(/^([124])k$/i, '$1K')
     : value
-  emitField('tier_label', normalized)
+  emit('update', { ...props.interval, tier_label: normalized })
 }
 
 function toInt(val: string): number {

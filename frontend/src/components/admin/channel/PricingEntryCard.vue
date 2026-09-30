@@ -252,7 +252,7 @@
               {{ t('admin.channels.form.imageTiers') }}
             </label>
             <div class="flex gap-3">
-              <button type="button" @click="addMediaTier" :disabled="!canAddStandardImageTier" class="text-xs text-primary-600 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" @click="addMediaTier" :disabled="hasPixelImageTiers" class="text-xs text-primary-600 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40">
                 + {{ t('admin.channels.form.addTier') }}
               </button>
               <button type="button" @click="addPixelTier" :disabled="hasStandardImageTiers" class="text-xs text-primary-600 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-40">
@@ -419,16 +419,6 @@ const hasStandardImageTiers = computed(() =>
   props.entry.intervals.some(interval => getImageTierType(interval) === 'standard'),
 )
 
-const standardImageTierLabels = ['1K', '2K', '4K']
-
-const canAddStandardImageTier = computed(() =>
-  !hasPixelImageTiers.value && standardImageTierLabels.some(label =>
-    !props.entry.intervals.some(interval =>
-      getImageTierType(interval) === 'standard' && interval.tier_label.trim().toUpperCase() === label,
-    ),
-  ),
-)
-
 function updateReasoningEffortMultiplier(effort: ReasoningEffortLevel, value: string) {
   const multipliers = { ...props.entry.reasoning_effort_multipliers }
   if (value === '') delete multipliers[effort]
@@ -460,28 +450,30 @@ function addInterval() {
 }
 
 function addMediaTier() {
+  if (props.entry.billing_mode === 'image' && hasPixelImageTiers.value) return
   const intervals = [...(props.entry.intervals || [])]
-  if (props.entry.billing_mode === 'image') {
-    if (hasPixelImageTiers.value) return
-    const nextLabel = standardImageTierLabels.find(label =>
-      !intervals.some(interval =>
-        getImageTierType(interval) === 'standard' && interval.tier_label.trim().toUpperCase() === label,
-      ),
-    )
-    if (!nextLabel) return
-    intervals.push({
-      min_tokens: 0, max_tokens: null, tier_label: nextLabel, resolution: '',
-      max_pixels: null, quality: '', image_tier_type: 'standard',
-      input_price: null, output_price: null, cache_write_price: null,
-      cache_read_price: null, per_request_price: null,
-      input_multiplier: null, output_multiplier: null,
-      cache_write_multiplier: null, cache_read_multiplier: null,
-      sort_order: intervals.length,
-    })
+  if (props.entry.billing_mode === 'image' && intervals.length === 0) {
+    const templates: Array<[string, string]> = [
+      ['1K', '1024x1024'],
+      ['2K', '2048x2048'],
+      ['4K', '4096x4096'],
+    ]
+    for (const [tier_label, resolution] of templates) {
+      intervals.push({
+        min_tokens: 0, max_tokens: null, tier_label, resolution, quality: 'low',
+        max_pixels: null, image_tier_type: 'standard',
+        input_price: null, output_price: null, cache_write_price: null,
+        cache_read_price: null, per_request_price: null,
+        input_multiplier: null, output_multiplier: null,
+        cache_write_multiplier: null, cache_read_multiplier: null,
+        sort_order: intervals.length,
+      })
+    }
   } else {
     intervals.push({
       min_tokens: 0, max_tokens: null, tier_label: '', resolution: '',
-      max_pixels: null, quality: '',
+      max_pixels: null, image_tier_type: 'standard',
+      quality: props.entry.billing_mode === 'image' ? 'low' : '',
       input_price: null, output_price: null, cache_write_price: null,
       cache_read_price: null, per_request_price: null,
       input_multiplier: null, output_multiplier: null,

@@ -199,6 +199,7 @@ export default {
         perRequestPriceRequired: '按次/图片计费模式必须设置默认价格或至少一个计费层级',
         tierLabel: '层级',
         resolution: '分辨率',
+        quality: '质量',
         modelMapping: '模型映射',
         modelMappingHint: '将请求中的模型名映射为实际模型名。在账号级别映射之前执行。',
         noMappingRules: '暂无映射规则，点击"添加"创建',
