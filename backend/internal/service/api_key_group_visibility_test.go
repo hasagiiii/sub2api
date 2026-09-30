@@ -58,7 +58,7 @@ func TestGetUserGroupVisibilityIncludesActiveSubscriptions(t *testing.T) {
 			svc := &APIKeyService{
 				userRepo:    &visibilityUserRepo{user: &User{ID: 1, AllowedGroups: []int64{7}, RestrictPublicGroups: restricted}},
 				userSubRepo: subs,
-				groupRepo:   &visibilityGroupRepo{groups: []Group{
+				groupRepo: &visibilityGroupRepo{groups: []Group{
 					{ID: 42, IsExclusive: true, SubscriptionType: "subscription"},
 					{ID: 46, IsExclusive: true, SubscriptionType: "subscription"},
 				}},

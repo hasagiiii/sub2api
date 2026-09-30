@@ -16,6 +16,13 @@ export interface DefaultSubscriptionSetting {
   validity_days: number;
 }
 
+export interface SupportChatFAQ {
+  question: string;
+  answer: string;
+  sort_order: number;
+  enabled: boolean;
+}
+
 // ── 平台限额类型 ──────────────────────────────────────────────────
 export type PlatformType =
   | "anthropic"
@@ -519,7 +526,6 @@ export interface SystemSettings {
   doc_url: string;
   home_content: string;
   home_product_menu_items: CustomMenuItem[];
-  support_chat_rag_doc_url?: string;
   compact_home_enabled: boolean;
   hide_ccs_import_button: boolean;
   table_default_page_size: number;
@@ -683,6 +689,15 @@ export interface SystemSettings {
   openai_codex_client_version: string;
   openai_codex_client_version_synced: string;
   openai_codex_version_auto_sync_enabled: boolean;
+  openai_codex_ticket_enabled: boolean;
+  openai_codex_ticket_fail_closed: boolean;
+  openai_codex_ticket_strategy?: 'fixed' | 'standby';
+  openai_codex_ticket_harvest_scope?: { mode: 'all' | 'selected'; group_ids: number[]; account_policy: 'schedulable_only' | 'prioritize_schedulable' };
+  openai_codex_ticket_strict_response?: boolean;
+  openai_codex_ticket_harvest_proxy_url: string;
+  openai_codex_ticket_static_proxy_url?: string;
+  openai_codex_ticket_harvest_proxy_configured: boolean;
+  openai_codex_ticket_models: string[];
   claude_code_client_version: string;
   claude_code_client_version_synced: string;
   claude_code_version_auto_sync_enabled: boolean;
@@ -700,8 +715,10 @@ export interface SystemSettings {
   risk_control_enabled: boolean;
 
   // Cyber session block
+  cyber_policy_user_allowlist: string;
   cyber_session_block_enabled: boolean;
   cyber_session_block_ttl_seconds: number;
+  cyber_session_identity_strict_enabled: boolean;
 
   payment_min_amount: number;
   payment_max_amount: number;
@@ -777,6 +794,8 @@ export interface SystemSettings {
   // Available Channels feature switch
   available_channels_enabled: boolean;
 
+  // The Pelican showcase settings are edited on the Smart Ops page (api/admin/pelicanTests).
+
   // Subscription feature switch (user sidebar "My Subscriptions" entry)
   subscription_enabled: boolean;
 
@@ -794,6 +813,59 @@ export interface SystemSettings {
 
   // Allow user view error requests
   allow_user_view_error_requests: boolean;
+
+  // Support ticket and customer-service chat settings
+  support_ticket_enabled: boolean;
+  support_ticket_categories: string[];
+  support_ticket_default_priority: string;
+  support_ticket_notify_emails: NotifyEmailEntry[];
+  support_chat_enabled: boolean;
+  support_chat_excluded_routes: string[];
+  support_chat_anonymous_llm: boolean;
+  support_chat_title: string;
+  support_chat_welcome: string;
+  support_chat_icon: string;
+  support_chat_llm_enabled: boolean;
+  support_chat_llm_base_url: string;
+  support_chat_llm_api_key: string;
+  support_chat_embedding_base_url: string;
+  support_chat_embedding_api_key: string;
+  support_chat_model: string;
+  support_chat_system_prompt: string;
+  support_chat_max_turns: number;
+  support_chat_max_request_tokens: number;
+  support_chat_rl_user_per_day: number;
+  support_chat_rl_user_per_min: number;
+  support_chat_rl_ip_per_hour: number;
+  support_chat_faqs: SupportChatFAQ[];
+  support_chat_rag_enabled: boolean;
+  support_chat_rag_doc_url: string;
+  support_chat_rag_doc_depth: number;
+  support_chat_rag_doc_cron: string;
+  support_chat_rag_embed_provider: string;
+  support_chat_rag_embed_model: string;
+  support_chat_rag_top_k: number;
+  support_chat_rag_chunk_size: number;
+  support_chat_rag_chunk_overlap: number;
+  usage_show_long_context_badge: boolean;
+  request_capture_enabled: boolean;
+  request_capture_quota_mib: number;
+  request_capture_retention_days: number;
+  excel_bps_image_mode: 'relay' | 'native'
+  excel_bps_image_relay_enabled: boolean;
+  excel_bps_image_base_url: string;
+  excel_bps_image_body_limit_mib: number;
+  excel_bps_image_budget_mib: number;
+  excel_bps_image_max_requests: number;
+  excel_bps_image_max_image_mib: number;
+  excel_bps_image_max_images: number;
+  excel_bps_image_limit_policy: "off" | "auto_compact" | "warn";
+  excel_bps_image_warning_remaining: number;
+  excel_bps_image_compact_reserve: number;
+  excel_bps_image_max_total_mib: number;
+  excel_bps_image_storage_mib: number;
+  excel_bps_image_storage_entries: number;
+  excel_bps_image_ttl_minutes: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -1014,6 +1086,14 @@ export interface UpdateSettingsRequest {
   openai_codex_user_agent?: string;
   openai_codex_client_version?: string;
   openai_codex_version_auto_sync_enabled?: boolean;
+  openai_codex_ticket_enabled?: boolean;
+  openai_codex_ticket_fail_closed?: boolean;
+  openai_codex_ticket_strategy?: 'fixed' | 'standby';
+  openai_codex_ticket_harvest_scope?: { mode: 'all' | 'selected'; group_ids: number[]; account_policy: 'schedulable_only' | 'prioritize_schedulable' };
+  openai_codex_ticket_harvest_proxy_url?: string;
+  openai_codex_ticket_use_saved_static_proxy?: boolean;
+  openai_codex_ticket_strict_response?: boolean;
+  openai_codex_ticket_models?: string[];
   claude_code_client_version?: string;
   claude_code_version_auto_sync_enabled?: boolean;
   // codex_cli_only 加固
@@ -1028,8 +1108,10 @@ export interface UpdateSettingsRequest {
   risk_control_enabled?: boolean;
 
   // Cyber session block
+  cyber_policy_user_allowlist?: string;
   cyber_session_block_enabled?: boolean;
   cyber_session_block_ttl_seconds?: number;
+  cyber_session_identity_strict_enabled?: boolean;
 
   payment_min_amount?: number;
   payment_max_amount?: number;
@@ -1109,6 +1191,58 @@ export interface UpdateSettingsRequest {
   openai_fast_policy_settings?: OpenAIFastPolicySettings;
 
   allow_user_view_error_requests?: boolean;
+
+  support_ticket_enabled?: boolean;
+  support_ticket_categories?: string[];
+  support_ticket_default_priority?: string;
+  support_ticket_notify_emails?: NotifyEmailEntry[];
+  support_chat_enabled?: boolean;
+  support_chat_excluded_routes?: string[];
+  support_chat_anonymous_llm?: boolean;
+  support_chat_title?: string;
+  support_chat_welcome?: string;
+  support_chat_icon?: string;
+  support_chat_llm_enabled?: boolean;
+  support_chat_llm_base_url?: string;
+  support_chat_llm_api_key?: string;
+  support_chat_embedding_base_url?: string;
+  support_chat_embedding_api_key?: string;
+  support_chat_model?: string;
+  support_chat_system_prompt?: string;
+  support_chat_max_turns?: number;
+  support_chat_max_request_tokens?: number;
+  support_chat_rl_user_per_day?: number;
+  support_chat_rl_user_per_min?: number;
+  support_chat_rl_ip_per_hour?: number;
+  support_chat_faqs?: SupportChatFAQ[];
+  support_chat_rag_enabled?: boolean;
+  support_chat_rag_doc_url?: string;
+  support_chat_rag_doc_depth?: number;
+  support_chat_rag_doc_cron?: string;
+  support_chat_rag_embed_provider?: string;
+  support_chat_rag_embed_model?: string;
+  support_chat_rag_top_k?: number;
+  support_chat_rag_chunk_size?: number;
+  support_chat_rag_chunk_overlap?: number;
+  usage_show_long_context_badge?: boolean;
+  request_capture_enabled?: boolean;
+  request_capture_quota_mib?: number;
+  request_capture_retention_days?: number;
+  excel_bps_image_mode?: 'relay' | 'native'
+  excel_bps_image_relay_enabled?: boolean;
+  excel_bps_image_base_url?: string;
+  excel_bps_image_body_limit_mib?: number;
+  excel_bps_image_budget_mib?: number;
+  excel_bps_image_max_requests?: number;
+  excel_bps_image_max_image_mib?: number;
+  excel_bps_image_max_images?: number;
+  excel_bps_image_limit_policy?: "off" | "auto_compact" | "warn";
+  excel_bps_image_warning_remaining?: number;
+  excel_bps_image_compact_reserve?: number;
+  excel_bps_image_max_total_mib?: number;
+  excel_bps_image_storage_mib?: number;
+  excel_bps_image_storage_entries?: number;
+  excel_bps_image_ttl_minutes?: number;
 }
 
 /**

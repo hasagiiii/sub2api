@@ -138,6 +138,8 @@ func RegisterUserRoutes(
 			usage.GET("/errors", h.Usage.ListErrors)
 			usage.GET("/errors/:id", h.Usage.GetErrorDetail)
 			usage.GET("/:id", h.Usage.GetByID)
+			usage.GET("/:id/timing", h.Usage.ObserverTiming)
+			usage.GET("/filter-options", h.Usage.ObserverFilterOptions)
 			usage.GET("/stats", h.Usage.Stats)
 			// User dashboard endpoints
 			usage.GET("/dashboard/stats", h.Usage.DashboardStats)
@@ -175,6 +177,13 @@ func RegisterUserRoutes(
 		{
 			monitors.GET("", h.ChannelMonitor.List)
 			monitors.GET("/:id/status", h.ChannelMonitor.GetStatus)
+		}
+
+		// 鹈鹕测智展示（用户只读；功能关闭时返回空画廊）
+		showcase := authenticated.Group("/pelican-showcase")
+		{
+			showcase.GET("", h.PelicanShowcase.List)
+			showcase.GET("/items/:id", h.PelicanShowcase.GetItem)
 		}
 
 		// V2 passive views require feature on + mode=v2.

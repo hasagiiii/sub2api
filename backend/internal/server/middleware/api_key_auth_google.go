@@ -275,7 +275,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				if billingCtx := apiKeyService.ResolveBillingContextForAPIKey(c.Request.Context(), apiKey); billingCtx != nil && billingCtx.BalanceSource == service.BalanceSourceCompany {
 					// pass through
 				} else {
-					abortWithGoogleError(c, 403, "Insufficient account balance")
+					abortWithGoogleError(c, 403, service.InsufficientUserBalanceMessage)
 					return
 				}
 			}

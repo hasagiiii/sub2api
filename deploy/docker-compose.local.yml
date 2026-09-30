@@ -24,7 +24,7 @@ services:
   # Sub2API Application
   # ===========================================================================
   sub2api:
-    image: weishaw/sub2api:latest
+    image: ghcr.io/hasagiiii/sub2api:latest
     container_name: sub2api
     restart: unless-stopped
     security_opt:
@@ -58,6 +58,7 @@ services:
       - SIMPLE_MODE_AUTO_CREATE_DEFAULT_GROUPS=${SIMPLE_MODE_AUTO_CREATE_DEFAULT_GROUPS:-}
       - SUB2API_KIRO_TIME_CONTEXT=${SUB2API_KIRO_TIME_CONTEXT:-}
       - SUB2API_KIRO_CONVERSATION_ID_MODE=${SUB2API_KIRO_CONVERSATION_ID_MODE:-stable}
+      - SIMPLE_MODE_KEY_RATE_LIMIT_ENABLED=${SIMPLE_MODE_KEY_RATE_LIMIT_ENABLED:-false}
       - UPDATE_GITHUB_TOKEN=${UPDATE_GITHUB_TOKEN:-}
 
       # =======================================================================

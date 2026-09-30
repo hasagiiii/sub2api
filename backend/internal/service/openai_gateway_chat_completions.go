@@ -71,6 +71,19 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
 ) (*OpenAIForwardResult, error) {
+	latest, admissionErr := s.admitOpenAITurn(
+		context.WithoutCancel(ctx),
+		c,
+		account,
+		gjson.GetBytes(body, "model").String(),
+	)
+	if admissionErr != nil {
+		if !agentIdentityTaskRecoveryWasTried(ctx) {
+			return nil, markOpenAIInitialAdmissionError(admissionErr)
+		}
+		return nil, admissionErr
+	}
+	account = latest
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
@@ -205,6 +218,10 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	// derive a stable seed from the final upstream model family.
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	if err := validateGPT61SolCompatRequest(body, upstreamModel); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
 
 	promptCacheKey = strings.TrimSpace(promptCacheKey)
 	compatPromptCacheInjected := false
@@ -321,7 +338,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		} else if promptCacheKey != "" {
 			reqBody["prompt_cache_key"] = promptCacheKey
 		}
-		applyCodexAccountIdentityClientMetadataMap(reqBody, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
+		s.applyCodexAccountIdentityOrHarvestPinMap(ctx, account, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c), upstreamModel, reqBody)
 		responsesBody, err = json.Marshal(reqBody)
 		if err != nil {
 			return nil, fmt.Errorf("remarshal after codex transform: %w", err)
@@ -384,12 +401,16 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	}
 
 	if promptCacheKey != "" {
-		apiKeyID := getAPIKeyIDFromContext(c)
-		sessionKey := promptCacheKey
-		if !compatPromptCacheTenantIsolated {
-			sessionKey = isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey)
+		if session := s.harvestPinnedSessionForModel(ctx, account, upstreamModel); session != "" {
+			upstreamReq.Header.Set("session_id", session)
+		} else {
+			apiKeyID := getAPIKeyIDFromContext(c)
+			sessionKey := promptCacheKey
+			if !compatPromptCacheTenantIsolated {
+				sessionKey = isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey)
+			}
+			upstreamReq.Header.Set("session_id", generateSessionUUID(sessionKey))
 		}
-		upstreamReq.Header.Set("session_id", generateSessionUUID(sessionKey))
 	}
 
 	// 7. Send request

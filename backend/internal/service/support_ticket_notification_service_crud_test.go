@@ -34,10 +34,10 @@ type crudNotifRepoStub struct {
 	unreadCount     int64
 	markAllAffected int64
 
-	listErr     error
-	countErr    error
-	markOneErr  error
-	markAllErr  error
+	listErr    error
+	countErr   error
+	markOneErr error
+	markAllErr error
 
 	// 入参快照
 	lastListParams    SupportTicketNotificationListParams

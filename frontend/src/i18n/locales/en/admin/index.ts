@@ -1,3 +1,4 @@
+import requestCapture from './requestCapture'
 import overview from './overview'
 import channels from './channels'
 import accounts from './accounts'
@@ -9,8 +10,10 @@ import promptAudit from './promptAudit'
 import costCenter from './costCenter'
 import plugins from './plugins'
 import iqTest from './iqTest'
+import harvestFlow from './harvestFlow'
 
 export default {
+  ...requestCapture,
   ...overview,
   ...channels,
   ...accounts,
@@ -22,4 +25,5 @@ export default {
   ...costCenter,
   ...plugins,
   ...iqTest,
+  ...harvestFlow,
 }

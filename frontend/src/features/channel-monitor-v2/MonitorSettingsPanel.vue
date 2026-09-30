@@ -1,5 +1,5 @@
 <template>
-  <section class="mx-auto w-full max-w-6xl space-y-5 px-1 py-2 sm:px-2">
+  <section class="w-full min-w-0 space-y-5 py-2">
     <header
       class="page-header mb-0 flex flex-wrap items-center justify-between gap-3 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-gray-900/5 dark:bg-dark-800 dark:ring-dark-700 sm:p-6"
     >
@@ -237,6 +237,8 @@
         </div>
       </div>
 
+      <MonitorCandySettings v-model="draft.candy_probes" :groups="groups" />
+
       <div class="space-y-2">
         <div class="rounded-2xl border border-primary-200 bg-primary-50/80 px-4 py-3 text-sm text-primary-900 dark:border-primary-800/50 dark:bg-primary-900/20 dark:text-primary-100">
           <template v-if="namedModelCount === 0">
@@ -264,6 +266,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'
+import MonitorCandySettings from './MonitorCandySettings.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -400,6 +403,7 @@ function normalizeConfig(value: MonitorConfig): MonitorConfig {
   const ignored = value.ignored_error_categories
   return {
     ...value,
+    candy_probes: value.candy_probes || [],
     health_thresholds: { ...defaultThresholds, ...(value.health_thresholds || {}) },
     // Preserve explicit empty arrays from the server (operator cleared all).
     ignored_error_categories: [
@@ -425,6 +429,10 @@ async function load() {
 
 async function save() {
   if (!draft.value) return
+  if (draft.value.candy_probes?.some(probe => !probe.model.trim() || !Number.isInteger(probe.interval_minutes) || probe.interval_minutes < 1 || probe.interval_minutes > 1440)) {
+    appStore.showError(t('channelMonitorV2.candy.invalid'))
+    return
+  }
   saving.value = true
   try {
     const payload = normalizeConfig(draft.value)

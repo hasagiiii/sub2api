@@ -184,6 +184,18 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		return
 	}
 
+	// 余额模式在途预留（与计费同口径估算；计费任务扣减余额缓存后才释放）。
+	inflightDone, inflightErr := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, service.InflightEstimateRequest{Model: routingModel, BodyBytes: len(body), Kind: service.InflightEstimateImage, Units: parsed.N})
+	if inflightErr != nil {
+		status, code, message, retryAfter := billingErrorDetails(inflightErr)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		h.handleStreamingAwareError(c, status, code, message, streamStarted)
+		return
+	}
+	defer inflightDone()
+
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
 	requestCtx := service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context()))
 
@@ -199,6 +211,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	var rpmAdmission openAIRPMAdmission
 	stopJSONKeepalive := func() {}
 	jsonKeepaliveStarted := false
 	defer func() { stopJSONKeepalive() }()
@@ -233,6 +246,14 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				preferPlatform,
 			)
 			if selErr != nil || account == nil {
+				selErr = rpmAdmission.selectionError(selErr)
+				if isOpenAIRPMError(selErr) {
+					rpmAdmission.retryAfter(c, selErr)
+					cls := classifySelectionFailureError(selErr, noAccountErrorClassification{})
+					h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+					return
+				}
+
 				if selErr != nil && failoverClientGone(c) {
 					reqLog.Info("openai.images.account_select_aborted_client_disconnected", zap.Error(selErr))
 					return
@@ -398,6 +419,15 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			return
 		}
 		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, routingModel)
+		retryRPM, rpmErr := rpmAdmission.acquire(c.Request.Context(), h.gatewayService, account, accountReleaseFunc, failedAccountIDs)
+		if retryRPM {
+			continue
+		}
+		if rpmErr != nil {
+			cls := classifySelectionFailureError(rpmErr, noAccountErrorClassification{})
+			h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+			return
+		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		if !parsed.Stream && !jsonKeepaliveStarted {
@@ -415,7 +445,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardImages(requestCtx, c, account, body, parsed, channelMapping.MappedModel)
+			return h.gatewayService.ForwardImages(rpmAdmission.forwardContext(requestCtx, account), c, account, body, parsed, channelMapping.MappedModel)
 		}()
 
 		// DEBUG: 打印 ForwardImages 返回结果（截断 base64 内容）
@@ -458,6 +488,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			)
 		}
 
+		if h.handleOpenAIRPMForwardError(c, err, streamStarted, false) {
+			return
+		}
 		forwardDurationMs := time.Since(forwardStart).Milliseconds()
 		upstreamLatencyMs, _ := getContextInt64(c, service.OpsUpstreamLatencyMsKey)
 		responseLatencyMs := forwardDurationMs
@@ -571,7 +604,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					)
 					continue
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, requestModel, false, result), false, nil, err)
+				if !service.IsOpenAITurnAdmissionError(err) {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, requestModel, false, result), false, nil, err)
+				}
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {

@@ -187,13 +187,13 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		return nil
 	}
 
+	visible, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
+	if err != nil {
+		return fmt.Errorf("load group configured Codex capabilities: %w", err)
+	}
 	var configuredModels []string
 	if !group.CodexModelsManifestConfig.Enabled {
-		var err error
-		configuredModels, err = s.groupConfiguredCodexModelIDs(ctx, group)
-		if err != nil {
-			return fmt.Errorf("load group configured Codex models: %w", err)
-		}
+		configuredModels = openAIConfiguredCodexModelIDsForGroup(visible, group)
 	}
 	body, changed, err := mergeConfiguredCodexModelsManifest(
 		manifest.Body,
@@ -211,6 +211,11 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		}
 		changed = true
 	}
+	body, restricted, err := restrictExcelBPSCodexModelsManifest(body, catalog, group)
+	if err != nil {
+		return fmt.Errorf("restrict group BPS capabilities: %w", err)
+	}
+	changed = changed || restricted
 	if changed {
 		manifest.Body = body
 		manifest.ETag = codexModelsManifestBodyETag(body)
@@ -220,17 +225,6 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		manifest.NotModified = true
 	}
 	return nil
-}
-
-func (s *OpenAIGatewayService) groupConfiguredCodexModelIDs(ctx context.Context, group *Group) ([]string, error) {
-	if group == nil {
-		return nil, nil
-	}
-	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, group.ID)
-	if err != nil {
-		return nil, err
-	}
-	return openAIConfiguredCodexModelIDsForGroup(accounts, group), nil
 }
 
 // loadCodexGroupCatalogAccounts separates picker membership from capability
@@ -273,24 +267,38 @@ func loadCodexGroupCatalogAccounts(ctx context.Context, repo AccountRepository, 
 	return visible, groupAccounts, nil
 }
 
-func openAIConfiguredCodexModelIDs(accounts []Account) []string {
+func openAIConfiguredCodexModelIDs(accounts []Account, groupID *int64) []string {
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
+	add := func(modelID string) {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" || strings.Contains(modelID, "*") {
+			return
+		}
+		if _, exists := seen[modelID]; exists {
+			return
+		}
+		seen[modelID] = struct{}{}
+		models = append(models, modelID)
+	}
 	for i := range accounts {
 		account := &accounts[i]
 		if account.Platform != PlatformOpenAI {
 			continue
 		}
-		for modelID := range account.GetModelMapping() {
-			modelID = strings.TrimSpace(modelID)
-			if modelID == "" || strings.Contains(modelID, "*") {
+		mapping := account.GetModelMapping()
+		for modelID := range mapping {
+			// 账号在本分组里被限制了可用模型时，只公布允许的那部分。
+			if !account.IsModelAllowedInGroup(groupID, modelID) {
 				continue
 			}
-			if _, exists := seen[modelID]; exists {
-				continue
+			add(modelID)
+		}
+		// 没有映射、但在本分组里被限制了模型的账号，按限制清单公布。
+		if len(mapping) == 0 {
+			for _, modelID := range groupAllowedConcreteModels(account, groupID) {
+				add(modelID)
 			}
-			seen[modelID] = struct{}{}
-			models = append(models, modelID)
 		}
 	}
 	sort.Strings(models)
@@ -298,7 +306,11 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 }
 
 func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []string {
-	models := supplementUnmappedOpenAIModels(accounts, openAIConfiguredCodexModelIDs(accounts))
+	var groupID *int64
+	if group != nil {
+		groupID = &group.ID
+	}
+	models := supplementUnmappedOpenAIModels(accounts, groupID, openAIConfiguredCodexModelIDs(accounts, groupID))
 	if group == nil || !group.ModelAllowlistEnabled() {
 		return models
 	}
@@ -314,7 +326,7 @@ func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []s
 		}
 		for i := range accounts {
 			account := &accounts[i]
-			if account.Platform != PlatformOpenAI {
+			if account.Platform != PlatformOpenAI || !account.IsModelAllowedInGroup(groupID, selectedModel) {
 				continue
 			}
 			mappedModel, matched := account.ResolveMappedModel(selectedModel)
@@ -377,6 +389,7 @@ type configuredCodexModelMessages struct {
 // emitted: unlike ordinary OpenAI /v1/models entries, the Codex manifest parser
 // requires them to be present.
 type configuredCodexModelDescriptor struct {
+	officialMetadata                  json.RawMessage
 	Slug                              string                          `json:"slug"`
 	DisplayName                       string                          `json:"display_name"`
 	Description                       string                          `json:"description"`
@@ -486,7 +499,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 	}
 
 	if isClaudeCodexModel(modelID) {
-		if claude.IsOpus55(modelID) {
+		if claude.IsOpus55(modelID) || claude.IsSonnet55(modelID) {
 			descriptor.ContextWindow = 1_000_000
 			descriptor.MaxContextWindow = 1_000_000
 		}
@@ -495,6 +508,9 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		descriptor.SupportsParallelToolCalls = true
 		if levels := configuredCodexClaudeReasoningLevels(modelID); len(levels) > 0 {
 			defaultReasoningLevel := claudeCodexDefaultReasoningLevel(levels)
+			if claude.IsSonnet55(modelID) {
+				defaultReasoningLevel = "high"
+			}
 			descriptor.DefaultReasoningLevel = &defaultReasoningLevel
 			descriptor.SupportedReasoningLevels = levels
 		}
@@ -507,7 +523,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		descriptor.ServiceTiers = configuredCodexServiceTiersForModel(modelID)
 		if isOpenAICodexReasoningGPTModel(modelID) {
 			defaultReasoningLevel := "medium"
-			if getNormalizedCodexModel(modelID) == "gpt-5.6-sol" {
+			if getNormalizedCodexModel(modelID) == "gpt-5.6-sol" || openai.IsGPT61SolModelSpelling(modelID) {
 				defaultReasoningLevel = "low"
 			}
 			descriptor.DefaultReasoningLevel = &defaultReasoningLevel
@@ -516,7 +532,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 			descriptor.TruncationPolicy = configuredCodexTruncationPolicy{Mode: "tokens", Limit: configuredCodexToolOutputMaxTokens}
 			// GPT-6 Sol/Luna retain the existing 5.6 Codex window as an offline
 			// compatibility template; live account metadata remains authoritative.
-			if isOpenAIGPT56Model(modelID) || openai.IsGPT6SolOrLunaModelSpelling(modelID) {
+			if isOpenAIGPT56Model(modelID) || openai.IsGPT6SolOrLunaModelSpelling(modelID) || openai.IsGPT61SolModelSpelling(modelID) {
 				descriptor.MaxContextWindow = configuredCodexGPT56MaxContext
 			}
 			if isOpenAIGPT6AstraModel(modelID) {
@@ -536,6 +552,13 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		}
 	}
 
+	if openai.IsGPT61SolModelSpelling(modelID) {
+		if err := json.Unmarshal(openai.CodexGPT61SolMetadata, &descriptor); err != nil {
+			panic(err)
+		}
+		descriptor.Slug = modelID
+		descriptor.officialMetadata = openai.CodexGPT61SolMetadata
+	}
 	return descriptor
 }
 
@@ -635,7 +658,7 @@ func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasonin
 			Description: "Maximum reasoning depth for complex tasks",
 		})
 	}
-	if isOpenAIGPT6AstraModel(modelID) || normalized == "gpt-5.6-sol" || normalized == "gpt-5.6-terra" {
+	if isOpenAIGPT6AstraModel(modelID) || openai.IsGPT61SolModelSpelling(modelID) || normalized == "gpt-5.6-sol" || normalized == "gpt-5.6-terra" {
 		levels = append(levels, configuredCodexReasoningLevel{
 			Effort:      "ultra",
 			Description: "Maximum reasoning with automatic task delegation",
@@ -896,20 +919,32 @@ func buildCodexModelsManifestForAccounts(
 ) ([]byte, error) {
 	imageInputModels := make(map[string]bool, len(modelIDs))
 	searchToolModels := make(map[string]bool, len(modelIDs))
-	metadataModels := codexCatalogMetadataModels(
-		effectivePlatform,
-		modelIDs,
-		accounts,
-		compositeRoutes,
-		compositeRoutesAvailable,
-	)
+	var groupID *int64
+	if group != nil {
+		groupID = &group.ID
+	}
+	metadataModels := make(map[string]string, len(modelIDs))
 	modelMetadata := make(map[string]codexModelMetadataOverride, len(modelIDs))
 	for _, modelID := range modelIDs {
 		modelID = strings.TrimSpace(modelID)
+		// 模型能力按本分组里允许服务该模型的账号汇总，被分组限制排除的账号不参与。
+		modelAccounts := accountsAllowedInGroupForModel(accounts, groupID, modelID)
+		if modelID != "" {
+			metadataModelID := resolveCodexCatalogMetadataModel(
+				effectivePlatform,
+				modelID,
+				modelAccounts,
+				compositeRoutes,
+				compositeRoutesAvailable,
+			)
+			if metadataModelID != "" && metadataModelID != modelID {
+				metadataModels[modelID] = metadataModelID
+			}
+		}
 		if groupCodexModelSupportsImageInput(
 			effectivePlatform,
 			modelID,
-			accounts,
+			modelAccounts,
 			compositeRoutes,
 			compositeRoutesAvailable,
 		) {
@@ -918,7 +953,7 @@ func buildCodexModelsManifestForAccounts(
 		if groupCodexModelSupportsSearchTool(
 			effectivePlatform,
 			modelID,
-			accounts,
+			modelAccounts,
 			compositeRoutes,
 			compositeRoutesAvailable,
 		) {
@@ -927,7 +962,7 @@ func buildCodexModelsManifestForAccounts(
 		if metadata, ok := groupCodexModelMetadata(
 			effectivePlatform,
 			modelID,
-			accounts,
+			modelAccounts,
 			group,
 			compositeRoutes,
 			compositeRoutesAvailable,
@@ -935,7 +970,14 @@ func buildCodexModelsManifestForAccounts(
 			modelMetadata[modelID] = metadata
 		}
 	}
-	return buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels, metadataModels, modelMetadata)
+	body, err := buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels, metadataModels, modelMetadata)
+	if err != nil || effectivePlatform != PlatformOpenAI {
+		return body, err
+	}
+	// Conflicting aliases can intentionally omit synced metadata. Do not let
+	// the bundled Astra defaults reintroduce v2 for a possible BPS route.
+	body, _, err = restrictExcelBPSCodexModelsManifest(body, accounts, group)
+	return body, err
 }
 
 func buildCodexModelsManifest(
@@ -998,33 +1040,6 @@ func buildCodexModelsManifest(
 	return json.Marshal(struct {
 		Models []json.RawMessage `json:"models"`
 	}{Models: models})
-}
-
-func codexCatalogMetadataModels(
-	platform string,
-	modelIDs []string,
-	accounts []Account,
-	compositeRoutes []CompositeModelRoute,
-	compositeRoutesAvailable bool,
-) map[string]string {
-	metadataModels := make(map[string]string, len(modelIDs))
-	for _, modelID := range modelIDs {
-		modelID = strings.TrimSpace(modelID)
-		if modelID == "" {
-			continue
-		}
-		metadataModelID := resolveCodexCatalogMetadataModel(
-			platform,
-			modelID,
-			accounts,
-			compositeRoutes,
-			compositeRoutesAvailable,
-		)
-		if metadataModelID != "" && metadataModelID != modelID {
-			metadataModels[modelID] = metadataModelID
-		}
-	}
-	return metadataModels
 }
 
 func resolveCodexCatalogMetadataModel(
@@ -2059,6 +2074,7 @@ func CodexModelsManifestETag(body []byte) string {
 }
 
 var apiKeyCodexModelsWithoutResponsesLite = map[string]struct{}{
+	"gpt-6.1-sol":   {},
 	"gpt-6-astra":   {},
 	"gpt-5.6-sol":   {},
 	"gpt-5.6-terra": {},
@@ -2628,4 +2644,43 @@ func buildCodexModelsManifestURL(endpoint string, appendModelsPath bool, clientV
 	query.Set("client_version", clientVersion)
 	requestURL.RawQuery = query.Encode()
 	return requestURL, nil
+}
+
+// MarshalJSON keeps fields added by the official client, including nested tool
+// instructions, while the generated descriptor still controls routing metadata.
+func (d configuredCodexModelDescriptor) MarshalJSON() ([]byte, error) {
+	type descriptor configuredCodexModelDescriptor
+	encoded, err := json.Marshal(descriptor(d))
+	if err != nil || len(d.officialMetadata) == 0 {
+		return encoded, err
+	}
+	var fields, official map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(d.officialMetadata, &official); err != nil {
+		return nil, err
+	}
+	for key, value := range official {
+		if _, exists := fields[key]; !exists {
+			fields[key] = value
+		}
+	}
+	var messages, officialMessages map[string]json.RawMessage
+	if err := json.Unmarshal(fields["model_messages"], &messages); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(official["model_messages"], &officialMessages); err != nil {
+		return nil, err
+	}
+	for key, value := range officialMessages {
+		if _, exists := messages[key]; !exists {
+			messages[key] = value
+		}
+	}
+	fields["model_messages"], err = json.Marshal(messages)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(fields)
 }

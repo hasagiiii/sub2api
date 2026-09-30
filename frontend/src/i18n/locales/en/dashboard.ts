@@ -238,29 +238,33 @@ export default {
       deepseek: {
         description: 'Configure Claude Code, Codex, or OpenCode through the current DeepSeek group.',
         codexDescription: 'Configure Codex with API key authentication through the current DeepSeek group.',
-        codexConfigTomlHint: 'Download the model catalog below, save both files under the Codex config directory, and restart Codex.',
+        codexConfigTomlHint: 'Save config.toml and restart Codex to load the remote catalog. In local file mode, also download the catalog to the configured path.',
         codexNote: 'Export SUB2API_API_KEY before starting Codex. The downloaded catalog contains model metadata only, not your API key.',
       },
       minimax: {
         description: 'Configure Claude Code, Codex, or OpenCode through the current MiniMax group.',
         codexDescription: 'Configure Codex with API key authentication through the current MiniMax group.',
-        codexConfigTomlHint: 'Download the model catalog below, save both files under the Codex config directory, and restart Codex.',
+        codexConfigTomlHint: 'Save config.toml and restart Codex to load the remote catalog. In local file mode, also download the catalog to the configured path.',
         codexNote: 'Export SUB2API_API_KEY before starting Codex. The downloaded catalog contains model metadata only, not your API key.',
       },
       composite: {
         description: 'Configure supported clients through the current Composite routing group.',
         codexDescription: 'Configure Codex with API key authentication and the complete model catalog for this Composite group.',
-        codexConfigTomlHint: 'Download the model catalog below, save both files under the Codex config directory, and restart Codex.',
+        codexConfigTomlHint: 'Save config.toml and restart Codex to load the remote catalog. In local file mode, also download the catalog to the configured path.',
         codexNote: 'Export SUB2API_API_KEY before starting Codex. Model requests are routed by the selected catalog slug.',
       },
       routedCodex: {
         description: 'Configure Codex with the complete model catalog for the current routed group.',
-        configTomlHint: 'Download the model catalog below, save both files under the Codex config directory, and restart Codex.',
+        configTomlHint: 'Save config.toml and restart Codex to load the remote catalog. In local file mode, also download the catalog to the configured path.',
         note: 'Export SUB2API_API_KEY before starting Codex. The downloaded catalog contains model metadata only, not your API key.',
       },
       codexModelCatalog: {
+        mode: 'Catalog source',
+        remote: 'Remote catalog (Codex 0.156.0+)',
+        local: 'Local file (older clients)',
+        oversized: 'The complete catalog exceeds the 1 MiB remote limit. Local file mode is selected; download it to the configured path.',
         title: 'Codex model catalog',
-        description: 'Fetch with this API key, then save the catalog at the path referenced by config.toml.',
+        description: 'Codex loads and refreshes the remote catalog using your configured authentication. For local file mode, fetch the catalog below and save it at the configured path.',
         fetch: 'Fetch catalog',
         retry: 'Retry',
         download: 'Download catalog',
@@ -405,6 +409,8 @@ export default {
     latency: 'Latency',
     latencyFirstToken: 'First',
     latencyDuration: 'Total',
+    latencyTps: 'Avg TPS',
+    latencyTpsHint: 'Average TPS = output tokens ÷ total duration (seconds). Includes waiting time and any reasoning tokens reported in output usage; not model generation speed.',
     time: 'Time',
     ws: 'WS',
     stream: 'Stream',
@@ -611,6 +617,50 @@ export default {
     empty: {
       title: 'No channels available',
       description: 'No monitored channels have been configured yet.'
+    }
+  },
+
+  // Pelican showcase (user-facing gallery)
+  pelicanShowcase: {
+    title: 'Pelican Showcase',
+    description: 'Each group answers the same drawing prompt on a schedule. Compare model quality by looking at the results.',
+    allGroups: 'All groups',
+    keepRule: 'Latest {count} per group',
+    retentionRule: 'Auto-removed after {days} days',
+    itemCount: '{count} items',
+    latestAt: 'Updated {time}',
+    groupEmpty: 'No results in this group yet. They appear here once a scheduled test succeeds.',
+    scrollLabel: '{group}: drag to see earlier results',
+    loadError: 'Failed to load the Pelican showcase',
+    itemLoading: 'Loading…',
+    itemLoadError: 'Failed to load this result',
+    invalidHtml: 'This result cannot be displayed',
+    duration: '{seconds}s',
+    reasoning: 'Reasoning {effort}',
+    efforts: {
+      minimal: 'minimal',
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+      xhigh: 'xhigh'
+    },
+    preview: 'View full size',
+    previewTitle: '{group} · {model}',
+    fitArtwork: 'Fit artwork',
+    actualSize: '100%',
+    previewSizing: 'Preview size',
+    sandboxNote: 'Results run in an isolated sandbox without network access and cannot read your account.',
+    remove: 'Remove from showcase',
+    removeConfirm: 'Remove this result from the Pelican showcase? No user will see it any more. This cannot be undone.',
+    removed: 'Removed from the showcase',
+    removeFailed: 'Failed to remove',
+    disabled: {
+      title: 'Pelican showcase is not available',
+      description: 'Once an administrator enables it, scheduled results of each group appear here.'
+    },
+    empty: {
+      title: 'Nothing to show yet',
+      description: 'The administrator has not selected any groups to showcase.'
     }
   },
 

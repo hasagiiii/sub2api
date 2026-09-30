@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,7 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 	}
 	omitted.dropFrom(updates)
 
+	wakeHarvest := s.codexHarvestSettingsChanged(ctx, updates)
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
@@ -53,6 +55,9 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 		settings.TrustedProxiesDynamicExtraCIDRs,
 	)
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
+	if wakeHarvest {
+		s.notifyCodexHarvestAfterSettingsWrite()
+	}
 	return nil
 }
 
@@ -79,6 +84,7 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 	}
 	omitted.dropFrom(updates)
 
+	wakeHarvest := s.codexHarvestSettingsChanged(ctx, updates)
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
@@ -88,6 +94,9 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 		settings.TrustedProxiesDynamicExtraCIDRs,
 	)
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
+	if wakeHarvest {
+		s.notifyCodexHarvestAfterSettingsWrite()
+	}
 	return nil
 }
 
@@ -109,6 +118,60 @@ func (s *SettingService) refreshCachedSettingsAfterWrite(ctx context.Context, se
 }
 
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {
+	captureConfig := settings.requestCaptureConfig()
+	if err := captureConfig.Validate(); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_REQUEST_CAPTURE_SETTINGS", err.Error())
+	}
+	imageRelay, err := normalizeExcelBPSImageRelaySettings(settings.ExcelBPSImageRelayEnabled, settings.ExcelBPSImageBaseURL, settings.ExcelBPSImageMode)
+	if err != nil {
+		return nil, err
+	}
+	settings.ExcelBPSImageBaseURL = imageRelay.BaseURL
+	if settings.ExcelBPSImageBodyLimitMiB == 0 {
+		settings.ExcelBPSImageBodyLimitMiB = DefaultExcelBPSImageBodyLimitMiB
+	}
+	if settings.ExcelBPSImageBudgetMiB == 0 {
+		settings.ExcelBPSImageBudgetMiB = DefaultExcelBPSImageBudgetMiB
+	}
+	if settings.ExcelBPSImageMaxRequests == 0 {
+		settings.ExcelBPSImageMaxRequests = DefaultExcelBPSImageMaxRequests
+	}
+	if settings.ExcelBPSImageMaxImageMiB == 0 {
+		settings.ExcelBPSImageMaxImageMiB = imageRelay.Limits.MaxImageMiB
+	}
+	if settings.ExcelBPSImageMaxImages == 0 {
+		settings.ExcelBPSImageMaxImages = imageRelay.Limits.MaxImages
+	}
+	if settings.ExcelBPSImageMaxTotalMiB == 0 {
+		settings.ExcelBPSImageMaxTotalMiB = imageRelay.Limits.MaxTotalMiB
+	}
+	if settings.ExcelBPSImageStorageMiB == 0 {
+		settings.ExcelBPSImageStorageMiB = imageRelay.Limits.StorageMiB
+	}
+	if settings.ExcelBPSImageStorageEntries == 0 {
+		settings.ExcelBPSImageStorageEntries = imageRelay.Limits.StorageEntries
+	}
+	if settings.ExcelBPSImageTTLMinutes == 0 {
+		settings.ExcelBPSImageTTLMinutes = imageRelay.Limits.TTLMinutes
+	}
+	if settings.ExcelBPSImageLimitPolicy == "" {
+		settings.ExcelBPSImageLimitPolicy = "off"
+	}
+	if settings.ExcelBPSImageWarningRemaining == 0 {
+		settings.ExcelBPSImageWarningRemaining = 8
+	}
+	if settings.ExcelBPSImageCompactReserve == 0 {
+		settings.ExcelBPSImageCompactReserve = 3
+	}
+	if err := validateExcelBPSImagePolicy(settings.ExcelBPSImageLimitPolicy, settings.ExcelBPSImageWarningRemaining, settings.ExcelBPSImageCompactReserve, settings.ExcelBPSImageMaxImages); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_IMAGE_POLICY", err.Error())
+	}
+	if err := settings.imageRelayLimits().Validate(); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_IMAGE_LIMITS", err.Error())
+	}
+	if err := validateExcelBPSImageCapacity(settings.ExcelBPSImageBodyLimitMiB, settings.ExcelBPSImageBudgetMiB, settings.ExcelBPSImageMaxRequests); err != nil {
+		return nil, err
+	}
 	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
 		return nil, err
 	}
@@ -465,6 +528,15 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
 	updates[SettingKeyVideoFeatureEnabled] = strconv.FormatBool(settings.VideoFeatureEnabled)
 
+	// Pelican showcase switch + gallery limits
+	updates[SettingKeyPelicanShowcaseEnabled] = strconv.FormatBool(settings.PelicanShowcaseEnabled)
+	showcase, showcaseErr := NormalizePelicanShowcaseConfig(settings.PelicanShowcase)
+	if showcaseErr != nil {
+		return nil, infraerrors.BadRequest("INVALID_PELICAN_SHOWCASE", showcaseErr.Error())
+	}
+	showcaseJSON, _ := json.Marshal(showcase)
+	updates[SettingKeyPelicanShowcaseConfig] = string(showcaseJSON)
+
 	// Subscription feature switch
 	updates[SettingKeySubscriptionEnabled] = strconv.FormatBool(settings.SubscriptionEnabled)
 
@@ -482,15 +554,18 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// cyber 会话屏蔽开关 + TTL
 	updates[SettingKeyCyberSessionBlockEnabled] = strconv.FormatBool(settings.CyberSessionBlockEnabled)
+	if _, err := ParseCyberPolicyUserAllowlist(settings.CyberPolicyUserAllowlist); err != nil {
+		return nil, err
+	}
+	updates[SettingKeyCyberPolicyUserAllowlist] = settings.CyberPolicyUserAllowlist
 	if settings.CyberSessionBlockTTLSeconds > 0 {
 		updates[SettingKeyCyberSessionBlockTTLSeconds] = strconv.Itoa(settings.CyberSessionBlockTTLSeconds)
 	}
+	updates[SettingKeyCyberSessionIdentityStrictEnabled] = strconv.FormatBool(settings.CyberSessionIdentityStrictEnabled)
 
 	// Claude Code version check
 	updates[SettingKeyMinClaudeCodeVersion] = settings.MinClaudeCodeVersion
 	updates[SettingKeyMaxClaudeCodeVersion] = settings.MaxClaudeCodeVersion
-	updates[SettingKeyClaudeCodeClientVersion] = settings.ClaudeCodeClientVersion
-	updates[SettingKeyClaudeCodeVersionAutoSyncEnabled] = strconv.FormatBool(settings.ClaudeCodeVersionAutoSyncEnabled)
 
 	// 分组隔离
 	updates[SettingKeyAllowUngroupedKeyScheduling] = strconv.FormatBool(settings.AllowUngroupedKeyScheduling)
@@ -521,11 +596,54 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAICodexClientVersion] = NormalizeCodexClientVersion(settings.OpenAICodexClientVersion)
 	updates[SettingKeyOpenAICodexVersionAutoSyncEnabled] = strconv.FormatBool(settings.OpenAICodexVersionAutoSyncEnabled)
 	updates[SettingKeyOpenAICodexTicketEnabled] = strconv.FormatBool(settings.OpenAICodexTicketEnabled)
+	updates[SettingKeyOpenAICodexTicketFailClosed] = strconv.FormatBool(settings.OpenAICodexTicketFailClosed)
 	if err := ValidateOpenAICodexTicketHarvestProxyURL(settings.OpenAICodexTicketHarvestProxyURL); err != nil {
-		return nil, err
+		return nil, infraerrors.BadRequest("INVALID_CODEX_HARVEST_PROXY", err.Error())
 	}
 	updates[SettingKeyOpenAICodexTicketHarvestProxyURL] = strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL)
+	if value := settings.OpenAICodexTicketStrategy; value != "" && value != "fixed" && value != "standby" {
+		return nil, infraerrors.BadRequest("INVALID_TICKET_STRATEGY", "strategy must be fixed or standby")
+	}
+	scope, scopeErr := NormalizeCodexTicketHarvestScope(settings.OpenAICodexTicketHarvestScope)
+	if scopeErr != nil {
+		return nil, infraerrors.BadRequest("INVALID_TICKET_HARVEST_SCOPE", scopeErr.Error())
+	}
+	// Validate only a changed selection, so deleting a selected group does not
+	// prevent unrelated settings from being saved. Stale IDs match no accounts.
+	scopeJSON, _ := json.Marshal(scope)
+	if s.defaultSubGroupReader != nil && len(scope.GroupIDs) > 0 {
+		old, readErr := s.GetCodexTicketHarvestScope(ctx)
+		if readErr != nil || old.Mode != scope.Mode || !slices.Equal(old.GroupIDs, scope.GroupIDs) {
+			for _, id := range scope.GroupIDs {
+				group, err := s.defaultSubGroupReader.GetByID(ctx, id)
+				if err != nil && !errors.Is(err, ErrGroupNotFound) {
+					return nil, err
+				}
+				if err != nil || group == nil || group.Platform != PlatformOpenAI {
+					return nil, infraerrors.BadRequest("INVALID_TICKET_HARVEST_GROUP", "harvest groups must exist and use the OpenAI platform")
+				}
+			}
+		}
+	}
+	updates[SettingKeyOpenAICodexTicketHarvestScope] = string(scopeJSON)
+	updates[SettingKeyOpenAICodexTicketStrategy] = NormalizeCodexTicketStrategy(settings.OpenAICodexTicketStrategy)
+	updates[SettingKeyOpenAICodexTicketStrict] = strconv.FormatBool(settings.OpenAICodexTicketStrictResponse)
+	if settings.OpenAICodexTicketStaticProxyURL != "" {
+		updates[SettingKeyOpenAICodexTicketStaticProxyURL] = settings.OpenAICodexTicketStaticProxyURL
+	}
+	if proxy := strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL); proxy != "" && proxy != "http://127.0.0.1:3101" && proxy != OpenAICodexTicketHarvestIPPoolURL {
+		updates[SettingKeyOpenAICodexTicketStaticProxyURL] = proxy
+	}
+	modelsJSON, err := json.Marshal(NormalizeOpenAICodexTicketModels(settings.OpenAICodexTicketModels))
+	if err != nil {
+		return nil, fmt.Errorf("marshal Codex ticket models: %w", err)
+	}
+	updates[SettingKeyOpenAICodexTicketModels] = string(modelsJSON)
 	// SettingKeyOpenAICodexClientVersionSynced 由自动同步任务独占写入，此处不得覆盖，
+	// 否则面板保存会把同步结果清空。
+	updates[SettingKeyClaudeCodeClientVersion] = NormalizeClaudeCodeClientVersion(settings.ClaudeCodeClientVersion)
+	updates[SettingKeyClaudeCodeVersionAutoSyncEnabled] = strconv.FormatBool(settings.ClaudeCodeVersionAutoSyncEnabled)
+	// SettingKeyClaudeCodeClientVersionSynced 由自动同步任务独占写入，此处不得覆盖，
 	// 否则面板保存会把同步结果清空。
 	// codex_cli_only 加固
 	updates[SettingKeyMinCodexVersion] = strings.TrimSpace(settings.MinCodexVersion)
@@ -539,10 +657,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingPaymentVisibleMethodAlipayEnabled] = strconv.FormatBool(settings.PaymentVisibleMethodAlipayEnabled)
 	updates[SettingPaymentVisibleMethodWxpayEnabled] = strconv.FormatBool(settings.PaymentVisibleMethodWxpayEnabled)
 	updates[SettingKeyOpenAILowUpstreamRatePriorityEnabled] = strconv.FormatBool(settings.OpenAILowUpstreamRatePriorityEnabled)
-	if settings.OpenAIOAuthSchedulingRateMultiplier == nil {
-		updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = ""
-	} else {
-		updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = strconv.FormatFloat(*settings.OpenAIOAuthSchedulingRateMultiplier, 'f', -1, 64)
+	updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = ""
+	if rate := settings.OpenAIOAuthSchedulingRateMultiplier; rate != nil {
+		updates[SettingKeyOpenAIOAuthSchedulingRateMultiplier] = strconv.FormatFloat(*rate, 'f', -1, 64)
 	}
 	updates[openAIAdvancedSchedulerSettingKey] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerEnabled)
 	updates[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerStickyWeightedEnabled)
@@ -591,6 +708,25 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
+	updates[SettingKeyUsageShowLongContextBadge] = strconv.FormatBool(settings.UsageShowLongContextBadge)
+	updates[SettingKeyRequestCaptureEnabled] = strconv.FormatBool(captureConfig.Enabled)
+	updates[SettingKeyRequestCaptureQuotaMiB] = strconv.FormatInt(captureConfig.QuotaMiB, 10)
+	updates[SettingKeyRequestCaptureRetentionDays] = strconv.Itoa(captureConfig.RetentionDays)
+	updates[SettingKeyExcelBPSImageMode] = imageRelay.Mode
+	updates[SettingKeyExcelBPSImageRelayEnabled] = strconv.FormatBool(imageRelay.Enabled)
+	updates[SettingKeyExcelBPSImageBaseURL] = imageRelay.BaseURL
+	updates[SettingKeyExcelBPSImageBodyLimitMiB] = strconv.Itoa(settings.ExcelBPSImageBodyLimitMiB)
+	updates[SettingKeyExcelBPSImageBudgetMiB] = strconv.Itoa(settings.ExcelBPSImageBudgetMiB)
+	updates[SettingKeyExcelBPSImageMaxRequests] = strconv.Itoa(settings.ExcelBPSImageMaxRequests)
+	updates[SettingKeyExcelBPSImageMaxImageMiB] = strconv.Itoa(settings.ExcelBPSImageMaxImageMiB)
+	updates[SettingKeyExcelBPSImageLimitPolicy] = settings.ExcelBPSImageLimitPolicy
+	updates[SettingKeyExcelBPSImageWarningRemaining] = strconv.Itoa(settings.ExcelBPSImageWarningRemaining)
+	updates[SettingKeyExcelBPSImageCompactReserve] = strconv.Itoa(settings.ExcelBPSImageCompactReserve)
+	updates[SettingKeyExcelBPSImageMaxImages] = strconv.Itoa(settings.ExcelBPSImageMaxImages)
+	updates[SettingKeyExcelBPSImageMaxTotalMiB] = strconv.Itoa(settings.ExcelBPSImageMaxTotalMiB)
+	updates[SettingKeyExcelBPSImageStorageMiB] = strconv.Itoa(settings.ExcelBPSImageStorageMiB)
+	updates[SettingKeyExcelBPSImageStorageEntries] = strconv.Itoa(settings.ExcelBPSImageStorageEntries)
+	updates[SettingKeyExcelBPSImageTTLMinutes] = strconv.Itoa(settings.ExcelBPSImageTTLMinutes)
 
 	// 客服工单 / 客服浮窗 / 知识库 RAG 的持久化写入。
 	if err := s.appendSupportSettingsUpdates(ctx, updates, settings); err != nil {
@@ -795,6 +931,10 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	s.InvalidateOpenAICodexClientVersionCache()
 	s.InvalidateOpenAICodexTicketEnabledCache()
 	s.InvalidateOpenAICodexTicketHarvestProxyCache()
+	s.InvalidateOpenAICodexTicketFailClosedCache()
+	s.InvalidateOpenAICodexTicketModelsCache()
+	s.InvalidateOpenAICodexTicketHarvestScopeCache()
+	s.InvalidateClaudeCodeClientVersionCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
 		lowUpstreamRatePriorityEnabled: settings.OpenAILowUpstreamRatePriorityEnabled,
@@ -848,6 +988,17 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	// codex_cli_only 加固策略缓存：设置更新后强制下次重载（涉及 4 个键 + JSON 解析，直接置过期）。
 	s.codexRestrictionPolicySF.Forget("codex_restriction_policy")
 	s.codexRestrictionPolicyCache.Store(&cachedCodexRestrictionPolicy{expiresAt: 0})
+	// Cyber 会话屏蔽与严格身份门控必须在后台保存后立即生效，不能继续
+	// 使用最长 60 秒的旧开关快照。
+	s.cyberSessionBlockRuntimeSF.Forget("cyber_session_block_runtime")
+	// Retain the successfully saved allowlist if the next DB refresh fails.
+	s.cyberSessionBlockRuntimeMu.Lock()
+	allowlistedUsers, _ := ParseCyberPolicyUserAllowlist(settings.CyberPolicyUserAllowlist)
+	s.cyberSessionBlockRuntimeCache.Store(&cachedCyberSessionBlockRuntime{allowlistedUsers: allowlistedUsers})
+	s.cyberSessionBlockRuntimeMu.Unlock()
+	if s.requestCapture != nil {
+		s.requestCapture.ApplyConfig(settings.requestCaptureConfig())
+	}
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}

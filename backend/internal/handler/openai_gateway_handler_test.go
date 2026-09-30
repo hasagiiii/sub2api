@@ -1769,6 +1769,16 @@ func TestShouldReportOpenAIWSProxyAccountFailure(t *testing.T) {
 		require.Equal(t, "model switch requires reconnect", closeErr.Reason())
 	})
 
+	t.Run("local session admission rejection does not penalize account", func(t *testing.T) {
+		err := fmt.Errorf("wrapped ingress turn: %w", newOpenAIWSLocalAdmissionCloseError("invalid or conflicting session identity"))
+		require.False(t, shouldReportOpenAIWSProxyAccountFailure(err))
+
+		var closeErr *service.OpenAIWSClientCloseError
+		require.ErrorAs(t, err, &closeErr)
+		require.Equal(t, coderws.StatusPolicyViolation, closeErr.StatusCode())
+		require.Equal(t, "invalid or conflicting session identity", closeErr.Reason())
+	})
+
 	t.Run("upstream policy violation still penalizes account", func(t *testing.T) {
 		err := service.NewOpenAIWSClientCloseError(
 			coderws.StatusPolicyViolation,
@@ -1931,7 +1941,10 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 
 type openAIResponsesWSUsageLogCase struct {
 	simpleModeRejectAtRead int64
+	compositeResolver      *service.CompositeRouteResolver
+	accountPlatform        string
 	closeReason            string
+	closeStatus            coderws.StatusCode
 	firstPayload           string
 	// midPayload 在首个 turn 完成后发送（如 session.update），上游桩会为它
 	// 回一个 response.completed，客户端按普通事件读取。
@@ -1981,6 +1994,11 @@ func (s *openAIWSUsageHandlerAccountRepoStub) GetByID(ctx context.Context, id in
 	}
 	account := s.account
 	return &account, nil
+}
+
+func (s *openAIWSUsageHandlerAccountRepoStub) GetOpenAITurnAdmission(ctx context.Context, id int64) (*service.Account, *service.Account, error) {
+	a, err := s.GetByID(ctx, id)
+	return a, nil, err
 }
 
 type openAIWSFailoverHandlerAccountRepoStub struct {
@@ -2105,6 +2123,11 @@ func (s *openAIWSFailoverHandlerAccountRepoStub) GetByID(ctx context.Context, id
 	return nil, nil
 }
 
+func (s *openAIWSFailoverHandlerAccountRepoStub) GetOpenAITurnAdmission(ctx context.Context, id int64) (*service.Account, *service.Account, error) {
+	a, err := s.GetByID(ctx, id)
+	return a, nil, err
+}
+
 func (s *openAIWSFailoverHandlerAccountRepoStub) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
 	s.rateLimitedIDs = append(s.rateLimitedIDs, id)
 	for i := range s.accounts {
@@ -2218,13 +2241,16 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 	cfg.Security.URLAllowlist.Enabled = false
 	cfg.Gateway.MaxAccountSwitches = 1
 
+	for i := range accounts {
+		accounts[i].GroupIDs = []int64{groupID}
+	}
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	upstream := &openAIHTTPPassthroughFailoverUpstream{}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCacheSvc.Stop)
 	gatewaySvc := service.NewOpenAIGatewayService(
-		accountRepo,                         // accountRepo
-		nil,                                 // usageLogRepo
+		accountRepo, // accountRepo
+		nil, nil,    // usageLogRepo
 		nil,                                 // usageBillingRepo
 		nil,                                 // userRepo
 		nil,                                 // userSubRepo
@@ -2320,6 +2346,9 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 			cfg.Security.URLAllowlist.Enabled = false
 			cfg.Gateway.MaxAccountSwitches = 1
 
+			for i := range accounts {
+				accounts[i].GroupIDs = []int64{groupID}
+			}
 			accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 			upstream := &openAIHTTPPassthroughAuthFailoverUpstream{statusCode: tt.statusCode}
 			rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
@@ -2327,7 +2356,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 			t.Cleanup(billingCacheSvc.Stop)
 			gatewaySvc := service.NewOpenAIGatewayService(
 				accountRepo,
-				nil,
+				nil, nil,
 				nil,
 				nil,
 				nil,
@@ -2405,13 +2434,16 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 	cfg.Security.URLAllowlist.Enabled = false
 	cfg.Gateway.MaxAccountSwitches = 1
 
+	for i := range accounts {
+		accounts[i].GroupIDs = []int64{groupID}
+	}
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	upstream := &openAIHTTPPassthroughSSERateLimitUpstream{}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCacheSvc.Stop)
 	gatewaySvc := service.NewOpenAIGatewayService(
-		accountRepo,                         // accountRepo
-		nil,                                 // usageLogRepo
+		accountRepo, // accountRepo
+		nil, nil,    // usageLogRepo
 		nil,                                 // usageBillingRepo
 		nil,                                 // userRepo
 		nil,                                 // userSubRepo
@@ -2568,12 +2600,15 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 	cfg.Gateway.MaxAccountSwitches = 3
 
+	for i := range accounts {
+		accounts[i].GroupIDs = []int64{groupID}
+	}
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo,
-		nil,
+		nil, nil,
 		nil,
 		nil,
 		nil,
@@ -2778,12 +2813,15 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 	cfg.Gateway.OpenAIWS.IngressInterTurnIdleTimeoutSeconds = 3
 	cfg.Gateway.MaxAccountSwitches = 3
 
+	for i := range accounts {
+		accounts[i].GroupIDs = []int64{groupID}
+	}
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	gatewaySvc := service.NewOpenAIGatewayService(
-		accountRepo,                         // accountRepo
-		nil,                                 // usageLogRepo
+		accountRepo, // accountRepo
+		nil, nil,    // usageLogRepo
 		nil,                                 // usageBillingRepo
 		nil,                                 // userRepo
 		nil,                                 // userSubRepo
@@ -2907,6 +2945,17 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	upstreamErrCh := make(chan error, 1)
 	var channelSvc *service.ChannelService
 	upstreamServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if tc.accountPlatform == service.PlatformGrok {
+			payload, err := io.ReadAll(r.Body)
+			if err != nil {
+				upstreamErrCh <- err
+				return
+			}
+			upstreamPayloadCh <- payload
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprintf(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_grok_test\",\"model\":%q,\"usage\":{\"input_tokens\":2,\"output_tokens\":1}}}\n\n", gjson.GetBytes(payload, "model").String())
+			return
+		}
 		conn, err := coderws.Accept(w, r, &coderws.AcceptOptions{
 			CompressionMode: coderws.CompressionContextTakeover,
 		})
@@ -2974,6 +3023,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			"openai_apikey_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,
 		},
 	}
+	if tc.accountPlatform != "" {
+		account.Platform = tc.accountPlatform
+	}
 	if strings.TrimSpace(tc.ingressMode) != "" {
 		account.Extra["openai_apikey_responses_websockets_v2_mode"] = tc.ingressMode
 	}
@@ -2991,6 +3043,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
+	account.GroupIDs = []int64{groupID}
 	accountRepo := &openAIWSUsageHandlerAccountRepoStub{account: account}
 	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, turnCount)}
 
@@ -3017,6 +3070,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	t.Cleanup(billingCacheSvc.Stop)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo,
+		nil,
 		usageRepo,
 		nil,
 		nil,
@@ -3030,7 +3084,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		service.NewBillingService(cfg, nil),
 		nil,
 		billingCacheSvc,
-		nil,
+		&compositeWSHTTPUpstream{},
 		&service.DeferredService{},
 		nil,
 		nil,
@@ -3052,6 +3106,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 	h := &OpenAIGatewayHandler{
 		cfg:                 cfg,
+		compositeResolver:   tc.compositeResolver,
 		gatewayService:      gatewaySvc,
 		billingCacheService: billingCacheSvc,
 		apiKeyService:       &service.APIKeyService{},
@@ -3100,6 +3155,12 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	cancelWrite()
 	require.NoError(t, err)
 
+	if tc.closeReason == "" {
+		tc.closeReason = "not available for this group"
+	}
+	if tc.closeStatus == 0 {
+		tc.closeStatus = coderws.StatusPolicyViolation
+	}
 	if tc.firstFrameCloseExpected {
 		readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
 		_, _, readErr := clientConn.Read(readCtx)
@@ -3107,12 +3168,17 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		require.Error(t, readErr, "first frame should have been rejected with a close")
 		var closeErr coderws.CloseError
 		require.ErrorAs(t, readErr, &closeErr)
-		require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
+		status := tc.closeStatus
+		if status == 0 {
+			status = coderws.StatusPolicyViolation
+		}
+		require.Equal(t, status, closeErr.Code)
 		reason := tc.closeReason
 		if reason == "" {
 			reason = "not available for this group"
 		}
 		require.Contains(t, closeErr.Reason, reason)
+		require.Empty(t, upstreamPayloadCh, "rejected first frame must not reach upstream")
 		_ = clientConn.CloseNow()
 		return openAIResponsesWSUsageLogResult{}
 	}
@@ -3146,12 +3212,17 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			require.Error(t, readErr, "second turn should have been rejected with a close")
 			var closeErr coderws.CloseError
 			require.ErrorAs(t, readErr, &closeErr)
-			require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
+			status := tc.closeStatus
+			if status == 0 {
+				status = coderws.StatusPolicyViolation
+			}
+			require.Equal(t, status, closeErr.Code)
 			reason := tc.closeReason
 			if reason == "" {
 				reason = "not available for this group"
 			}
 			require.Contains(t, closeErr.Reason, reason)
+			require.Len(t, upstreamPayloadCh, turnCount-1, "rejected turn must not reach upstream")
 			_ = clientConn.CloseNow()
 			return openAIResponsesWSUsageLogResult{}
 		}
@@ -3180,6 +3251,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		}
 	}
 
+	if tc.accountPlatform == service.PlatformGrok {
+		upstreamErrCh <- nil
+	}
 	select {
 	case upstreamErr := <-upstreamErrCh:
 		require.NoError(t, upstreamErr)

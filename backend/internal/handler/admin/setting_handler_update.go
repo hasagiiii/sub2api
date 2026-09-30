@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -23,6 +25,10 @@ import (
 
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
+	OpenAICodexTicketHarvestScope   *service.CodexTicketHarvestScope `json:"openai_codex_ticket_harvest_scope"`
+	OpenAICodexTicketStrictResponse *bool                            `json:"openai_codex_ticket_strict_response"`
+	OpenAICodexTicketFailClosed     *bool                            `json:"openai_codex_ticket_fail_closed"`
+	OpenAICodexTicketStrategy       *string                          `json:"openai_codex_ticket_strategy"`
 	// 注册设置
 	RegistrationEnabled                 bool                         `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                         `json:"email_verify_enabled"`
@@ -273,8 +279,13 @@ type UpdateSettingsRequest struct {
 	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
 	OpenAICodexClientVersion               *string `json:"openai_codex_client_version"`
 	OpenAICodexVersionAutoSyncEnabled      *bool   `json:"openai_codex_version_auto_sync_enabled"`
-	OpenAICodexTicketEnabled               *bool   `json:"openai_codex_ticket_enabled"`
-	OpenAICodexTicketHarvestProxyURL       string  `json:"openai_codex_ticket_harvest_proxy_url"`
+
+	OpenAICodexTicketEnabled             *bool     `json:"openai_codex_ticket_enabled"`
+	OpenAICodexTicketHarvestProxyURL     string    `json:"openai_codex_ticket_harvest_proxy_url"`
+	OpenAICodexTicketUseSavedStaticProxy bool      `json:"openai_codex_ticket_use_saved_static_proxy"`
+	OpenAICodexTicketModels              *[]string `json:"openai_codex_ticket_models"`
+	ClaudeCodeClientVersion              *string   `json:"claude_code_client_version"`
+	ClaudeCodeVersionAutoSyncEnabled     *bool     `json:"claude_code_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -363,6 +374,10 @@ type UpdateSettingsRequest struct {
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
 	VideoFeatureEnabled      *bool `json:"video_feature_enabled"`
 
+	// Pelican showcase switch + gallery limits (user-facing)
+	PelicanShowcaseEnabled *bool                          `json:"pelican_showcase_enabled"`
+	PelicanShowcase        *service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
+
 	// Subscription feature switch (user-facing subscription surface; see SettingKeySubscriptionEnabled)
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
 
@@ -381,8 +396,10 @@ type UpdateSettingsRequest struct {
 	RiskControlEnabled *bool `json:"risk_control_enabled"`
 
 	// cyber 会话屏蔽开关 + TTL
-	CyberSessionBlockEnabled    *bool `json:"cyber_session_block_enabled"`
-	CyberSessionBlockTTLSeconds *int  `json:"cyber_session_block_ttl_seconds"`
+	CyberSessionBlockEnabled          *bool   `json:"cyber_session_block_enabled"`
+	CyberSessionBlockTTLSeconds       *int    `json:"cyber_session_block_ttl_seconds"`
+	CyberSessionIdentityStrictEnabled *bool   `json:"cyber_session_identity_strict_enabled"`
+	CyberPolicyUserAllowlist          *string `json:"cyber_policy_user_allowlist"`
 
 	// OpenAI fast/flex policy (optional, only updated when provided)
 	OpenAIFastPolicySettings *dto.OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
@@ -447,6 +464,26 @@ type UpdateSettingsRequest struct {
 	SupportChatRAGTopK          *int    `json:"support_chat_rag_top_k"`
 	SupportChatRAGChunkSize     *int    `json:"support_chat_rag_chunk_size"`
 	SupportChatRAGChunkOverlap  *int    `json:"support_chat_rag_chunk_overlap"`
+
+	UsageShowLongContextBadge     *bool   `json:"usage_show_long_context_badge"`
+	RequestCaptureEnabled         *bool   `json:"request_capture_enabled"`
+	RequestCaptureQuotaMiB        *int64  `json:"request_capture_quota_mib"`
+	RequestCaptureRetentionDays   *int    `json:"request_capture_retention_days"`
+	ExcelBPSImageMode             *string `json:"excel_bps_image_mode"`
+	ExcelBPSImageRelayEnabled     *bool   `json:"excel_bps_image_relay_enabled"`
+	ExcelBPSImageBaseURL          *string `json:"excel_bps_image_base_url"`
+	ExcelBPSImageBodyLimitMiB     *int    `json:"excel_bps_image_body_limit_mib"`
+	ExcelBPSImageBudgetMiB        *int    `json:"excel_bps_image_budget_mib"`
+	ExcelBPSImageMaxRequests      *int    `json:"excel_bps_image_max_requests"`
+	ExcelBPSImageMaxImageMiB      *int    `json:"excel_bps_image_max_image_mib"`
+	ExcelBPSImageMaxImages        *int    `json:"excel_bps_image_max_images"`
+	ExcelBPSImageLimitPolicy      *string `json:"excel_bps_image_limit_policy"`
+	ExcelBPSImageWarningRemaining *int    `json:"excel_bps_image_warning_remaining"`
+	ExcelBPSImageCompactReserve   *int    `json:"excel_bps_image_compact_reserve"`
+	ExcelBPSImageMaxTotalMiB      *int    `json:"excel_bps_image_max_total_mib"`
+	ExcelBPSImageStorageMiB       *int    `json:"excel_bps_image_storage_mib"`
+	ExcelBPSImageStorageEntries   *int    `json:"excel_bps_image_storage_entries"`
+	ExcelBPSImageTTLMinutes       *int    `json:"excel_bps_image_ttl_minutes"`
 }
 
 // UpdateSettings 更新系统设置
@@ -555,6 +592,58 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	var req UpdateSettingsRequest
 	if err := c.ShouldBindBodyWith(&req, binding.JSON); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if req.OpenAICodexTicketHarvestScope != nil && req.OpenAICodexTicketHarvestScope.Mode == "" {
+		response.BadRequest(c, "harvest scope mode is required")
+		return
+	}
+	if req.RequestCaptureQuotaMiB != nil && (*req.RequestCaptureQuotaMiB < 1 || *req.RequestCaptureQuotaMiB > (1<<63-1)/(1<<20)) {
+		response.BadRequest(c, "Capture quota must be positive MiB within int64 range")
+		return
+	}
+	if req.RequestCaptureRetentionDays != nil && (*req.RequestCaptureRetentionDays < 1 || *req.RequestCaptureRetentionDays > 30) {
+		response.BadRequest(c, "Capture retention must be 1-30 days")
+		return
+	}
+	if req.ExcelBPSImageMaxImageMiB != nil && (*req.ExcelBPSImageMaxImageMiB < 1 || *req.ExcelBPSImageMaxImageMiB > basispoints.MaxRelayImageMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image relay max_image_mib must be 1-%d", basispoints.MaxRelayImageMiB))
+		return
+	}
+	if (req.ExcelBPSImageWarningRemaining != nil && (*req.ExcelBPSImageWarningRemaining < 1 || *req.ExcelBPSImageWarningRemaining > basispoints.MaxRelayImages)) || (req.ExcelBPSImageCompactReserve != nil && (*req.ExcelBPSImageCompactReserve < 1 || *req.ExcelBPSImageCompactReserve > basispoints.MaxRelayImages)) {
+		response.BadRequest(c, fmt.Sprintf("Image policy margins must be 1-%d", basispoints.MaxRelayImages))
+		return
+	}
+	if req.ExcelBPSImageMaxImages != nil && (*req.ExcelBPSImageMaxImages < 1 || *req.ExcelBPSImageMaxImages > basispoints.MaxRelayImages) {
+		response.BadRequest(c, fmt.Sprintf("Image relay max_images must be 1-%d", basispoints.MaxRelayImages))
+		return
+	}
+	if req.ExcelBPSImageMaxTotalMiB != nil && (*req.ExcelBPSImageMaxTotalMiB < 1 || *req.ExcelBPSImageMaxTotalMiB > basispoints.MaxRelayRequestMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image relay max_total_mib must be 1-%d", basispoints.MaxRelayRequestMiB))
+		return
+	}
+	if req.ExcelBPSImageStorageMiB != nil && (*req.ExcelBPSImageStorageMiB < 1 || *req.ExcelBPSImageStorageMiB > basispoints.MaxRelayStorageMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image relay storage_mib must be 1-%d", basispoints.MaxRelayStorageMiB))
+		return
+	}
+	if req.ExcelBPSImageStorageEntries != nil && (*req.ExcelBPSImageStorageEntries < 1 || *req.ExcelBPSImageStorageEntries > basispoints.MaxRelayStorageEntries) {
+		response.BadRequest(c, fmt.Sprintf("Image relay storage_entries must be 1-%d", basispoints.MaxRelayStorageEntries))
+		return
+	}
+	if req.ExcelBPSImageTTLMinutes != nil && (*req.ExcelBPSImageTTLMinutes < 1 || *req.ExcelBPSImageTTLMinutes > basispoints.MaxRelayTTLMinutes) {
+		response.BadRequest(c, fmt.Sprintf("Image relay ttl_minutes must be 1-%d", basispoints.MaxRelayTTLMinutes))
+		return
+	}
+	if req.ExcelBPSImageBodyLimitMiB != nil && (*req.ExcelBPSImageBodyLimitMiB < 1 || *req.ExcelBPSImageBodyLimitMiB > basispoints.MaxImageBodyMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image request body limit must be 1-%d MiB", basispoints.MaxImageBodyMiB))
+		return
+	}
+	if req.ExcelBPSImageBudgetMiB != nil && (*req.ExcelBPSImageBudgetMiB < basispoints.MinImageBudgetMiB || *req.ExcelBPSImageBudgetMiB > basispoints.MaxImageBudgetMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image request budget must be %d-%d MiB", basispoints.MinImageBudgetMiB, basispoints.MaxImageBudgetMiB))
+		return
+	}
+	if req.ExcelBPSImageMaxRequests != nil && (*req.ExcelBPSImageMaxRequests < 1 || *req.ExcelBPSImageMaxRequests > basispoints.MaxImageRequests) {
+		response.BadRequest(c, fmt.Sprintf("Image concurrent requests must be 1-%d", basispoints.MaxImageRequests))
 		return
 	}
 	auditReq := settingsAuditRequest(req)
@@ -1668,6 +1757,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 		req.OpenAICodexClientVersion = &normalized
 	}
+	if req.ClaudeCodeClientVersion != nil {
+		// 该值会被拼进出站 User-Agent 与 billing attribution，必须是合法版本号；空串表示跟随自动同步。
+		normalized := strings.TrimSpace(*req.ClaudeCodeClientVersion)
+		if normalized != "" && service.NormalizeClaudeCodeClientVersion(normalized) == "" {
+			response.Error(c, http.StatusBadRequest, "claude_code_client_version must be empty or a valid version (e.g. 2.1.258)")
+			return
+		}
+		req.ClaudeCodeClientVersion = &normalized
+	}
 
 	// codex_cli_only 加固：最低/最高 Codex 版本（空=禁用，或合法 semver；max>=min）
 	if req.MinCodexVersion != "" && !semverPattern.MatchString(req.MinCodexVersion) {
@@ -1701,6 +1799,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.MinClaudeCodeVersion != "" && req.MaxClaudeCodeVersion != "" {
 		if service.CompareVersions(req.MaxClaudeCodeVersion, req.MinClaudeCodeVersion) < 0 {
 			response.Error(c, http.StatusBadRequest, "max_claude_code_version must be greater than or equal to min_claude_code_version")
+			return
+		}
+	}
+
+	if req.CyberPolicyUserAllowlist != nil {
+		if _, err := service.ParseCyberPolicyUserAllowlist(*req.CyberPolicyUserAllowlist); err != nil {
+			response.BadRequest(c, err.Error())
 			return
 		}
 	}
@@ -1901,11 +2006,125 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                   req.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:            req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                     req.BackendModeEnabled,
+		RequestCaptureEnabled: func() bool {
+			if req.RequestCaptureEnabled != nil {
+				return *req.RequestCaptureEnabled
+			}
+			return previousSettings.RequestCaptureEnabled
+		}(),
+		RequestCaptureQuotaMiB: func() int64 {
+			if req.RequestCaptureQuotaMiB != nil {
+				return *req.RequestCaptureQuotaMiB
+			}
+			return previousSettings.RequestCaptureQuotaMiB
+		}(),
+		RequestCaptureRetentionDays: func() int {
+			if req.RequestCaptureRetentionDays != nil {
+				return *req.RequestCaptureRetentionDays
+			}
+			return previousSettings.RequestCaptureRetentionDays
+		}(),
+		ExcelBPSImageMode: func() string {
+			if req.ExcelBPSImageMode != nil {
+				return *req.ExcelBPSImageMode
+			}
+			return previousSettings.ExcelBPSImageMode
+		}(),
+		ExcelBPSImageRelayEnabled: func() bool {
+			if req.ExcelBPSImageRelayEnabled != nil {
+				return *req.ExcelBPSImageRelayEnabled
+			}
+			return previousSettings.ExcelBPSImageRelayEnabled
+		}(),
+		ExcelBPSImageBaseURL: func() string {
+			if req.ExcelBPSImageBaseURL != nil {
+				return *req.ExcelBPSImageBaseURL
+			}
+			return previousSettings.ExcelBPSImageBaseURL
+		}(),
+		ExcelBPSImageBodyLimitMiB: func() int {
+			if req.ExcelBPSImageBodyLimitMiB != nil {
+				return *req.ExcelBPSImageBodyLimitMiB
+			}
+			return previousSettings.ExcelBPSImageBodyLimitMiB
+		}(),
+		ExcelBPSImageBudgetMiB: func() int {
+			if req.ExcelBPSImageBudgetMiB != nil {
+				return *req.ExcelBPSImageBudgetMiB
+			}
+			return previousSettings.ExcelBPSImageBudgetMiB
+		}(),
+		ExcelBPSImageMaxImageMiB: func() int {
+			if req.ExcelBPSImageMaxImageMiB != nil {
+				return *req.ExcelBPSImageMaxImageMiB
+			}
+			return previousSettings.ExcelBPSImageMaxImageMiB
+		}(),
+		ExcelBPSImageLimitPolicy: func() string {
+			if req.ExcelBPSImageLimitPolicy != nil {
+				return *req.ExcelBPSImageLimitPolicy
+			}
+			return previousSettings.ExcelBPSImageLimitPolicy
+		}(),
+		ExcelBPSImageWarningRemaining: func() int {
+			if req.ExcelBPSImageWarningRemaining != nil {
+				return *req.ExcelBPSImageWarningRemaining
+			}
+			return previousSettings.ExcelBPSImageWarningRemaining
+		}(),
+		ExcelBPSImageCompactReserve: func() int {
+			if req.ExcelBPSImageCompactReserve != nil {
+				return *req.ExcelBPSImageCompactReserve
+			}
+			return previousSettings.ExcelBPSImageCompactReserve
+		}(),
+		ExcelBPSImageMaxImages: func() int {
+			if req.ExcelBPSImageMaxImages != nil {
+				return *req.ExcelBPSImageMaxImages
+			}
+			return previousSettings.ExcelBPSImageMaxImages
+		}(),
+		ExcelBPSImageMaxTotalMiB: func() int {
+			if req.ExcelBPSImageMaxTotalMiB != nil {
+				return *req.ExcelBPSImageMaxTotalMiB
+			}
+			return previousSettings.ExcelBPSImageMaxTotalMiB
+		}(),
+		ExcelBPSImageStorageMiB: func() int {
+			if req.ExcelBPSImageStorageMiB != nil {
+				return *req.ExcelBPSImageStorageMiB
+			}
+			return previousSettings.ExcelBPSImageStorageMiB
+		}(),
+		ExcelBPSImageStorageEntries: func() int {
+			if req.ExcelBPSImageStorageEntries != nil {
+				return *req.ExcelBPSImageStorageEntries
+			}
+			return previousSettings.ExcelBPSImageStorageEntries
+		}(),
+		ExcelBPSImageTTLMinutes: func() int {
+			if req.ExcelBPSImageTTLMinutes != nil {
+				return *req.ExcelBPSImageTTLMinutes
+			}
+			return previousSettings.ExcelBPSImageTTLMinutes
+		}(),
+		ExcelBPSImageMaxRequests: func() int {
+			if req.ExcelBPSImageMaxRequests != nil {
+				return *req.ExcelBPSImageMaxRequests
+			}
+			return previousSettings.ExcelBPSImageMaxRequests
+		}(),
 		AllowUserViewErrorRequests: func() bool {
 			if req.AllowUserViewErrorRequests != nil {
 				return *req.AllowUserViewErrorRequests
 			}
 			return previousSettings.AllowUserViewErrorRequests
+		}(),
+		UsageShowLongContextBadge: func() bool {
+			if req.UsageShowLongContextBadge != nil {
+				return *req.UsageShowLongContextBadge
+			}
+			return previousSettings.UsageShowLongContextBadge
 		}(),
 		OpsMonitoringEnabled: func() bool {
 			if req.OpsMonitoringEnabled != nil {
@@ -2017,6 +2236,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.OpenAICodexVersionAutoSyncEnabled
 		}(),
+
 		OpenAICodexTicketEnabled: func() bool {
 			if req.OpenAICodexTicketEnabled != nil {
 				return *req.OpenAICodexTicketEnabled
@@ -2025,11 +2245,65 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}(),
 		OpenAICodexTicketHarvestProxyURL: func() string {
 			next := strings.TrimSpace(req.OpenAICodexTicketHarvestProxyURL)
-			if next == "" || service.IsMaskedProxyURL(next) {
+			if req.OpenAICodexTicketUseSavedStaticProxy && service.IsMaskedProxyURL(next) && previousSettings.OpenAICodexTicketStaticProxyURL != "" {
+				return previousSettings.OpenAICodexTicketStaticProxyURL
+			}
+			if service.IsMaskedProxyURL(next) {
 				return previousSettings.OpenAICodexTicketHarvestProxyURL
 			}
 			return next
 		}(),
+		OpenAICodexTicketStaticProxyURL: func() string {
+			if old := previousSettings.OpenAICodexTicketHarvestProxyURL; old != "" && old != "http://127.0.0.1:3101" && old != service.OpenAICodexTicketHarvestIPPoolURL {
+				return old
+			}
+			return previousSettings.OpenAICodexTicketStaticProxyURL
+		}(),
+		OpenAICodexTicketStrictResponse: func() bool {
+			if req.OpenAICodexTicketStrictResponse != nil {
+				return *req.OpenAICodexTicketStrictResponse
+			}
+			return previousSettings.OpenAICodexTicketStrictResponse
+		}(),
+		OpenAICodexTicketFailClosed: func() bool {
+			if req.OpenAICodexTicketFailClosed != nil {
+				return *req.OpenAICodexTicketFailClosed
+			}
+			return previousSettings.OpenAICodexTicketFailClosed
+		}(),
+		OpenAICodexTicketHarvestScope: func() service.CodexTicketHarvestScope {
+			if req.OpenAICodexTicketHarvestScope != nil {
+				return *req.OpenAICodexTicketHarvestScope
+			}
+			return previousSettings.OpenAICodexTicketHarvestScope
+		}(),
+		OpenAICodexTicketStrategy: func() string {
+			if req.OpenAICodexTicketStrategy != nil {
+				return *req.OpenAICodexTicketStrategy
+			}
+			return previousSettings.OpenAICodexTicketStrategy
+		}(),
+		OpenAICodexTicketModels: func() []string {
+			if req.OpenAICodexTicketModels != nil {
+				return service.NormalizeOpenAICodexTicketModels(*req.OpenAICodexTicketModels)
+			}
+			return previousSettings.OpenAICodexTicketModels
+		}(),
+		ClaudeCodeClientVersion: func() string {
+			if req.ClaudeCodeClientVersion != nil {
+				return *req.ClaudeCodeClientVersion
+			}
+			return previousSettings.ClaudeCodeClientVersion
+		}(),
+		// 同步值由自动同步任务独占写入，面板保存时原样带回，避免被清空。
+		ClaudeCodeClientVersionSynced: previousSettings.ClaudeCodeClientVersionSynced,
+		ClaudeCodeVersionAutoSyncEnabled: func() bool {
+			if req.ClaudeCodeVersionAutoSyncEnabled != nil {
+				return *req.ClaudeCodeVersionAutoSyncEnabled
+			}
+			return previousSettings.ClaudeCodeVersionAutoSyncEnabled
+		}(),
+
 		MinCodexVersion:       strings.TrimSpace(req.MinCodexVersion),
 		MaxCodexVersion:       strings.TrimSpace(req.MaxCodexVersion),
 		CodexCLIOnlyBlacklist: strings.TrimSpace(req.CodexCLIOnlyBlacklist),
@@ -2072,7 +2346,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return previousSettings.OpenAILowUpstreamRatePriorityEnabled
 		}(),
 		OpenAIOAuthSchedulingRateMultiplier: func() *float64 {
+			// Omitted fields preserve the override; explicit null clears it.
 			if req.OpenAIOAuthSchedulingRateMultiplier != nil {
+
 				value := *req.OpenAIOAuthSchedulingRateMultiplier
 				return &value
 			}
@@ -2207,12 +2483,27 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AvailableChannelsEnabled
 		}(),
+
 		VideoFeatureEnabled: func() bool {
 			if req.VideoFeatureEnabled != nil {
 				return *req.VideoFeatureEnabled
 			}
 			return previousSettings.VideoFeatureEnabled
 		}(),
+
+		PelicanShowcaseEnabled: func() bool {
+			if req.PelicanShowcaseEnabled != nil {
+				return *req.PelicanShowcaseEnabled
+			}
+			return previousSettings.PelicanShowcaseEnabled
+		}(),
+		PelicanShowcase: func() service.PelicanShowcaseConfig {
+			if req.PelicanShowcase != nil {
+				return *req.PelicanShowcase
+			}
+			return previousSettings.PelicanShowcase
+		}(),
+
 		SubscriptionEnabled: func() bool {
 			if req.SubscriptionEnabled != nil {
 				return *req.SubscriptionEnabled
@@ -2255,6 +2546,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.RiskControlEnabled
 		}(),
+		CyberPolicyUserAllowlist: func() string {
+			if req.CyberPolicyUserAllowlist != nil {
+				return *req.CyberPolicyUserAllowlist
+			}
+			return previousSettings.CyberPolicyUserAllowlist
+		}(),
 		CyberSessionBlockEnabled: func() bool {
 			if req.CyberSessionBlockEnabled != nil {
 				return *req.CyberSessionBlockEnabled
@@ -2267,6 +2564,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.CyberSessionBlockTTLSeconds
 		}(),
+
 		SupportTicketEnabled: func() bool {
 			if req.SupportTicketEnabled != nil {
 				return *req.SupportTicketEnabled
@@ -2469,6 +2767,13 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.SupportChatRAGChunkOverlap
 			}
 			return previousSettings.SupportChatRAGChunkOverlap
+		}(),
+
+		CyberSessionIdentityStrictEnabled: func() bool {
+			if req.CyberSessionIdentityStrictEnabled != nil {
+				return *req.CyberSessionIdentityStrictEnabled
+			}
+			return previousSettings.CyberSessionIdentityStrictEnabled
 		}(),
 	}
 
@@ -2805,6 +3110,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAICodexTicketEnabled:                               updatedSettings.OpenAICodexTicketEnabled,
 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(updatedSettings.OpenAICodexTicketHarvestProxyURL),
 		OpenAICodexTicketHarvestProxyConfigured:                strings.TrimSpace(updatedSettings.OpenAICodexTicketHarvestProxyURL) != "",
+		OpenAICodexTicketStaticProxyURL:                        service.MaskProxyURL(updatedSettings.OpenAICodexTicketStaticProxyURL),
+		OpenAICodexTicketHarvestScope:                          updatedSettings.OpenAICodexTicketHarvestScope,
+		OpenAICodexTicketStrategy:                              updatedSettings.OpenAICodexTicketStrategy,
+		OpenAICodexTicketStrictResponse:                        updatedSettings.OpenAICodexTicketStrictResponse,
+		OpenAICodexTicketFailClosed:                            updatedSettings.OpenAICodexTicketFailClosed,
+		OpenAICodexTicketModels:                                updatedSettings.OpenAICodexTicketModels,
+		ClaudeCodeClientVersion:                                updatedSettings.ClaudeCodeClientVersion,
+		ClaudeCodeClientVersionSynced:                          updatedSettings.ClaudeCodeClientVersionSynced,
+		ClaudeCodeVersionAutoSyncEnabled:                       updatedSettings.ClaudeCodeVersionAutoSyncEnabled,
 		MinCodexVersion:                                        updatedSettings.MinCodexVersion,
 		MaxCodexVersion:                                        updatedSettings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                                  updatedSettings.CodexCLIOnlyBlacklist,
@@ -2885,6 +3199,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
 		VideoFeatureEnabled:      updatedSettings.VideoFeatureEnabled,
+		PelicanShowcaseEnabled:   updatedSettings.PelicanShowcaseEnabled,
+		PelicanShowcase:          updatedSettings.PelicanShowcase,
 		SubscriptionEnabled:      updatedSettings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
@@ -2894,11 +3210,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 
-		RiskControlEnabled:          updatedSettings.RiskControlEnabled,
-		CyberSessionBlockEnabled:    updatedSettings.CyberSessionBlockEnabled,
-		CyberSessionBlockTTLSeconds: updatedSettings.CyberSessionBlockTTLSeconds,
-		AccountSchedulingThresholds: updatedSettings.AccountSchedulingThresholds,
-		AllowUserViewErrorRequests:  updatedSettings.AllowUserViewErrorRequests,
+		RiskControlEnabled:                updatedSettings.RiskControlEnabled,
+		CyberSessionBlockEnabled:          updatedSettings.CyberSessionBlockEnabled,
+		CyberSessionBlockTTLSeconds:       updatedSettings.CyberSessionBlockTTLSeconds,
+		CyberSessionIdentityStrictEnabled: updatedSettings.CyberSessionIdentityStrictEnabled,
+		AccountSchedulingThresholds:       updatedSettings.AccountSchedulingThresholds,
+		AllowUserViewErrorRequests:        updatedSettings.AllowUserViewErrorRequests,
 
 		// 客服工单（support-ticket）：必须随 PUT 响应回前端，否则前端会把响应里缺失的
 		// 字段当作零值（enabled=false / default_priority=""）回写到表单，导致保存后开关自动
@@ -2939,6 +3256,29 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SupportChatRAGTopK:          updatedSettings.SupportChatRAGTopK,
 		SupportChatRAGChunkSize:     updatedSettings.SupportChatRAGChunkSize,
 		SupportChatRAGChunkOverlap:  updatedSettings.SupportChatRAGChunkOverlap,
+
+		UsageShowLongContextBadge:     updatedSettings.UsageShowLongContextBadge,
+		RequestCaptureEnabled:         updatedSettings.RequestCaptureEnabled,
+		RequestCaptureQuotaMiB:        updatedSettings.RequestCaptureQuotaMiB,
+		RequestCaptureRetentionDays:   updatedSettings.RequestCaptureRetentionDays,
+		ExcelBPSImageMode:             updatedSettings.ExcelBPSImageMode,
+		ExcelBPSImageRelayEnabled:     updatedSettings.ExcelBPSImageRelayEnabled,
+		ExcelBPSImageMaxImageMiB:      updatedSettings.ExcelBPSImageMaxImageMiB,
+		ExcelBPSImageMaxImages:        updatedSettings.ExcelBPSImageMaxImages,
+		ExcelBPSImageLimitPolicy:      updatedSettings.ExcelBPSImageLimitPolicy,
+		ExcelBPSImageWarningRemaining: updatedSettings.ExcelBPSImageWarningRemaining,
+		ExcelBPSImageCompactReserve:   updatedSettings.ExcelBPSImageCompactReserve,
+
+		ExcelBPSImageMaxTotalMiB:    updatedSettings.ExcelBPSImageMaxTotalMiB,
+		ExcelBPSImageStorageMiB:     updatedSettings.ExcelBPSImageStorageMiB,
+		ExcelBPSImageStorageEntries: updatedSettings.ExcelBPSImageStorageEntries,
+		ExcelBPSImageTTLMinutes:     updatedSettings.ExcelBPSImageTTLMinutes,
+
+		ExcelBPSImageBaseURL:      updatedSettings.ExcelBPSImageBaseURL,
+		ExcelBPSImageBodyLimitMiB: updatedSettings.ExcelBPSImageBodyLimitMiB,
+		ExcelBPSImageBudgetMiB:    updatedSettings.ExcelBPSImageBudgetMiB,
+		ExcelBPSImageMaxRequests:  updatedSettings.ExcelBPSImageMaxRequests,
+		CyberPolicyUserAllowlist:  updatedSettings.CyberPolicyUserAllowlist,
 	}
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)

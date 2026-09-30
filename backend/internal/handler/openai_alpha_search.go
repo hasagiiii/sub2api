@@ -109,12 +109,25 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		return
 	}
 
+	// 余额模式在途预留（与计费同口径估算；计费任务扣减余额缓存后才释放）。
+	inflightDone, inflightErr := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, service.InflightEstimateRequest{Model: requestedModel, BodyBytes: len(body), MaxTokens: requestMaxOutputTokens(body), Kind: service.InflightEstimateToken, SearchCalls: 1})
+	if inflightErr != nil {
+		status, code, message, retryAfter := billingErrorDetails(inflightErr)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		h.errorResponse(c, status, code, message)
+		return
+	}
+	defer inflightDone()
+
 	searchID := strings.TrimSpace(gjson.GetBytes(body, "id").String())
 	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(c, nil, searchID)
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	var rpmAdmission openAIRPMAdmission
 	switchCount := 0
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	routingStart := time.Now()
@@ -140,6 +153,13 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			service.PlatformOpenAI,
 		)
 		if err != nil || selection == nil || selection.Account == nil {
+			err = rpmAdmission.selectionError(err)
+			if isOpenAIRPMError(err) {
+				rpmAdmission.retryAfter(c, err)
+				cls := classifySelectionFailureError(err, noAccountErrorClassification{})
+				h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+				return
+			}
 			if failoverClientGone(c) {
 				reqLog.Info("openai_alpha_search.account_select_aborted_client_disconnected", zap.Error(err))
 				return
@@ -174,8 +194,20 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+
 		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, requestedModel)
 		forwardBody = openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+
+		retryRPM, rpmErr := rpmAdmission.acquire(c.Request.Context(), h.gatewayService, account, accountRelease, failedAccountIDs)
+		if retryRPM {
+			continue
+		}
+		if rpmErr != nil {
+			cls := classifySelectionFailureError(rpmErr, noAccountErrorClassification{})
+			h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+			return
+		}
+
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		writerSizeBeforeForward := c.Writer.Size()
 		forwardStart := time.Now()
@@ -184,8 +216,11 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			if accountRelease != nil {
 				defer accountRelease()
 			}
-			return h.gatewayService.ForwardAlphaSearch(c.Request.Context(), c, account, forwardBody)
+			return h.gatewayService.ForwardAlphaSearch(rpmAdmission.forwardContext(c.Request.Context(), account), c, account, forwardBody)
 		}()
+		if h.handleOpenAIRPMForwardError(c, err, streamStarted, false) {
+			return
+		}
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, time.Since(forwardStart).Milliseconds())
 
 		if err == nil {

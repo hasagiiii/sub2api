@@ -66,6 +66,7 @@ const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 const DefaultModelsListReadMaxBytes int64 = 8 * 1024 * 1024
 
 type Config struct {
+	Runtime                 RuntimeConfig                 `mapstructure:"runtime"`
 	Server                  ServerConfig                  `mapstructure:"server"`
 	Log                     LogConfig                     `mapstructure:"log"`
 	CORS                    CORSConfig                    `mapstructure:"cors"`
@@ -90,6 +91,7 @@ type Config struct {
 	Pricing                 PricingConfig                 `mapstructure:"pricing"`
 	Gateway                 GatewayConfig                 `mapstructure:"gateway"`
 	APIKeyAuth              APIKeyAuthCacheConfig         `mapstructure:"api_key_auth_cache"`
+	APIKeyCreate            APIKeyCreateConfig            `mapstructure:"api_key_create"`
 	SubscriptionCache       SubscriptionCacheConfig       `mapstructure:"subscription_cache"`
 	SubscriptionMaintenance SubscriptionMaintenanceConfig `mapstructure:"subscription_maintenance"`
 	Dashboard               DashboardCacheConfig          `mapstructure:"dashboard_cache"`
@@ -717,6 +719,8 @@ type PricingConfig struct {
 }
 
 type ServerConfig struct {
+	GracefulShutdownTimeout  int         `mapstructure:"graceful_shutdown_timeout"` // seconds; 0 preserves the legacy 5s budget
+	ShutdownDrainDelay       int         `mapstructure:"shutdown_drain_delay"`      // seconds to withdraw from load balancers before closing the listener
 	Host                     string      `mapstructure:"host"`
 	Port                     int         `mapstructure:"port"`
 	Mode                     string      `mapstructure:"mode"`                  // debug/release
@@ -963,6 +967,29 @@ type BillingConfig struct {
 	// UserPlatformQuotaSentinelTTLSeconds sentinel(无 limit 占位)entry 的 TTL,
 	// 显著短于 quota cache 默认 86400s 以控 Redis 内存;默认 3600=1h。
 	UserPlatformQuotaSentinelTTLSeconds int `mapstructure:"user_platform_quota_sentinel_ttl_seconds"`
+	// InflightReservation 余额模式在途请求预留（Redis），防止并发请求在预检时看到同一份余额而集体透支。
+	InflightReservation InflightReservationConfig `mapstructure:"inflight_reservation"`
+}
+
+// InflightReservationConfig 余额模式在途预留配置。
+// 准入时按 输入估算 + 输出单价 × max_tokens 估算单请求费用，在 Redis 中原子地
+// 校验 缓存余额 - 在途预留合计 >= 估算 后登记预留，请求结束（任意路径）释放。
+// 估算失败或 Redis 不可用时 fail-open，退回旧的仅余额 > 阈值检查。
+type InflightReservationConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	// TTLSeconds 单条预留的最长存活时间；进程崩溃等泄漏的预留到期自动失效。
+	TTLSeconds int `mapstructure:"ttl_seconds"`
+	// DefaultMaxTokens 请求未携带 max_tokens 时用于估算的输出 token 数。
+	DefaultMaxTokens int `mapstructure:"default_max_tokens"`
+	// MaxOutputTokens 估算输出 token 的上限（max_tokens 超出时截断）。
+	MaxOutputTokens int `mapstructure:"max_output_tokens"`
+	// MaxInputTokens 输入 token 估算（请求体字节数 / 4）的上限。
+	MaxInputTokens int `mapstructure:"max_input_tokens"`
+	// MaxReservationUSD 单请求预留金额上限；0 表示不设上限。
+	MaxReservationUSD float64 `mapstructure:"max_reservation_usd"`
+	// FailClosedOnUnpriced 无法为请求估算费用（模型/分组/渠道均无定价）时是否拒绝请求。
+	// 默认 false：放行且不预留（fail-open，节流告警日志）。
+	FailClosedOnUnpriced bool `mapstructure:"fail_closed_on_unpriced"`
 }
 
 type CircuitBreakerConfig struct {
@@ -1274,6 +1301,23 @@ func (c *UserMessageQueueConfig) GetEffectiveMode() string {
 	return ""
 }
 
+// OpenAICodexTicketConfig 控制 ChatGPT OAuth 的 x-codex-turn-state 门票。
+// 打票走 harvest_proxy_url（SOCKS），业务出站仍用账号住宅 proxy_id，只替换该请求头。
+// 门票默认有效 3600 秒，临近过期前 refresh_before_seconds 重新打票。
+type OpenAICodexTicketConfig struct {
+	Enabled                      bool     `mapstructure:"enabled"`
+	TargetLength                 int      `mapstructure:"target_length"`
+	TTLSeconds                   int      `mapstructure:"ttl_seconds"`
+	RefreshBeforeSeconds         int      `mapstructure:"refresh_before_seconds"`
+	HarvestProxyURL              string   `mapstructure:"harvest_proxy_url"`
+	HarvestProbeIntervalSeconds  int      `mapstructure:"harvest_probe_interval_seconds"`
+	HarvestCooldownSeconds       int      `mapstructure:"harvest_cooldown_seconds"`
+	MaxProbesPerRound            int      `mapstructure:"max_probes_per_round"`
+	HarvestAttemptTimeoutSeconds int      `mapstructure:"harvest_attempt_timeout_seconds"`
+	FailClosed                   bool     `mapstructure:"fail_closed"`
+	Models                       []string `mapstructure:"models"`
+}
+
 // DefaultOpenAIWSClientFirstMessageTimeoutSeconds preserves the legacy ingress deadline.
 const DefaultOpenAIWSClientFirstMessageTimeoutSeconds = 30
 
@@ -1282,17 +1326,6 @@ const DefaultOpenAIWSClientFirstMessageTimeoutSeconds = 30
 // OpenAICodexTicketConfig controls ChatGPT OAuth x-codex-turn-state ticket harvesting.
 // Harvesting uses harvest_proxy_url; production traffic keeps the account residential
 // proxy and only replaces the ticket header.
-type OpenAICodexTicketConfig struct {
-	Enabled                      bool     `mapstructure:"enabled"`
-	TargetLength                 int      `mapstructure:"target_length"`
-	TTLSeconds                   int      `mapstructure:"ttl_seconds"`
-	RefreshBeforeSeconds         int      `mapstructure:"refresh_before_seconds"`
-	HarvestProxyURL              string   `mapstructure:"harvest_proxy_url"`
-	HarvestProbeIntervalSeconds  int      `mapstructure:"harvest_probe_interval_seconds"`
-	HarvestAttemptTimeoutSeconds int      `mapstructure:"harvest_attempt_timeout_seconds"`
-	FailClosed                   bool     `mapstructure:"fail_closed"`
-	Models                       []string `mapstructure:"models"`
-}
 
 type GatewayOpenAIWSConfig struct {
 	// ModeRouterV2Enabled: 新版 WS mode 路由开关（默认 false；关闭时保持 legacy 行为）
@@ -1773,6 +1806,14 @@ type APIKeyAuthCacheConfig struct {
 	InvalidAbuse       InvalidAuthAbuseConfig `mapstructure:"invalid_abuse"`
 }
 
+// APIKeyCreateConfig 用户创建 API Key 的防滥用限制（0 表示不限制）
+type APIKeyCreateConfig struct {
+	// MaxActivePerUser 单个用户同时存在（未删除）的 API Key 上限
+	MaxActivePerUser int `mapstructure:"max_active_per_user"`
+	// MaxPerUserPerHour 单个用户每小时可创建的 API Key 次数（删除不返还次数）
+	MaxPerUserPerHour int `mapstructure:"max_per_user_per_hour"`
+}
+
 type InvalidAuthAbuseConfig struct {
 	Enabled       bool `mapstructure:"enabled"`
 	Threshold     int  `mapstructure:"threshold"`
@@ -2077,6 +2118,9 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 }
 
 func setDefaults() {
+	viper.SetDefault("runtime.role", RuntimeRoleFull)
+	viper.SetDefault("server.graceful_shutdown_timeout", 5)
+	viper.SetDefault("server.shutdown_drain_delay", 0)
 	viper.SetDefault("run_mode", RunModeStandard)
 	viper.SetDefault("simple_mode.auto_create_default_groups", true)
 	viper.SetDefault("simple_mode_key_rate_limit_enabled", false)
@@ -2174,6 +2218,13 @@ func setDefaults() {
 	viper.SetDefault("billing.minimum_balance_reserve", 0.000001)
 	viper.SetDefault("billing.user_platform_quota_cache_ttl_seconds", 86400)
 	viper.SetDefault("billing.user_platform_quota_sentinel_ttl_seconds", 3600)
+	viper.SetDefault("billing.inflight_reservation.enabled", true)
+	viper.SetDefault("billing.inflight_reservation.ttl_seconds", 900)
+	viper.SetDefault("billing.inflight_reservation.default_max_tokens", 8192)
+	viper.SetDefault("billing.inflight_reservation.max_output_tokens", 128000)
+	viper.SetDefault("billing.inflight_reservation.max_input_tokens", 200000)
+	viper.SetDefault("billing.inflight_reservation.max_reservation_usd", 0)
+	viper.SetDefault("billing.inflight_reservation.fail_closed_on_unpriced", false)
 
 	// Turnstile
 	viper.SetDefault("turnstile.required", false)
@@ -2414,6 +2465,8 @@ func setDefaults() {
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.window_seconds", 60)
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.block_seconds", 60)
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.capacity", 16384)
+	viper.SetDefault("api_key_create.max_active_per_user", 200)
+	viper.SetDefault("api_key_create.max_per_user_per_hour", 60)
 
 	// Subscription auth L1 cache
 	viper.SetDefault("subscription_cache.l1_size", 16384)
@@ -2480,15 +2533,19 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
+
 	viper.SetDefault("gateway.openai_codex_ticket.enabled", false)
-	viper.SetDefault("gateway.openai_codex_ticket.target_length", 292)
-	viper.SetDefault("gateway.openai_codex_ticket.ttl_seconds", 3600)
-	viper.SetDefault("gateway.openai_codex_ticket.refresh_before_seconds", 600)
+	viper.SetDefault("gateway.openai_codex_ticket.target_length", 780)
+	viper.SetDefault("gateway.openai_codex_ticket.ttl_seconds", 240)
+	viper.SetDefault("gateway.openai_codex_ticket.refresh_before_seconds", 60)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_proxy_url", "")
-	viper.SetDefault("gateway.openai_codex_ticket.harvest_probe_interval_seconds", 6)
+	viper.SetDefault("gateway.openai_codex_ticket.harvest_probe_interval_seconds", 180)
+	viper.SetDefault("gateway.openai_codex_ticket.harvest_cooldown_seconds", 180)
+	viper.SetDefault("gateway.openai_codex_ticket.max_probes_per_round", 6)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_attempt_timeout_seconds", 25)
-	viper.SetDefault("gateway.openai_codex_ticket.fail_closed", true)
+	viper.SetDefault("gateway.openai_codex_ticket.fail_closed", false)
 	viper.SetDefault("gateway.openai_codex_ticket.models", []string{"gpt-6-astra", "gpt-5.6-sol"})
+
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
@@ -2785,6 +2842,7 @@ func setEnvReachableDefaults() {
 }
 
 func (c *Config) Validate() error {
+
 	c.Company.UpgradeCurrency = strings.ToUpper(strings.TrimSpace(c.Company.UpgradeCurrency))
 	if math.IsNaN(c.Company.UpgradeFee) || math.IsInf(c.Company.UpgradeFee, 0) || c.Company.UpgradeFee <= 0 {
 		return fmt.Errorf("company.upgrade_fee must be a positive finite amount")
@@ -2812,6 +2870,11 @@ func (c *Config) Validate() error {
 		}
 		c.Company.DocumentationURL = parsedDocumentationURL.String()
 	}
+
+	if err := c.validateRuntime(); err != nil {
+		return err
+	}
+
 	forwardedClientIPHeaders, err := NormalizeForwardedClientIPHeaders(c.Security.ForwardedClientIPHeaders)
 	if err != nil {
 		return fmt.Errorf("security.forwarded_client_ip_headers: %w", err)
@@ -2868,6 +2931,12 @@ func (c *Config) Validate() error {
 		if c.Server.H2C.MaxUploadBufferPerStream <= 0 {
 			return fmt.Errorf("server.h2c.max_upload_buffer_per_stream must be positive")
 		}
+	}
+	if c.APIKeyCreate.MaxActivePerUser < 0 {
+		return fmt.Errorf("api_key_create.max_active_per_user must be non-negative")
+	}
+	if c.APIKeyCreate.MaxPerUserPerHour < 0 {
+		return fmt.Errorf("api_key_create.max_per_user_per_hour must be non-negative")
 	}
 	if c.APIKeyAuth.InvalidAbuse.Enabled {
 		if c.APIKeyAuth.InvalidAbuse.Threshold < 10 {
@@ -3219,6 +3288,11 @@ func (c *Config) Validate() error {
 	}
 	if c.Billing.MinimumBalanceReserve < 0 {
 		return fmt.Errorf("billing.minimum_balance_reserve must be non-negative")
+	}
+	if c.Billing.InflightReservation.TTLSeconds < 0 || c.Billing.InflightReservation.DefaultMaxTokens < 0 ||
+		c.Billing.InflightReservation.MaxOutputTokens < 0 || c.Billing.InflightReservation.MaxInputTokens < 0 ||
+		c.Billing.InflightReservation.MaxReservationUSD < 0 {
+		return fmt.Errorf("billing.inflight_reservation values must be non-negative")
 	}
 	if c.Database.MaxOpenConns <= 0 {
 		return fmt.Errorf("database.max_open_conns must be positive")

@@ -39,6 +39,8 @@ const (
 	FieldAuthzGeneration = "authz_generation"
 	// FieldPasswordHash holds the string denoting the password_hash field in the database.
 	FieldPasswordHash = "password_hash"
+	// FieldObserverGroupIds holds the string denoting the observer_group_ids field in the database.
+	FieldObserverGroupIds = "observer_group_ids"
 	// FieldRole holds the string denoting the role field in the database.
 	FieldRole = "role"
 	// FieldBalance holds the string denoting the balance field in the database.
@@ -240,6 +242,7 @@ var Columns = []string{
 	FieldRecoveryEmailVerifiedAt,
 	FieldAuthzGeneration,
 	FieldPasswordHash,
+	FieldObserverGroupIds,
 	FieldRole,
 	FieldBalance,
 	FieldFrozenBalance,
@@ -310,6 +313,8 @@ var (
 	DefaultAuthzGeneration int64
 	// PasswordHashValidator is a validator for the "password_hash" field. It is called by the builders before save.
 	PasswordHashValidator func(string) error
+	// DefaultObserverGroupIds holds the default value on creation for the "observer_group_ids" field.
+	DefaultObserverGroupIds []int64
 	// DefaultRole holds the default value on creation for the "role" field.
 	DefaultRole string
 	// RoleValidator is a validator for the "role" field. It is called by the builders before save.

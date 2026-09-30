@@ -244,6 +244,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyChannelMonitorHideUserRanking,
 		SettingKeyAvailableChannelsEnabled,
 		SettingKeyVideoFeatureEnabled,
+		SettingKeyPelicanShowcaseEnabled,
 		SettingKeySubscriptionEnabled,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
@@ -260,6 +261,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeySupportChatTitle,
 		SettingKeySupportChatWelcome,
 		SettingKeySupportChatIcon,
+		SettingKeyUsageShowLongContextBadge,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -406,6 +408,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
 		VideoFeatureEnabled:      settings[SettingKeyVideoFeatureEnabled] == "true",
+		PelicanShowcaseEnabled:   settings[SettingKeyPelicanShowcaseEnabled] == "true",
 
 		SubscriptionEnabled: !isFalseSettingValue(settings[SettingKeySubscriptionEnabled]),
 
@@ -428,9 +431,10 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		// 会把后端默认 "💬" / "客服小助手" / "你好…" 回填到 admin 的 input 里；但 PublicSettings
 		// 是给匿名访客用的，应该忠实反映"admin 是否显式配过"。空字符串让前端 bubble 落回内置
 		// PNG 头像、panel 落回 i18n welcome 文案，比硬塞后端默认值更符合视觉预期。
-		SupportChatTitle:   strings.TrimSpace(settings[SettingKeySupportChatTitle]),
-		SupportChatWelcome: strings.TrimSpace(settings[SettingKeySupportChatWelcome]),
-		SupportChatIcon:    strings.TrimSpace(settings[SettingKeySupportChatIcon]),
+		SupportChatTitle:          strings.TrimSpace(settings[SettingKeySupportChatTitle]),
+		SupportChatWelcome:        strings.TrimSpace(settings[SettingKeySupportChatWelcome]),
+		SupportChatIcon:           strings.TrimSpace(settings[SettingKeySupportChatIcon]),
+		UsageShowLongContextBadge: settings[SettingKeyUsageShowLongContextBadge] != "false",
 	}, nil
 }
 
@@ -709,6 +713,8 @@ type PublicSettingsInjectionPayload struct {
 	SupportChatWelcome            string   `json:"support_chat_welcome"`
 	SupportChatIcon               string   `json:"support_chat_icon"`
 	SubscriptionEnabled           bool     `json:"subscription_enabled"`
+	PelicanShowcaseEnabled        bool     `json:"pelican_showcase_enabled"`
+	UsageShowLongContextBadge     bool     `json:"usage_show_long_context_badge"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -793,6 +799,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ChannelMonitorHideUserRanking:        settings.ChannelMonitorHideUserRanking,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
 		VideoFeatureEnabled:                  settings.VideoFeatureEnabled,
+		PelicanShowcaseEnabled:               settings.PelicanShowcaseEnabled,
 		SubscriptionEnabled:                  settings.SubscriptionEnabled,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                settings.ModelPlazaRequireAuth,
@@ -808,6 +815,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		SupportChatTitle:          settings.SupportChatTitle,
 		SupportChatWelcome:        settings.SupportChatWelcome,
 		SupportChatIcon:           settings.SupportChatIcon,
+		UsageShowLongContextBadge: settings.UsageShowLongContextBadge,
 	}, nil
 }
 

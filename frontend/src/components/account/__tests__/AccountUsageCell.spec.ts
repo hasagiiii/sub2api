@@ -150,6 +150,7 @@ describe('AccountUsageCell', () => {
     const wrapper = mount(AccountUsageCell, {
       props: {
         account: makeAccount({
+          id: type === 'oauth' ? 9701 : 9702,
           platform: 'openai',
           type,
           codex_turn_tickets: [
@@ -159,7 +160,11 @@ describe('AccountUsageCell', () => {
           ],
         }),
       },
-      global: { stubs: { OpenAIQuotaResetCell: { template: '<div data-test="quota-reset" />' }, UsageProgressBar: true, AccountQuotaInfo: true } },
+      global: { stubs: {
+        OpenAIQuotaResetCell: { template: '<div data-test="quota-reset" />' },
+        UsageProgressBar: true,
+        AccountQuotaInfo: true,
+      } },
     })
     await flushPromises()
     expect(wrapper.text()).toContain('42m00s')
@@ -170,6 +175,7 @@ describe('AccountUsageCell', () => {
       expect(wrapper.find('[data-test="quota-reset"]').exists()).toBe(false)
     }
     await wrapper.setProps({ account: { ...wrapper.props('account'), codex_turn_tickets: [] } })
+    expect(wrapper.text()).not.toContain('codexTurnTicket')
     expect(wrapper.text()).not.toContain('42m00s')
     wrapper.unmount()
   })

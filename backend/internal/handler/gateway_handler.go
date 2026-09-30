@@ -288,6 +288,19 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
+	// 余额模式在途预留：防止并发请求在预检时看到同一份余额而集体透支。
+	inflightRelease, err := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, tokenInflightEstimate(reqModel, body))
+	if err != nil {
+		reqLog.Info("gateway.inflight_reservation_rejected", zap.Error(err))
+		status, code, message, retryAfter := billingErrorDetails(err)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		h.handleStreamingAwareError(c, status, code, message, streamStarted)
+		return
+	}
+	defer inflightRelease()
+
 	// 设置请求所属分组 ID（用于渠道级功能判断，如 WebSearch 模拟）
 	parsedReq.GroupID = apiKey.GroupID
 	parsedReq.Group = apiKey.Group
@@ -1362,6 +1375,7 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 	}
 	modelIDs := h.codexModelIDsForGroup(c.Request.Context(), apiKey.Group, forcedPlatform)
 	modelIDs = service.FilterCodexModelIDsForGroup(modelIDs, apiKey.Group)
+	modelIDs = service.FilterUserGroupDeniedModelIDs(modelIDs, apiKey.DeniedModelsInGroup())
 	body, err := h.gatewayService.BuildCodexModelsManifestForGroup(
 		c.Request.Context(),
 		apiKey.Group,
@@ -1742,10 +1756,13 @@ func mergeModelIDs(primary, secondary []string) []string {
 // 分组级模型白名单开启时按白名单过滤。
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
 	models := antigravity.DefaultModels()
-	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil &&
+		((apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()) || len(apiKey.DeniedModelsInGroup()) > 0) {
+		allowlistEnabled := apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()
+		denied := apiKey.DeniedModelsInGroup()
 		filtered := make([]antigravity.ClaudeModel, 0, len(models))
 		for _, model := range models {
-			if apiKey.Group.ModelAllowlist.Allows(model.ID) {
+			if (!allowlistEnabled || apiKey.Group.ModelAllowlist.Allows(model.ID)) && !service.UserGroupDeniesModel(denied, model.ID) {
 				filtered = append(filtered, model)
 			}
 		}
@@ -2755,9 +2772,12 @@ func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task serv
 	if task == nil {
 		return
 	}
-	task = wrapUsageRecordTaskContext(parent, task)
+	task, abandon := wrapUsageRecordTaskContext(parent, task)
 	if h.usageRecordWorkerPool != nil {
 		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
+			if mode.Dropped() {
+				abandon()
+			}
 			return
 		}
 		// 池已停止（进程关停窗口）：计费任务不能静默丢失，降级为内联同步执行。
@@ -2785,7 +2805,7 @@ func (h *GatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, 
 	if task == nil {
 		return
 	}
-	task = wrapUsageRecordTaskContext(parent, task)
+	task, _ = wrapUsageRecordTaskContext(parent, task)
 	if h.usageRecordWorkerPool != nil {
 		if mode := h.usageRecordWorkerPool.Submit(task); !mode.Dropped() {
 			return

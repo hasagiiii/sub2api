@@ -242,29 +242,33 @@ export default {
       deepseek: {
         description: '通过当前 DeepSeek 分组配置 Claude Code、Codex 或 OpenCode。',
         codexDescription: '使用 API Key 配置 Codex，并通过当前 DeepSeek 分组发送请求。',
-        codexConfigTomlHint: '下载下方模型目录，将两个文件保存到 Codex 配置目录后重启 Codex。',
+        codexConfigTomlHint: '保存 config.toml 后重启 Codex，客户端会加载远程目录。使用本地文件模式时，还需下载目录并保存到配置中的路径。',
         codexNote: '启动 Codex 前先导出 SUB2API_API_KEY。下载的目录只包含模型元数据，不包含 API Key。'
       },
       minimax: {
         description: '通过当前 MiniMax 分组配置 Claude Code、Codex 或 OpenCode。',
         codexDescription: '使用 API Key 配置 Codex，并通过当前 MiniMax 分组发送请求。',
-        codexConfigTomlHint: '下载下方模型目录，将两个文件保存到 Codex 配置目录后重启 Codex。',
+        codexConfigTomlHint: '保存 config.toml 后重启 Codex，客户端会加载远程目录。使用本地文件模式时，还需下载目录并保存到配置中的路径。',
         codexNote: '启动 Codex 前先导出 SUB2API_API_KEY。下载的目录只包含模型元数据，不包含 API Key。'
       },
       composite: {
         description: '通过当前 Composite 路由分组配置受支持的客户端。',
         codexDescription: '使用 API Key 和当前 Composite 分组的完整模型目录配置 Codex。',
-        codexConfigTomlHint: '下载下方模型目录，将两个文件保存到 Codex 配置目录后重启 Codex。',
+        codexConfigTomlHint: '保存 config.toml 后重启 Codex，客户端会加载远程目录。使用本地文件模式时，还需下载目录并保存到配置中的路径。',
         codexNote: '启动 Codex 前先导出 SUB2API_API_KEY；分组会根据目录中选中的模型路由请求。'
       },
       routedCodex: {
         description: '使用当前路由分组的完整模型目录配置 Codex。',
-        configTomlHint: '下载下方模型目录，将两个文件保存到 Codex 配置目录后重启 Codex。',
+        configTomlHint: '保存 config.toml 后重启 Codex，客户端会加载远程目录。使用本地文件模式时，还需下载目录并保存到配置中的路径。',
         note: '启动 Codex 前先导出 SUB2API_API_KEY。下载的目录只包含模型元数据，不包含 API Key。'
       },
       codexModelCatalog: {
+        mode: '目录来源',
+        remote: '远程目录（Codex 0.156.0+）',
+        local: '本地文件（旧版客户端）',
+        oversized: '完整目录超过远程加载的 1 MiB 限制，已改为本地文件。请下载目录并保存到配置中的路径。',
         title: 'Codex 模型目录',
-        description: '使用当前 API Key 获取目录，并保存到 config.toml 引用的路径。',
+        description: 'Codex 会使用配置中的认证信息加载并刷新远程目录。使用本地文件模式时，请在下方获取目录并保存到配置中的路径。',
         fetch: '获取目录',
         retry: '重试',
         download: '下载目录',
@@ -410,6 +414,8 @@ export default {
     latency: '延迟',
     latencyFirstToken: '首字',
     latencyDuration: '总耗时',
+    latencyTps: '平均 TPS',
+    latencyTpsHint: '平均 TPS = 输出 Token ÷ 总耗时(秒). 包含等待时间及上游计入输出用量的推理 Token, 不代表模型实际生成速度.',
     time: '时间',
     ws: 'WS',
     stream: '流式',
@@ -616,6 +622,50 @@ export default {
     empty: {
       title: '暂无可显示的渠道',
       description: '管理员尚未配置可监控的渠道。'
+    }
+  },
+
+  // Pelican showcase (user-facing gallery)
+  pelicanShowcase: {
+    title: '鹈鹕测智',
+    description: '各分组的模型定时完成同一道绘图题，直接看生成的作品，直观比较模型水平',
+    allGroups: '全部分组',
+    keepRule: '每组保留最近 {count} 张',
+    retentionRule: '超过 {days} 天自动清理',
+    itemCount: '{count} 张',
+    latestAt: '最近更新 {time}',
+    groupEmpty: '该分组还没有作品，定时测试成功生成后会出现在这里',
+    scrollLabel: '{group}：拖动滑块查看更早的作品',
+    loadError: '加载鹈鹕测智失败',
+    itemLoading: '作品加载中…',
+    itemLoadError: '作品加载失败',
+    invalidHtml: '这张作品无法显示',
+    duration: '耗时 {seconds} 秒',
+    reasoning: '思考强度 {effort}',
+    efforts: {
+      minimal: '最低',
+      low: '低',
+      medium: '中',
+      high: '高',
+      xhigh: '极高'
+    },
+    preview: '查看大图',
+    previewTitle: '{group} · {model}',
+    fitArtwork: '适应窗口',
+    actualSize: '100%',
+    previewSizing: '预览缩放',
+    sandboxNote: '作品在隔离沙箱中运行，不能联网，也读取不到你的账号信息。',
+    remove: '从展示中移除',
+    removeConfirm: '确定把这张作品从鹈鹕测智中移除吗？移除后所有用户都看不到它，此操作不能撤销。',
+    removed: '已从展示中移除',
+    removeFailed: '移除失败',
+    disabled: {
+      title: '鹈鹕测智暂未开放',
+      description: '管理员开启后，这里会展示各分组定时生成的作品。'
+    },
+    empty: {
+      title: '暂无作品',
+      description: '管理员还没有选择要展示的分组。'
     }
   },
 

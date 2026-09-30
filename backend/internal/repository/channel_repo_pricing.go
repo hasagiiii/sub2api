@@ -51,6 +51,10 @@ func (r *channelRepository) UpdateModelPricing(ctx context.Context, pricing *ser
 	if err != nil {
 		return fmt.Errorf("marshal models: %w", err)
 	}
+	reasoningEffortMultipliersJSON, err := marshalReasoningEffortMultipliers(pricing.ReasoningEffortMultipliers)
+	if err != nil {
+		return err
+	}
 	timePricingJSON, err := marshalChannelTimePricing(pricing.TimePricing)
 	if err != nil {
 		return err
@@ -59,10 +63,7 @@ func (r *channelRepository) UpdateModelPricing(ctx context.Context, pricing *ser
 	if billingMode == "" {
 		billingMode = service.BillingModeToken
 	}
-	reasoningEffortMultipliersJSON, err := marshalReasoningEffortMultipliers(pricing.ReasoningEffortMultipliers)
-	if err != nil {
-		return err
-	}
+
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE channel_model_pricing
 		 SET models = $1, billing_mode = $2, input_price = $3, output_price = $4, cache_write_price = $5, cache_write_1h_price = $6, cache_read_price = $7, fast_multiplier = $8, flex_multiplier = $9, reasoning_effort_multipliers = $10, image_input_price = $11, image_input_price_per_image = $12, image_output_price = $13, per_request_price = $14, time_pricing = $15, platform = $16, updated_at = NOW()
@@ -182,6 +183,7 @@ func scanModelPricingRows(rows *sql.Rows) ([]service.ChannelModelPricing, []int6
 		var modelsJSON []byte
 		var reasoningEffortMultipliersJSON []byte
 		var timePricingJSON []byte
+
 		if err := rows.Scan(
 			&p.ID, &p.ChannelID, &p.Platform, &modelsJSON, &p.BillingMode,
 			&p.InputPrice, &p.OutputPrice, &p.CacheWritePrice, &p.CacheWrite1hPrice, &p.CacheReadPrice,
@@ -244,6 +246,10 @@ func createModelPricingExec(ctx context.Context, exec dbExec, pricing *service.C
 	if err != nil {
 		return fmt.Errorf("marshal models: %w", err)
 	}
+	reasoningEffortMultipliersJSON, err := marshalReasoningEffortMultipliers(pricing.ReasoningEffortMultipliers)
+	if err != nil {
+		return err
+	}
 	timePricingJSON, err := marshalChannelTimePricing(pricing.TimePricing)
 	if err != nil {
 		return err
@@ -256,10 +262,7 @@ func createModelPricingExec(ctx context.Context, exec dbExec, pricing *service.C
 	if platform == "" {
 		platform = "anthropic"
 	}
-	reasoningEffortMultipliersJSON, err := marshalReasoningEffortMultipliers(pricing.ReasoningEffortMultipliers)
-	if err != nil {
-		return err
-	}
+
 	err = exec.QueryRowContext(ctx,
 		`INSERT INTO channel_model_pricing (channel_id, platform, models, billing_mode, input_price, output_price, cache_write_price, cache_write_1h_price, cache_read_price, fast_multiplier, flex_multiplier, reasoning_effort_multipliers, image_input_price, image_input_price_per_image, image_output_price, per_request_price, time_pricing)
 				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id, created_at, updated_at`,

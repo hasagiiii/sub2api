@@ -68,7 +68,7 @@ export async function list(
   pageSize: number = 20,
   filters?: {
     status?: 'active' | 'disabled'
-    role?: 'admin' | 'user'
+    role?: 'admin' | 'user' | 'observer'
     search?: string
     group_name?: string         // fuzzy filter by allowed group name
     api_key_group_id?: number   // filter users by the group their API keys are bound to
@@ -134,10 +134,11 @@ export async function create(userData: {
   password: string
   username?: string
   notes?: string
-  role?: 'admin' | 'user'
+  role?: 'admin' | 'user' | 'observer'
   balance?: number
   concurrency?: number
   rpm_limit?: number
+  observer_group_ids?: number[] | null
   allowed_groups?: number[] | null
 }): Promise<AdminUser> {
   const { data } = await apiClient.post<AdminUser>('/admin/users', userData)
