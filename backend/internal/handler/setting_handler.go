@@ -119,6 +119,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 		VideoFeatureEnabled:      settings.VideoFeatureEnabled,
+		PelicanShowcaseEnabled:   settings.PelicanShowcaseEnabled,
 		SubscriptionEnabled:      settings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
@@ -145,6 +146,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		SupportChatTitle:          settings.SupportChatTitle,
 		SupportChatWelcome:        settings.SupportChatWelcome,
 		SupportChatIcon:           settings.SupportChatIcon,
+		UsageShowLongContextBadge: settings.UsageShowLongContextBadge,
 	})
 }
 

@@ -640,15 +640,15 @@ func (h *ChannelHandler) GetModelDefaultPricing(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"found":                           true,
-		"input_price":                     pricing.InputPricePerToken,
-		"output_price":                    pricing.OutputPricePerToken,
-		"cache_write_price":               cacheWritePrice,
-		"cache_write_1h_price":            cacheWrite1hPrice,
-		"cache_read_price":                pricing.CacheReadPricePerToken,
-		"max_reasoning_effort_multiplier": pricing.MaxReasoningEffortMultiplier,
-		"image_input_price":               pricing.ImageInputPricePerToken,
-		"image_output_price":              pricing.ImageOutputPricePerToken,
+		"found":                        true,
+		"input_price":                  pricing.InputPricePerToken,
+		"output_price":                 pricing.OutputPricePerToken,
+		"cache_write_price":            cacheWritePrice,
+		"cache_write_1h_price":         cacheWrite1hPrice,
+		"cache_read_price":             pricing.CacheReadPricePerToken,
+		"reasoning_effort_multipliers": pricing.ReasoningEffortMultipliers,
+		"image_input_price":            pricing.ImageInputPricePerToken,
+		"image_output_price":           pricing.ImageOutputPricePerToken,
 	})
 }
 

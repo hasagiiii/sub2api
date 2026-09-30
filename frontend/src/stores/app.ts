@@ -402,6 +402,7 @@ export const useAppStore = defineStore('app', () => {
         support_chat_welcome: '',
         support_chat_icon: '',
         allow_user_view_error_requests: false,
+        usage_show_long_context_badge: true,
       })
     }
 

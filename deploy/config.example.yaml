@@ -1,3 +1,9 @@
+# Process role: full retains the dashboard and global background jobs (default).
+# gateway exposes model gateway APIs only and keeps request-local workers running.
+# Keep exactly one full instance until every enabled global job has a shared lease.
+runtime:
+  role: "full"
+
 # Sub2API Configuration File
 # Sub2API 配置文件
 #
@@ -11,6 +17,11 @@
 # 服务器配置
 # =============================================================================
 server:
+  # HTTP/WS request drain budget after load-balancer withdrawal (seconds).
+  # Default 5 preserves existing deployments; Kubernetes example uses 240.
+  graceful_shutdown_timeout: 5
+  # Fail readiness/reject new work, then wait for endpoint propagation.
+  shutdown_drain_delay: 0
   # Bind address (0.0.0.0 for all interfaces)
   # 绑定地址（0.0.0.0 表示监听所有网络接口）
   host: "0.0.0.0"
@@ -349,6 +360,27 @@ gateway:
     models:
       - gpt-6-astra
       - gpt-5.6-sol
+  # ChatGPT OAuth x-codex-turn-state ticket: harvest a 292-length header via a
+  # dedicated HTTP(S)/SOCKS proxy, store it for ttl_seconds (default 3600), then inject
+  # it on residential-IP production requests. Off by default.
+  # ChatGPT OAuth 门票：用独立 HTTP(S)/SOCKS 代理打到 292 长度的 x-codex-turn-state，默认缓存 1 小时，
+  # 再在住宅 IP 业务请求中覆盖该头。默认关闭。
+  # Env: GATEWAY_OPENAI_CODEX_TICKET_ENABLED=true
+  #      GATEWAY_OPENAI_CODEX_TICKET_HARVEST_PROXY_URL=socks5h://user:pass@host:port
+  # Admin UI 开关（系统设置 → 网关 → Codex 设置 → 780 打票）可覆盖 enabled，无需重启。
+  # Off: do not harvest or inject. On: harvest in the background and inject on production requests.
+  # The harvest proxy should rotate egress IPs itself (fresh CONNECT per request).
+  # Credential shadow accounts retain their existing forwarding policy and are not ticket-gated.
+    target_length: 780
+    ttl_seconds: 240
+    refresh_before_seconds: 60
+    # 后台「系统设置 → 网关 → Codex 设置」可覆盖此值，无需重启。
+    # 后台值的读取缓存为 5 秒，下个探测周期使用新代理；代理服务商自行负责轮换 IP。
+    harvest_probe_interval_seconds: 180
+    harvest_cooldown_seconds: 180
+    max_probes_per_round: 6
+    # 默认仅把票据作为可选增强；开启后，无有效票据的目标模型账号会暂停调度。
+    fail_closed: false
   # ChatGPT Frameless Live 单会话硬上限（秒）。
   live:
     max_session_duration_seconds: 3600

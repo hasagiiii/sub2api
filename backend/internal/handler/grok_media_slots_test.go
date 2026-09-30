@@ -236,7 +236,7 @@ func newGrokMediaSlotHandler(t *testing.T, oauth, mismatch bool, platforms ...st
 	}
 	gateway := service.NewOpenAIGatewayService(
 		repo,
-		nil,
+		nil, nil,
 		nil,
 		nil,
 		nil,

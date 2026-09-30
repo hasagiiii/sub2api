@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"log/slog"
 	"math/rand"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
@@ -309,12 +311,18 @@ type OpenAIForwardResult struct {
 	wsReplayInput                []json.RawMessage
 	wsReplayInputExists          bool
 	wsAccountFailoverReplayInput []json.RawMessage
+	// Local stream-read timeout is not an observed upstream terminal event.
+	// Keep observed partial usage without reporting a successful generation.
+	streamReadIncomplete bool
 }
 
 // SucceededForScheduling reports whether this result is an upstream success
 // that may clear model-scoped transient state. The zero value remains a success
 // for existing non-WS callers.
 func (r *OpenAIForwardResult) SucceededForScheduling() bool {
+	if r != nil && r.streamReadIncomplete {
+		return false
+	}
 	if r == nil || !r.OpenAIWSMode || r.UpstreamTerminalEvent == "" {
 		return true
 	}
@@ -452,13 +460,35 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
+	priorityScheduling      prioritySchedulingState
+	excelBPSRecoveryMu      sync.Mutex
+	excelBPSRecoveryCancel  context.CancelFunc
+	excelBPSRecoveryDone    chan struct{}
+	excelBPSRecoveryStopped bool
+
+	excelBPSWarmMu            sync.Mutex
+	excelBPSWarmCancel        context.CancelFunc
+	excelBPSWarmDone          chan struct{}
+	excelBPSWarmStopped       bool
+	excelBPSImagesMu          sync.Mutex
+	excelBPSImages            *basispoints.ImageRelay
+	excelBPSAttachments       basispoints.AttachmentCache
+	excelBPSIPPoolMu          sync.Mutex
+	excelBPSIPPoolSyncedAt    time.Time
+	excelBPSCooldownUntil     sync.Map // key: int64(accountID), value: time.Time
+	harvestIPPoolMu           sync.Mutex
+	harvestIPPoolExits        []harvestIPPoolExit
+	harvestIPPoolSyncedAt     time.Time
+	harvestIPPoolCursor       atomic.Uint64
+	codexHarvestRunMu         sync.RWMutex
 	accountRepo               AccountRepository
+	proxyRepo                 ProxyRepository
 	usageLogRepo              UsageLogRepository
 	usageBillingRepo          UsageBillingRepository
 	userRepo                  UserRepository
 	userSubRepo               UserSubscriptionRepository
 	cache                     GatewayCache
-	responsesImageStatusStore ResponsesImageStatusStore
+	rpmCache                  RPMCache
 	cfg                       *config.Config
 	codexDetector             CodexClientRestrictionDetector
 	schedulerSnapshot         *SchedulerSnapshotService
@@ -479,11 +509,12 @@ type OpenAIGatewayService struct {
 	balanceNotifyService      *BalanceNotifyService
 	settingService            *SettingService
 	userPlatformQuotaRepo     UserPlatformQuotaRepository
+	liveAttestation           liveattestation.Provider
+	liveAttestationCipher     SecretEncryptor
+	responsesImageStatusStore ResponsesImageStatusStore
 	cosService                *COSImageTransferService
 	billingContextResolver    *BillingContextResolver
 	costCenter                CostCenterWriter
-	liveAttestation           liveattestation.Provider
-	liveAttestationCipher     SecretEncryptor
 
 	openaiWSPoolOnce               sync.Once
 	openaiWSStateStoreOnce         sync.Once
@@ -522,13 +553,22 @@ type OpenAIGatewayService struct {
 	// 剥离跨账号回带（openai_codex_turn_state.go）。
 	openaiCodexTurnStateOrigins sync.Map
 	openaiCodexTurnStateWrites  atomic.Uint64
-	// openaiCodexTickets: accountID\x00model -> *openAICodexTicket, 292-length tickets.
-	openaiCodexTickets           sync.Map
-	openaiCodexTicketFlight      singleflight.Group
-	openaiCodexTicketLifecycleMu sync.Mutex
-	openaiCodexTicketCancel      context.CancelFunc
-	openaiCodexTicketDone        chan struct{}
-	openaiCodexTicketStopped     bool
+	// openaiCodexTickets: accountID\x00model → *openAICodexTicket，292 长度门票。
+	openaiCodexTickets             sync.Map
+	codex780Routes                 codex780RouteCache
+	openaiCodexTicketStateMu       sync.Mutex
+	openaiCodexTicketCursors       sync.Map // codexHarvestTier -> *atomic.Uint64
+	openaiCodexTicketFlight        singleflight.Group
+	openaiCodexTicketProbeCooldown sync.Map // accountID\x00model -> time.Time
+	openaiCodexTicketChatHold      sync.Map // accountID -> *int64 in-flight bound chats
+	openaiCodexTicketLifecycleMu   sync.Mutex
+	openaiCodexTicketCancel        context.CancelFunc
+	openaiCodexTicketDone          chan struct{}
+	openaiCodexTicketStopped       bool
+
+	requireLatestTurnAdmission bool
+	codexHarvest               *CodexHarvestService
+	codexHarvestRoundActive    atomic.Bool
 }
 
 func (s *OpenAIGatewayService) SetBillingContextResolver(resolver *BillingContextResolver) {
@@ -541,11 +581,20 @@ func (s *OpenAIGatewayService) SetCostCenterWriter(writer CostCenterWriter) {
 	if s != nil {
 		s.costCenter = writer
 	}
+
+}
+
+type OpenAIGatewayOption func(*OpenAIGatewayService)
+
+// WithOpenAIRPMCache enables strict RPM accounting for OpenAI OAuth accounts.
+func WithOpenAIRPMCache(cache RPMCache) OpenAIGatewayOption {
+	return func(s *OpenAIGatewayService) { s.rpmCache = cache }
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
 func NewOpenAIGatewayService(
 	accountRepo AccountRepository,
+	proxyRepo ProxyRepository,
 	usageLogRepo UsageLogRepository,
 	usageBillingRepo UsageBillingRepository,
 	userRepo UserRepository,
@@ -569,6 +618,7 @@ func NewOpenAIGatewayService(
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	cosService *COSImageTransferService,
+	options ...OpenAIGatewayOption,
 ) *OpenAIGatewayService {
 	// enforceCodexIdentityHeaders 是 HTTP / 透传 / WS / 探针 等出站路径共用的纯函数收口点，
 	// 拿不到配置，故在此发布进程级开关快照。配置取反义，零值即「强制统一出口开启」。
@@ -577,6 +627,7 @@ func NewOpenAIGatewayService(
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:               accountRepo,
+		proxyRepo:                 proxyRepo,
 		usageLogRepo:              usageLogRepo,
 		usageBillingRepo:          usageBillingRepo,
 		userRepo:                  userRepo,
@@ -614,6 +665,8 @@ func NewOpenAIGatewayService(
 		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
 		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
 		openaiModelTransient:  newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
+
+		requireLatestTurnAdmission: true,
 	}
 	if rateLimitService != nil {
 		rateLimitService.SetAccountRuntimeBlocker(svc)
@@ -622,6 +675,9 @@ func NewOpenAIGatewayService(
 		openAITokenProvider.SetAccountRuntimeBlocker(svc)
 	}
 	initGatewayDebugLog()
+	for _, option := range options {
+		option(svc)
+	}
 	svc.logOpenAIWSModeBootstrap()
 	svc.StartOpenAICodexTicketHarvester()
 	return svc
@@ -1242,6 +1298,7 @@ func hashSensitiveValueForLog(raw string) string {
 
 // GetAccessToken gets the access token for an OpenAI account
 func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Account) (string, string, error) {
+	defer requesttiming.Observe(ctx, "upstream_credentials")()
 	if account.IsShadow() {
 		credAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)
 		if err != nil {

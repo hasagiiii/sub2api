@@ -236,7 +236,7 @@ func newImagesStatusRouteTestRouter(auth gin.HandlerFunc, store service.Response
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	openAIService := service.NewOpenAIGatewayService(
-		nil, nil, nil, nil, nil, nil, nil, store, &config.Config{},
+		nil, nil, nil, nil, nil, nil, nil, nil, store, &config.Config{},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
 	openAIHandler := handler.NewOpenAIGatewayHandler(openAIService, nil, nil, nil, nil, nil, nil, nil, &config.Config{})

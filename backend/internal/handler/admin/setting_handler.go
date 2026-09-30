@@ -310,6 +310,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		RiskControlEnabled:                                     settings.RiskControlEnabled,
 		CyberSessionBlockEnabled:                               settings.CyberSessionBlockEnabled,
 		CyberSessionBlockTTLSeconds:                            settings.CyberSessionBlockTTLSeconds,
+		CyberSessionIdentityStrictEnabled:                      settings.CyberSessionIdentityStrictEnabled,
 		AffiliateRebateRate:                                    settings.AffiliateRebateRate,
 		AffiliateRebateFreezeHours:                             settings.AffiliateRebateFreezeHours,
 		AffiliateRebateDurationDays:                            settings.AffiliateRebateDurationDays,
@@ -350,6 +351,15 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAICodexTicketEnabled:                               settings.OpenAICodexTicketEnabled,
 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(settings.OpenAICodexTicketHarvestProxyURL),
 		OpenAICodexTicketHarvestProxyConfigured:                strings.TrimSpace(settings.OpenAICodexTicketHarvestProxyURL) != "",
+		OpenAICodexTicketStaticProxyURL:                        service.MaskProxyURL(settings.OpenAICodexTicketStaticProxyURL),
+		OpenAICodexTicketHarvestScope:                          settings.OpenAICodexTicketHarvestScope,
+		OpenAICodexTicketStrategy:                              settings.OpenAICodexTicketStrategy,
+		OpenAICodexTicketStrictResponse:                        settings.OpenAICodexTicketStrictResponse,
+		OpenAICodexTicketFailClosed:                            settings.OpenAICodexTicketFailClosed,
+		OpenAICodexTicketModels:                                settings.OpenAICodexTicketModels,
+		ClaudeCodeClientVersion:                                settings.ClaudeCodeClientVersion,
+		ClaudeCodeClientVersionSynced:                          settings.ClaudeCodeClientVersionSynced,
+		ClaudeCodeVersionAutoSyncEnabled:                       settings.ClaudeCodeVersionAutoSyncEnabled,
 		MinCodexVersion:                                        settings.MinCodexVersion,
 		MaxCodexVersion:                                        settings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                                  settings.CodexCLIOnlyBlacklist,
@@ -431,6 +441,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 		VideoFeatureEnabled:      settings.VideoFeatureEnabled,
+		PelicanShowcaseEnabled:   settings.PelicanShowcaseEnabled,
+		PelicanShowcase:          settings.PelicanShowcase,
 		SubscriptionEnabled:      settings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
@@ -440,8 +452,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		AffiliateEnabled: settings.AffiliateEnabled,
 
-		AccountSchedulingThresholds:  settings.AccountSchedulingThresholds,
-		AllowUserViewErrorRequests:   settings.AllowUserViewErrorRequests,
+		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
+		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,
+
 		SupportTicketEnabled:         settings.SupportTicketEnabled,
 		SupportTicketCategories:      append([]string(nil), settings.SupportTicketCategories...),
 		SupportTicketDefaultPriority: settings.SupportTicketDefaultPriority,
@@ -477,6 +490,26 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		SupportChatRAGTopK:          settings.SupportChatRAGTopK,
 		SupportChatRAGChunkSize:     settings.SupportChatRAGChunkSize,
 		SupportChatRAGChunkOverlap:  settings.SupportChatRAGChunkOverlap,
+
+		UsageShowLongContextBadge:     settings.UsageShowLongContextBadge,
+		RequestCaptureEnabled:         settings.RequestCaptureEnabled,
+		RequestCaptureQuotaMiB:        settings.RequestCaptureQuotaMiB,
+		RequestCaptureRetentionDays:   settings.RequestCaptureRetentionDays,
+		ExcelBPSImageMode:             settings.ExcelBPSImageMode,
+		ExcelBPSImageRelayEnabled:     settings.ExcelBPSImageRelayEnabled,
+		ExcelBPSImageBaseURL:          settings.ExcelBPSImageBaseURL,
+		ExcelBPSImageBodyLimitMiB:     settings.ExcelBPSImageBodyLimitMiB,
+		ExcelBPSImageBudgetMiB:        settings.ExcelBPSImageBudgetMiB,
+		ExcelBPSImageMaxRequests:      settings.ExcelBPSImageMaxRequests,
+		ExcelBPSImageMaxImageMiB:      settings.ExcelBPSImageMaxImageMiB,
+		ExcelBPSImageLimitPolicy:      settings.ExcelBPSImageLimitPolicy,
+		ExcelBPSImageWarningRemaining: settings.ExcelBPSImageWarningRemaining,
+		ExcelBPSImageCompactReserve:   settings.ExcelBPSImageCompactReserve,
+		ExcelBPSImageMaxImages:        settings.ExcelBPSImageMaxImages,
+		ExcelBPSImageMaxTotalMiB:      settings.ExcelBPSImageMaxTotalMiB,
+		ExcelBPSImageStorageMiB:       settings.ExcelBPSImageStorageMiB,
+		ExcelBPSImageStorageEntries:   settings.ExcelBPSImageStorageEntries,
+		ExcelBPSImageTTLMinutes:       settings.ExcelBPSImageTTLMinutes,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)

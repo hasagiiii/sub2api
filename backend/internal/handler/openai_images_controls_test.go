@@ -99,7 +99,7 @@ func TestOpenAIGatewayHandlerImages_EditsTrackImageStatus(t *testing.T) {
 	store := &imageControlsStatusStore{}
 	h := &OpenAIGatewayHandler{
 		gatewayService: service.NewOpenAIGatewayService(
-			nil, nil, nil, nil, nil, nil, nil, store, &config.Config{},
+			nil, nil, nil, nil, nil, nil, nil, nil, store, &config.Config{},
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		),
 		billingCacheService: &service.BillingCacheService{},

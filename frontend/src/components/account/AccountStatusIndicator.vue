@@ -1,7 +1,20 @@
 <template>
   <div class="flex items-center gap-2">
+    <span
+      v-if="isExcelBPSEnabled"
+      data-testid="bps-status-badge"
+      class="inline-flex items-center rounded bg-[#217346] px-1.5 py-0.5 text-[10px] font-semibold leading-3 text-white"
+      :title="t('admin.accounts.openai.excelBPS')"
+    >bps</span>
+
+      <!-- OpenAI OAuth RPM Display - keep the pause reason explicit -->
+      <div v-if="isRPMPaused" class="flex flex-col items-center gap-1">
+        <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rpmPaused') }}</span>
+        <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rpmResumeText }}</span>
+      </div>
+
     <!-- Rate Limit Display (429) - Two-line layout -->
-    <div v-if="isRateLimited" class="flex flex-col items-center gap-1">
+    <div v-else-if="isRateLimited" class="flex flex-col items-center gap-1">
       <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
     </div>
@@ -180,6 +193,20 @@ const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
 }>()
 
+// Keep eligibility aligned with Account.IsExcelBPSEnabled on the backend.
+const isExcelBPSEnabled = computed(() => {
+  const account = props.account
+  if (account.platform !== 'openai' || account.type !== 'oauth' || account.parent_account_id != null ||
+      account.extra?.openai_excel_bps !== true) return false
+  const credential = (key: string) => {
+    const value = account.credentials?.[key]
+    return typeof value === 'string' ? value.trim().toLowerCase() : ''
+  }
+  const isPAT = (mode: string) => mode === 'personalaccesstoken' || mode === 'personal_access_token'
+  return credential('plan_type') !== 'free' && credential('auth_mode') !== 'agentidentity' &&
+    !isPAT(credential('auth_mode')) && !isPAT(credential('openai_auth_mode'))
+})
+
 // Computed: is rate limited (429)
 const activeKiroRuntimeResetAt = computed(() => {
   if (props.account.platform !== 'kiro') return null
@@ -301,6 +328,23 @@ const formatScopeName = (scope: string): string => {
 const isOverloaded = computed(() => {
   if (!props.account.overload_until) return false
   return new Date(props.account.overload_until) > new Date()
+})
+
+const isRPMPaused = computed(() =>
+  props.account.platform === 'openai' && props.account.type === 'oauth' &&
+  props.account.status === 'active' && props.account.schedulable &&
+  (props.account.base_rpm ?? 0) > 0 &&
+  (props.account.rpm_paused === true ||
+    (props.account.current_rpm ?? 0) >= (props.account.base_rpm ?? 0))
+)
+
+const rpmResumeText = computed(() => {
+  if (props.account.rpm_reset_at) {
+    return t('admin.accounts.status.rpmPausedUntil', {
+      time: formatDateTime(new Date(props.account.rpm_reset_at * 1000).toISOString())
+    })
+  }
+  return t('admin.accounts.status.rpmPausedRetry')
 })
 
 // Computed: is temp unschedulable

@@ -214,12 +214,15 @@ func (r *userRepository) createWithPublicID(ctx context.Context, userIn *service
 		SetAuthzGeneration(max(userIn.AuthzGeneration, 1)).
 		SetRestrictPublicGroups(userIn.RestrictPublicGroups)
 	if userIn.Email != "" {
+
 		createOp.SetEmail(userIn.Email)
 	}
 	if userIn.LoginName != "" {
 		createOp.SetLoginName(userIn.LoginName)
 	}
-	created, err := createOp.Save(txCtx)
+	created, err := createOp.
+		SetObserverGroupIds(userIn.ObserverGroupIDs).
+		Save(txCtx)
 	if err != nil {
 		if dbent.IsConstraintError(err) && strings.Contains(strings.ToLower(err.Error()), "account_id") {
 			return err
@@ -247,7 +250,7 @@ func (r *userRepository) createWithPublicID(ctx context.Context, userIn *service
 }
 
 func (r *userRepository) GetByID(ctx context.Context, id int64) (*service.User, error) {
-	m, err := r.client.User.Query().Where(dbuser.IDEQ(id)).Only(ctx)
+	m, err := clientFromContext(ctx, r.client).User.Query().Where(dbuser.IDEQ(id)).Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrUserNotFound, nil)
 	}
@@ -365,23 +368,23 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	}
 
 	// 使用 ent 事务包裹用户更新与 allowed_groups 同步，避免跨层事务不一致。
-	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
-		return err
-	}
-
+	var tx *dbent.Tx
 	var txClient *dbent.Client
 	txCtx := ctx
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
-		txCtx = dbent.NewTxContext(ctx, tx)
+	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
+		txClient = existingTx.Client()
 	} else {
-		// 已处于外部事务中（ErrTxStarted），复用当前事务 client 并由调用方负责提交/回滚。
-		if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-			txClient = existingTx.Client()
-		} else {
+		var err error
+		tx, err = r.client.Tx(ctx)
+		switch {
+		case errors.Is(err, dbent.ErrTxStarted):
 			txClient = r.client
+		case err != nil:
+			return err
+		default:
+			defer func() { _ = tx.Rollback() }()
+			txClient = tx.Client()
+			txCtx = dbent.NewTxContext(ctx, tx)
 		}
 	}
 
@@ -434,6 +437,9 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	}
 	if fields.Status {
 		updateOp = updateOp.SetStatus(userIn.Status)
+	}
+	if fields.ObserverGroupIDs {
+		updateOp = updateOp.SetObserverGroupIds(userIn.ObserverGroupIDs)
 	}
 	if fields.RestrictPublicGroups {
 		updateOp = updateOp.SetRestrictPublicGroups(userIn.RestrictPublicGroups)
@@ -714,6 +720,10 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 			apikey.GroupIDEQ(filters.APIKeyGroupID),
 			apikey.DeletedAtIsNil(),
 		))
+	}
+
+	if len(filters.UserIDs) > 0 {
+		q = q.Where(dbuser.IDIn(filters.UserIDs...))
 	}
 
 	// If attribute filters are specified, we need to filter by user IDs first
@@ -1724,7 +1734,7 @@ func (r *userRepository) loadAllowedGroups(ctx context.Context, userIDs []int64)
 		return out, nil
 	}
 
-	rows, err := r.client.UserAllowedGroup.Query().
+	rows, err := clientFromContext(ctx, r.client).UserAllowedGroup.Query().
 		Where(userallowedgroup.UserIDIn(userIDs...)).
 		All(ctx)
 	if err != nil {

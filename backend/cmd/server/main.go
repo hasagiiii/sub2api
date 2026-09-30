@@ -18,8 +18,9 @@ import (
 	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/mihomo"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	appserver "github.com/Wei-Shaw/sub2api/internal/server"
+	"github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/setup"
 	"github.com/Wei-Shaw/sub2api/internal/web"
@@ -60,7 +61,29 @@ func main() {
 	// Parse command line flags
 	setupMode := flag.Bool("setup", false, "Run setup wizard in CLI mode")
 	showVersion := flag.Bool("version", false, "Show version information")
+	migrateMihomo := flag.String("migrate-mihomo", "", "Stage legacy Mihomo into the specified Sub2API data directory (root deployment only)")
+	checkMihomo := flag.String("check-managed-mihomo", "", "Check managed Mihomo in the specified data directory")
 	flag.Parse()
+	if *checkMihomo != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := mihomo.CheckManaged(ctx, *checkMihomo); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	if *migrateMihomo != "" {
+		if os.Geteuid() != 0 {
+			log.Fatal("Mihomo migration requires root")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if err := mihomo.PrepareLegacy(ctx, *migrateMihomo, "/etc/mihomo-codex/config.yaml", "/var/lib/mihomo-codex/providers/airport.yaml", "/usr/local/bin/mihomo"); err != nil {
+			log.Fatalf("Mihomo migration failed: %v", err)
+		}
+		log.Print("Mihomo migration staged; original configuration retained")
+		return
+	}
 
 	if *showVersion {
 		log.Printf("Sub2API %s (commit: %s, built: %s)\n", Version, Commit, Date)
@@ -121,7 +144,7 @@ func runSetupServer() {
 
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           r,
+		Handler:           server.SetupHandler(r),
 		ReadHeaderTimeout: 30 * time.Second,
 		IdleTimeout:       120 * time.Second,
 		Protocols:         protocols,
@@ -171,7 +194,7 @@ func runMainServer() {
 
 	// pprof runs on a separate, opt-in diagnostics listener. The default
 	// address is loopback so profiling data is never exposed on the API port.
-	pprofServer := appserver.NewPprofServer(cfg.Server.Pprof)
+	pprofServer := server.NewPprofServer(cfg.Server.Pprof)
 	if err := pprofServer.Start(); err != nil {
 		log.Fatalf("Failed to start pprof server: %v", err)
 	}
@@ -204,15 +227,27 @@ func runMainServer() {
 
 	log.Println("Shutting down server...")
 
+	app.Lifecycle.BeginDrain()
+	if delay := time.Duration(cfg.Server.ShutdownDrainDelay) * time.Second; delay > 0 {
+		time.Sleep(delay)
+	}
+
 	// 先停内部 API RPC，再优雅关闭 HTTP server
 	app.InnerAPIRPC.Stop()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownTimeout())
 	defer cancel()
 
 	if err := app.Server.Shutdown(ctx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
 
+	if err := app.Lifecycle.Wait(ctx); err != nil {
+		log.Printf("Active request drain deadline reached: %v", err)
+	}
+	if err := app.Server.Close(); err != nil {
+		log.Printf("Closing server connections: %v", err)
+	}
 	log.Println("Server exited")
+	mihomo.CloseAll()
 }

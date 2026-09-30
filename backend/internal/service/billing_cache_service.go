@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -753,6 +754,7 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 // 订阅模式：检查缓存用量未超过限额（Group限额从参数传入）
 // platform 为请求的目标平台（如 "anthropic"），传空串 "" 时跳过 user × platform quota 检查。
 func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
+	defer requesttiming.Observe(ctx, "billing_check")()
 	if state := APIKeyRoutingStateFromContext(ctx); state != nil {
 		state.SetEligibilityChecker(func(candidateCtx context.Context, candidateKey *APIKey, candidateGroup *Group, candidateSubscription *UserSubscription) error {
 			candidatePlatform := ""

@@ -28,6 +28,7 @@ func ProvideAuthHandler(
 
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
+	requestCaptureHandler *admin.RequestCaptureHandler,
 	dashboardHandler *admin.DashboardHandler,
 	userHandler *admin.UserHandler,
 	groupHandler *admin.GroupHandler,
@@ -37,6 +38,7 @@ func ProvideAdminHandlers(
 	backupHandler *admin.BackupHandler,
 	oauthHandler *admin.OAuthHandler,
 	openaiOAuthHandler *admin.OpenAIOAuthHandler,
+	openaiOAuthReauthHandler *admin.OpenAIOAuthReauthHandler,
 	geminiOAuthHandler *admin.GeminiOAuthHandler,
 	antigravityOAuthHandler *admin.AntigravityOAuthHandler,
 	kiroOAuthHandler *admin.KiroOAuthHandler,
@@ -56,6 +58,10 @@ func ProvideAdminHandlers(
 	pluginHandler *admin.PluginHandler,
 	apiKeyHandler *admin.AdminAPIKeyHandler,
 	scheduledTestHandler *admin.ScheduledTestHandler,
+	pelicanGroupTestHandler *admin.PelicanGroupTestHandler,
+	accountOpsHandler *admin.AccountOpsHandler,
+	accountTokenGuardHandler *admin.AccountTokenGuardHandler,
+	accountTokenGuardV2Handler *admin.AccountTokenGuardV2Handler,
 	channelHandler *admin.ChannelHandler,
 	channelMonitorHandler *admin.ChannelMonitorHandler,
 	channelMonitorTemplateHandler *admin.ChannelMonitorRequestTemplateHandler,
@@ -83,11 +89,18 @@ func ProvideAdminHandlers(
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	settingService *service.SettingService,
+	opencodeGoUsage *service.OpenCodeGoUsageService,
+	codexHarvest *service.CodexHarvestService,
+	openAIGatewayService *service.OpenAIGatewayService,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetCodexTicketSettings(settingService)
+	accountHandler.SetCodexHarvestService(codexHarvest)
+	accountHandler.SetOpenAIGatewayService(openAIGatewayService)
+	accountHandler.SetOpenCodeGoUsageService(opencodeGoUsage)
 	return &AdminHandlers{
+		RequestCapture:            requestCaptureHandler,
 		Dashboard:                 dashboardHandler,
 		User:                      userHandler,
 		Group:                     groupHandler,
@@ -97,6 +110,7 @@ func ProvideAdminHandlers(
 		Backup:                    backupHandler,
 		OAuth:                     oauthHandler,
 		OpenAIOAuth:               openaiOAuthHandler,
+		OpenAIOAuthReauth:         openaiOAuthReauthHandler,
 		GeminiOAuth:               geminiOAuthHandler,
 		AntigravityOAuth:          antigravityOAuthHandler,
 		KiroOAuth:                 kiroOAuthHandler,
@@ -115,7 +129,11 @@ func ProvideAdminHandlers(
 		TLSFingerprintProfile:     tlsFingerprintProfileHandler,
 		Plugin:                    pluginHandler,
 		APIKey:                    apiKeyHandler,
+		AccountOps:                accountOpsHandler,
+		AccountTokenGuard:         accountTokenGuardHandler,
+		AccountTokenGuardV2:       accountTokenGuardV2Handler,
 		ScheduledTest:             scheduledTestHandler,
+		PelicanGroupTest:          pelicanGroupTestHandler,
 		Channel:                   channelHandler,
 		ChannelMonitor:            channelMonitorHandler,
 		ChannelMonitorTemplate:    channelMonitorTemplateHandler,
@@ -208,9 +226,12 @@ func ProvideBatchImageHandler(
 	return h
 }
 
-// ProvideSystemHandler creates admin.SystemHandler with UpdateService
-func ProvideSystemHandler(updateService *service.UpdateService, lockService *service.SystemOperationLockService) *admin.SystemHandler {
-	return admin.NewSystemHandler(updateService, lockService)
+// ProvideSystemHandler creates admin.SystemHandler with UpdateService and the
+// Mihomo node checks backed by the admin proxy diagnostics.
+func ProvideSystemHandler(updateService *service.UpdateService, lockService *service.SystemOperationLockService, adminService service.AdminService) *admin.SystemHandler {
+	h := admin.NewSystemHandler(updateService, lockService)
+	h.SetMihomoNodeChecker(adminService)
+	return h
 }
 
 // ProvideSettingHandler creates SettingHandler with version from BuildInfo
@@ -254,6 +275,7 @@ func ProvideHandlers(
 	paymentWebhookHandler *PaymentWebhookHandler,
 	availableChannelHandler *AvailableChannelHandler,
 	plazaHandler *PlazaHandler,
+	pelicanShowcaseHandler *PelicanShowcaseHandler,
 	modelPlazaHandler *ModelPlazaHandler,
 	supportTicketHandler *SupportTicketHandler,
 	supportTicketAttachmentHandler *SupportTicketAttachmentHandler,
@@ -290,6 +312,7 @@ func ProvideHandlers(
 		Payment:                   paymentHandler,
 		PaymentWebhook:            paymentWebhookHandler,
 		AvailableChannel:          availableChannelHandler,
+		PelicanShowcase:           pelicanShowcaseHandler,
 		ModelPlaza:                modelPlazaHandler,
 		AsyncImage:                asyncImageHandler,
 		BatchImage:                batchImageHandler,
@@ -332,6 +355,7 @@ var ProviderSet = wire.NewSet(
 	NewPaymentWebhookHandler,
 	NewAvailableChannelHandler,
 	NewPlazaHandler,
+	NewPelicanShowcaseHandler,
 	NewModelPlazaHandler,
 	NewSupportTicketHandler,             // 工单系统：用户端
 	NewSupportTicketAttachmentHandler,   // 工单系统：用户端附件上传
@@ -357,6 +381,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewAsyncMediaConfigHandler,
 	admin.NewOAuthHandler,
 	admin.NewOpenAIOAuthHandler,
+	admin.NewOpenAIOAuthReauthHandler,
 	admin.NewGeminiOAuthHandler,
 	admin.NewAntigravityOAuthHandler,
 	admin.NewKiroOAuthHandler,
@@ -376,6 +401,10 @@ var ProviderSet = wire.NewSet(
 	admin.NewPluginHandler,
 	admin.NewAdminAPIKeyHandler,
 	admin.NewScheduledTestHandler,
+	admin.NewPelicanGroupTestHandler,
+	admin.NewAccountOpsHandler,
+	admin.NewAccountTokenGuardHandler,
+	admin.NewAccountTokenGuardV2Handler,
 	admin.NewChannelHandler,
 	admin.NewChannelMonitorHandler,
 	admin.NewChannelMonitorRequestTemplateHandler,
@@ -396,6 +425,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
 	admin.NewCostCenterHandler,
+	admin.NewRequestCaptureHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,
