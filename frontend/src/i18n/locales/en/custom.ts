@@ -126,8 +126,12 @@ export default {
       cta_recharge: 'Recharge now',
       // Hero row: "Get up to +X% bonus credit" — the "+X%" is split out
       // into its own mid-sized highlighted span by the template.
+      title_bonus: 'Recharge Bonus',
+      title_discount: 'Recharge Discount',
       bonus_headline_prefix: 'Get up to',
       bonus_headline_suffix: 'bonus credit',
+      discount_headline_prefix: 'Save up to',
+      discount_headline_suffix: 'on top-ups',
       // Tier pills only render the amount portion; the bonus rate is
       // promoted to its own highlighted span in the template.
       tier_amount_label: 'Spend ¥{min}',
@@ -489,7 +493,6 @@ export default {
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
     promoCodes: 'Promo Codes',
-    rechargePromos: 'Recharge Promotions',
     modelIntros: 'Model Intros',
     files: 'File Manager',
     settings: 'Settings',
@@ -5106,59 +5109,6 @@ decodeSizeOnRspHint: 'When the upstream response omits the size field or returns
       failedToLoadUsages: 'Failed to load usage records'
     },
 
-    // Recharge Promo Activities (CRUD list)
-    rechargePromos: {
-      title: 'Recharge Promotions',
-      description: 'Manage the list of recharge bonus campaigns. At most one can be enabled at a time.',
-      createBtn: 'New Campaign',
-      createTitle: 'New Recharge Promotion',
-      editTitle: 'Edit Recharge Promotion',
-      deleteTitle: 'Delete Campaign',
-      deleteConfirm: 'Are you sure you want to delete this campaign? This action cannot be undone.',
-      toggleHint: 'Click to toggle enabled state',
-      statusEnabled: 'Enabled',
-      statusDisabled: 'Disabled',
-      noLowerBound: 'No start',
-      noUpperBound: 'No end',
-      loadFailed: 'Failed to load campaigns',
-      created: 'Campaign created',
-      updated: 'Campaign updated',
-      saveFailed: 'Failed to save campaign',
-      toggled: 'Enabled state toggled',
-      toggleFailed: 'Failed to toggle enabled state',
-      deleted: 'Campaign deleted',
-      deleteFailed: 'Failed to delete campaign',
-      columns: {
-        name: 'Name',
-        status: 'Status',
-        tiers: 'Tiers',
-        window: 'Active Window',
-        updatedAt: 'Updated At',
-        actions: 'Actions'
-      },
-      fields: {
-        name: 'Campaign Name',
-        namePlaceholder: 'e.g. June 2x Bonus',
-        enabled: 'Enable now',
-        enabledHint: 'Enabling will automatically disable any other active campaign (only one can be enabled at a time).',
-        validFrom: 'Valid From',
-        validUntil: 'Valid Until',
-        tiers: 'Bonus Tiers (ascending min_amount)',
-        addTier: 'Add Tier',
-        minAmount: 'Min Amount',
-        bonusRate: 'Bonus Rate (0~0.99)',
-        tiersEmptyHint: 'No tiers yet — please add at least one before enabling.',
-        note: 'Note (optional)',
-      },
-      errors: {
-        nameRequired: 'Please enter the campaign name',
-        tiersRequiredWhenEnabled: 'At least one tier is required before enabling the campaign',
-        minAmountInvalid: 'Tier min_amount must be a positive number',
-        bonusRateOutOfRange: 'Tier bonus_rate must be in [0, 1)',
-        tiersNotAscending: 'Tier min_amount must be strictly ascending (no duplicates)',
-        validUntilBeforeFrom: 'Valid Until must be after Valid From'
-      }
-    },
 
     // File manager (manage objects in the image-transfer bucket directly)
     files: {
@@ -8095,15 +8045,10 @@ decodeSizeOnRspHint: 'When the upstream response omits the size field or returns
     amountNoMethod: 'No payment method available for this amount',
     rechargeRatePreview: 'Current rate: 1 {currency} = {usd} USD',
     promo: {
-      banner: 'Recharge bonus campaign is on (until {validUntil}). Higher tiers earn extra credit.',
-      bannerNoExpiry: 'Recharge bonus campaign is on. Higher tiers earn extra credit.',
-      tier: 'Spend {minAmount}+ → +{rate}%',
-      tiersJoiner: '; ',
-      customHint: 'Custom amounts that reach a tier earn the same bonus.',
-      bonusLine: 'Bonus credit',
-      totalCredited: 'Total credited',
-      bonusBadge: '+{rate}%',
-      redDotAria: 'Recharge campaign has updates',
+      banner: 'Recharge promotion is on until {validUntil}. Amounts that reach a tier get the deal shown on each button.',
+      bannerNoExpiry: 'Recharge promotion is on. Amounts that reach a tier get the deal shown on each button.',
+      customHint: 'Custom amounts that reach a tier get the same deal.',
+      redDotAria: 'Recharge promotion has updates',
       // Confirm dialog shown when the user has lingered on the payment
       // page long enough that the bonus campaign's `valid_until` has
       // ticked over by the time they finally click "create order".
@@ -8118,8 +8063,8 @@ decodeSizeOnRspHint: 'When the upstream response omits the size field or returns
       // ("is the bonus gone?" / "can I still pay?"). The primary
       // button is verb-explicit ("Continue top-up") so it reads
       // correctly even without the body context.
-      expiredTitle: 'Recharge bonus campaign has ended',
-      expiredBody: 'This top-up will no longer earn the bonus credit. Would you still like to continue?',
+      expiredTitle: 'Recharge promotion has ended',
+      expiredBody: 'This top-up will no longer get the promotional bonus or discount. Would you still like to continue?',
       expiredContinue: 'Continue top-up',
       expiredCancel: 'Cancel',
     },

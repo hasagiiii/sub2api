@@ -68,7 +68,6 @@ func ProvideAdminHandlers(
 	contentModerationHandler *admin.ContentModerationHandler,
 	promptAuditHandler *securityaudit.PromptAdminHandler,
 	paymentHandler *admin.PaymentHandler,
-	rechargePromoHandler *admin.RechargePromoHandler,
 	modelIntroHandler *admin.ModelIntroHandler,
 	affiliateHandler *admin.AffiliateHandler,
 	supportTicketHandler *admin.SupportTicketHandler,
@@ -142,7 +141,6 @@ func ProvideAdminHandlers(
 		ContentModeration:         contentModerationHandler,
 		PromptAudit:               promptAuditHandler,
 		Payment:                   paymentHandler,
-		RechargePromo:             rechargePromoHandler,
 		ModelIntro:                modelIntroHandler,
 		Affiliate:                 affiliateHandler,
 		SupportTicket:             supportTicketHandler,
@@ -414,7 +412,6 @@ var ProviderSet = wire.NewSet(
 	admin.NewChannelMonitorRequestTemplateHandler,
 	admin.NewContentModerationHandler,
 	admin.NewPaymentHandler,
-	admin.NewRechargePromoHandler,
 	admin.NewModelIntroHandler,
 	admin.NewAffiliateHandler,
 	admin.NewSupportTicketHandler,             // 工单系统：admin 端

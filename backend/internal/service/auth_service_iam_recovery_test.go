@@ -4,6 +4,8 @@ package service_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -27,10 +29,25 @@ func (s *iamRecoveryEmailCacheStub) DeletePasswordResetToken(context.Context, st
 	return nil
 }
 
+func (s *iamRecoveryEmailCacheStub) ConsumePasswordResetToken(_ context.Context, _ string, tokenHash string) (bool, error) {
+	if s.resetToken == nil || s.resetToken.Token != tokenHash {
+		return false, nil
+	}
+	s.consumed = true
+	s.resetToken = nil
+	return true, nil
+}
+
+// iamRecoveryResetTokenHash mirrors the service's SHA-256 storage format for reset tokens.
+func iamRecoveryResetTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
 func TestIAMVerifiedRecoveryEmailCanResetPassword(t *testing.T) {
 	ctx := context.Background()
 	cache := &iamRecoveryEmailCacheStub{resetToken: &service.PasswordResetTokenData{
-		Token:     "reset-token",
+		Token:     iamRecoveryResetTokenHash("reset-token"),
 		CreatedAt: time.Now(),
 	}}
 	auth, _, client := newAuthServiceForEmailBind(t, map[string]string{
@@ -64,7 +81,7 @@ func TestIAMVerifiedRecoveryEmailCanResetPassword(t *testing.T) {
 func TestIAMUnverifiedRecoveryEmailCannotResetPassword(t *testing.T) {
 	ctx := context.Background()
 	cache := &iamRecoveryEmailCacheStub{resetToken: &service.PasswordResetTokenData{
-		Token:     "reset-token",
+		Token:     iamRecoveryResetTokenHash("reset-token"),
 		CreatedAt: time.Now(),
 	}}
 	auth, _, client := newAuthServiceForEmailBind(t, map[string]string{

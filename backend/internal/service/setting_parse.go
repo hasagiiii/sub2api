@@ -357,8 +357,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	companyApplicationsEnabled := false
 	companyUpgradeFee := 20.0
 	companyIAMEnabled := false
-	companyPublicIDsFinalized := false
-	companyBillingIntegrationEnabled := false
 	companyDocumentationURL := ""
 	if s != nil && s.cfg != nil {
 		if s.cfg.Company.UpgradeFee > 0 && !math.IsNaN(s.cfg.Company.UpgradeFee) && !math.IsInf(s.cfg.Company.UpgradeFee, 0) {
@@ -366,8 +364,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 		companyApplicationsEnabled = s.cfg.Company.ApplicationsEnabled
 		companyIAMEnabled = s.cfg.Company.IAMEnabled
-		companyPublicIDsFinalized = s.cfg.Company.PublicIDsFinalized
-		companyBillingIntegrationEnabled = s.cfg.Company.BillingIntegrationEnabled
 		companyDocumentationURL = strings.TrimSpace(s.cfg.Company.DocumentationURL)
 	}
 	companyApplicationsEnabled = boolSettingOrDefault(settings, SettingKeyCompanyApplicationsEnabled, companyApplicationsEnabled)
@@ -377,8 +373,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		}
 	}
 	companyIAMEnabled = boolSettingOrDefault(settings, SettingKeyCompanyIAMEnabled, companyIAMEnabled)
-	companyPublicIDsFinalized = boolSettingOrDefault(settings, SettingKeyCompanyPublicIDsFinalized, companyPublicIDsFinalized)
-	companyBillingIntegrationEnabled = boolSettingOrDefault(settings, SettingKeyCompanyBillingIntegrationEnabled, companyBillingIntegrationEnabled)
 	if value, ok := settings[SettingKeyCompanyDocumentationURL]; ok {
 		companyDocumentationURL = strings.TrimSpace(value)
 	}
@@ -441,8 +435,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		CompanyUpgradeFee:                      companyUpgradeFee,
 		CompanyApplicationsEnabled:             companyApplicationsEnabled,
 		CompanyIAMEnabled:                      companyIAMEnabled,
-		CompanyPublicIDsFinalized:              companyPublicIDsFinalized,
-		CompanyBillingIntegrationEnabled:       companyBillingIntegrationEnabled,
 		CompanyDocumentationURL:                companyDocumentationURL,
 		// 可信代理动态拉取（switch-trusted-proxies-dynamic）：三条 setting 全部 lenient 解析
 		TrustedProxiesDynamicEnabled:      settings[SettingKeyTrustedProxiesDynamicEnabled] == "true", // 默认关闭

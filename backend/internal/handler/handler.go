@@ -47,7 +47,6 @@ type AdminHandlers struct {
 	ContentModeration         *admin.ContentModerationHandler
 	PromptAudit               *securityaudit.PromptAdminHandler
 	Payment                   *admin.PaymentHandler
-	RechargePromo             *admin.RechargePromoHandler
 	ModelIntro                *admin.ModelIntroHandler
 	Affiliate                 *admin.AffiliateHandler
 	SupportTicket             *admin.SupportTicketHandler

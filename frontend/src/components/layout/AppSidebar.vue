@@ -1248,7 +1248,6 @@ const adminNavItems = computed((): NavItem[] => {
     },
     { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon, hideInSimpleMode: true },
     { path: '/admin/promo-codes', label: t('nav.promoCodes'), icon: GiftIcon, hideInSimpleMode: true },
-    { path: '/admin/recharge-promos', label: t('nav.rechargePromos'), icon: GiftIcon, hideInSimpleMode: true, featureFlag: flagAdminPayment },
     { path: '/admin/model-intros', label: t('nav.modelIntros'), icon: FolderIcon, hideInSimpleMode: true },
     // 文件管理：仅在图片转存（对象存储）启用后出现。状态来自 admin 侧懒加载探测，
     // 不走 public settings（那是下发给所有用户的公开配置，COS 属敏感项）。

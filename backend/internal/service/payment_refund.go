@@ -163,13 +163,8 @@ func (s *PaymentService) RequestRefund(ctx context.Context, oid, uid int64, reas
 	if err != nil {
 		return fmt.Errorf("get user: %w", err)
 	}
-	required := o.Amount + o.BonusAmount
 	if u.Balance < o.Amount {
 		return infraerrors.BadRequest("BALANCE_NOT_ENOUGH", "refund amount exceeds balance")
-	}
-	if o.BonusAmount > 0 && u.Balance < required {
-		return infraerrors.BadRequest("BALANCE_INSUFFICIENT_FOR_REFUND",
-			"balance is not enough to claw back credited + bonus")
 	}
 	nr := strings.TrimSpace(reason)
 	now := time.Now()
@@ -181,7 +176,7 @@ func (s *PaymentService) RequestRefund(ctx context.Context, oid, uid int64, reas
 	if c == 0 {
 		return infraerrors.Conflict("CONFLICT", "order status changed")
 	}
-	s.writeAuditLog(ctx, oid, "REFUND_REQUESTED", fmt.Sprintf("user:%d", uid), map[string]any{"amount": o.Amount, "bonus_amount": o.BonusAmount, "reason": nr})
+	s.writeAuditLog(ctx, oid, "REFUND_REQUESTED", fmt.Sprintf("user:%d", uid), map[string]any{"amount": o.Amount, "reason": nr})
 	return nil
 }
 
@@ -242,12 +237,6 @@ func (s *PaymentService) PrepareRefund(ctx context.Context, oid int64, amt float
 	if amt-o.Amount > paymentAmountToleranceForCurrency(orderCurrency) {
 		return nil, nil, infraerrors.BadRequest("REFUND_AMOUNT_EXCEEDED", "refund amount exceeds recharge")
 	}
-	// 含 bonus 的订单暂只允许整额退款；部分退款的 bonus 比例分摊在 v1 范围之外，
-	// 显式拒绝以避免“静默截断”造成的歧义。
-	if o.BonusAmount > 0 && math.Abs(amt-o.Amount) > paymentAmountToleranceForCurrency(orderCurrency) {
-		return nil, nil, infraerrors.BadRequest("PARTIAL_REFUND_NOT_SUPPORTED_FOR_BONUS_ORDER",
-			"partial refund is not supported for orders with promo bonus")
-	}
 	ga := calculateGatewayRefundAmount(o.Amount, o.PayAmount, amt, orderCurrency)
 	rr := strings.TrimSpace(reason)
 	if rr == "" && o.RefundRequestReason != nil {
@@ -304,24 +293,11 @@ func (s *PaymentService) prepDeduct(ctx context.Context, o *dbent.PaymentOrder, 
 		return nil, nil
 	}
 	p.DeductionType = payment.DeductionTypeBalance
-	required := p.RefundAmount + o.BonusAmount
-	// 严格守卫：余额不足以同时回收 credited + bonus → 拒绝退款（不调用网关），
-	// 避免出现"已退款给用户、本地余额却变负"的不一致。这是硬性拒绝，不允许 force 绕过。
-	if o.BonusAmount > 0 && u.Balance < required {
-		return nil, infraerrors.BadRequest("BALANCE_INSUFFICIENT_FOR_REFUND",
-			"balance is not enough to claw back credited + bonus")
-	}
-	// 无 bonus 的普通退款：余额不足时提示调用方带 force 重试（软性守卫，可绕过）。
-	// 与上面的 bonus 硬拒绝互补 —— bonus 涉及赠送金回收，允许绕过会直接把余额做成负数。
-	if o.BonusAmount == 0 && u.Balance < p.RefundAmount && !force {
+	if u.Balance < p.RefundAmount && !force {
 		return &RefundResult{Success: false, Warning: "user balance is insufficient for deduction, use force", RequireForce: true}, nil
 	}
-	if o.BonusAmount > 0 {
-		p.BalanceToDeduct = required
-	} else {
-		// math.Max(0, ...) 兜住余额为负的历史脏数据，避免算出负的扣减额。
-		p.BalanceToDeduct = math.Max(0, math.Min(p.RefundAmount, u.Balance))
-	}
+	// math.Max(0, ...) 兜住余额为负的历史脏数据，避免算出负的扣减额。
+	p.BalanceToDeduct = math.Max(0, math.Min(p.RefundAmount, u.Balance))
 	return nil, nil
 }
 

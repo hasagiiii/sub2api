@@ -24,24 +24,25 @@ type plazaServiceAPI interface {
 
 // PlazaHandler 处理公开计费广场（model / plan / recharge-promo）相关请求；无需鉴权。
 type PlazaHandler struct {
-	plazaService  plazaServiceAPI
-	promoActivity rechargePromoActivityAPI
+	plazaService plazaServiceAPI
+	promoConfig  rechargeBonusConfigAPI
 	// promoNow 仅用于测试时注入虚假"当前时间"；生产环境为 nil，handler 走 time.Now()。
 	promoNow promoNowProvider
 }
 
 // NewPlazaHandler 构造 PlazaHandler。
 //
-// 注入 RechargePromoActivityService 以支持 GET /api/v1/plaza/recharge-promo
-// 公开端点（首页 banner 数据源）。
+// 注入 PaymentConfigService 以支持 GET /api/v1/plaza/recharge-promo
+// 公开端点（首页 banner / 侧边栏红点数据源，读取充值优惠阶梯配置）。
 func NewPlazaHandler(
 	plazaService *service.PlazaService,
-	promoActivity *service.RechargePromoActivityService,
+	paymentConfigService *service.PaymentConfigService,
 ) *PlazaHandler {
-	return &PlazaHandler{
-		plazaService:  plazaService,
-		promoActivity: promoActivity,
+	h := &PlazaHandler{plazaService: plazaService}
+	if paymentConfigService != nil {
+		h.promoConfig = paymentConfigService
 	}
+	return h
 }
 
 // ListModels GET /api/v1/plaza/models

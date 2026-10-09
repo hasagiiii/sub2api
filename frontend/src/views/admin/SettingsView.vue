@@ -7863,28 +7863,6 @@
             <div class="flex items-center justify-between gap-4">
               <div>
                 <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.features.company.publicIdsFinalized') }}
-                </label>
-                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.features.company.publicIdsFinalizedHint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.company_public_ids_finalized" />
-            </div>
-            <div class="flex items-center justify-between gap-4">
-              <div>
-                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.features.company.billingIntegrationEnabled') }}
-                </label>
-                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.features.company.billingIntegrationEnabledHint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.company_billing_integration_enabled" />
-            </div>
-            <div class="flex items-center justify-between gap-4">
-              <div>
-                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
                   {{ t('admin.settings.features.company.applicationsEnabled') }}
                 </label>
                 <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
@@ -9076,6 +9054,16 @@
             </div>
           </div>
 
+          <!-- 充值优惠阶梯（独立卡片，与服务商管理同级） -->
+          <RechargeBonusTierEditor
+            v-if="form.payment_enabled"
+            v-model="form.payment_recharge_bonus_tiers"
+            v-model:mode="form.payment_recharge_bonus_mode"
+            v-model:notice="form.payment_recharge_bonus_notice"
+            v-model:valid-from="form.payment_recharge_bonus_valid_from"
+            v-model:valid-until="form.payment_recharge_bonus_valid_until"
+          />
+
           <!-- Provider Management -->
           <PaymentProviderList
             v-if="form.payment_enabled"
@@ -9671,6 +9659,14 @@ import OidcProviderSettingsSection from "@/components/admin/OidcProviderSettings
 import CosImageSettingsSection from "@/components/admin/CosImageSettingsSection.vue";
 import AsyncMediaConfigSection from "@/components/admin/AsyncMediaConfigSection.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
+import RechargeBonusTierEditor from "@/components/admin/settings/RechargeBonusTierEditor.vue";
+import {
+  normalizeRechargeBonusMode,
+  normalizeRechargeBonusTiers,
+  sanitizeRechargeBonusTiersForSubmit,
+  type RechargeBonusMode,
+  type RechargeBonusTierDraft,
+} from "@/utils/rechargeBonus";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import MihomoProxySelector from "@/views/admin/settings/MihomoProxySelector.vue";
 import { useClipboard } from "@/composables/useClipboard";
@@ -10408,8 +10404,13 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_weight_session_sticky: string;
   company_upgrade_charge_enabled: boolean;
   company_upgrade_fee: number;
-  company_public_ids_finalized: boolean;
-  company_billing_integration_enabled: boolean;
+  // 充值赠送阶梯编辑态：允许留空的行，提交时清洗为 RechargeBonusTier[]
+  payment_recharge_bonus_tiers: RechargeBonusTierDraft[];
+  payment_recharge_bonus_mode: RechargeBonusMode;
+  payment_recharge_bonus_notice: string;
+  // 优惠有效期（RFC3339），空串表示该端不设限
+  payment_recharge_bonus_valid_from: string;
+  payment_recharge_bonus_valid_until: string;
   // 系统全局平台限额 map；form 内始终归一化为全 4 平台对象（模板非空绑定依赖此不变量）
   default_platform_quotas: DefaultPlatformQuotasMap;
   account_scheduling_thresholds: ReturnType<typeof normalizeAccountSchedulingThresholdsMap>;
@@ -10437,8 +10438,6 @@ const form = reactive<SettingsForm>({
   company_upgrade_fee: 20,
   company_applications_enabled: false,
   company_iam_enabled: false,
-  company_public_ids_finalized: false,
-  company_billing_integration_enabled: false,
   company_documentation_url: "",
   audit_log_retention_days: 180,
   login_agreement_enabled: false,
@@ -10482,6 +10481,11 @@ const form = reactive<SettingsForm>({
   payment_balance_recharge_multiplier: 1,
   payment_subscription_usd_to_cny_rate: 0,
   payment_recharge_fee_rate: 0,
+  payment_recharge_bonus_tiers: [],
+  payment_recharge_bonus_mode: "bonus",
+  payment_recharge_bonus_notice: "",
+  payment_recharge_bonus_valid_from: "",
+  payment_recharge_bonus_valid_until: "",
   payment_enabled_types: [],
   payment_help_image_url: "",
   payment_help_text: "",
@@ -11944,6 +11948,15 @@ async function loadSettings() {
           }))
         : defaultLoginAgreementDocuments();
     Object.assign(authSourceDefaults, buildAuthSourceDefaultsState(settings));
+    form.payment_recharge_bonus_tiers = normalizeRechargeBonusTiers(
+      settings.payment_recharge_bonus_tiers,
+    );
+    form.payment_recharge_bonus_mode = normalizeRechargeBonusMode(
+      settings.payment_recharge_bonus_mode,
+    );
+    form.payment_recharge_bonus_notice = settings.payment_recharge_bonus_notice || "";
+    form.payment_recharge_bonus_valid_from = settings.payment_recharge_bonus_valid_from || "";
+    form.payment_recharge_bonus_valid_until = settings.payment_recharge_bonus_valid_until || "";
     form.default_platform_quotas = normalizePlatformQuotasMap(settings.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
       settings.account_scheduling_thresholds,
@@ -12394,8 +12407,6 @@ async function saveSettings() {
       company_upgrade_fee: normalizedCompanyUpgradeFee,
       company_applications_enabled: form.company_applications_enabled,
       company_iam_enabled: form.company_iam_enabled,
-      company_public_ids_finalized: form.company_public_ids_finalized,
-      company_billing_integration_enabled: form.company_billing_integration_enabled,
       company_documentation_url: form.company_documentation_url.trim(),
       // 清空数字框时 v-model.number 会得到空串，后端 int 字段解析空串会 400 拒绝整次保存；
       // 空/非法值回退默认 180（与后端 parseAuditLogRetentionDays("") 语义一致，0 仍表示永久保留）。
@@ -12639,6 +12650,13 @@ async function saveSettings() {
       payment_subscription_usd_to_cny_rate:
         Number(form.payment_subscription_usd_to_cny_rate) || 0,
       payment_recharge_fee_rate: Number(form.payment_recharge_fee_rate) || 0,
+      payment_recharge_bonus_tiers: sanitizeRechargeBonusTiersForSubmit(
+        form.payment_recharge_bonus_tiers,
+      ),
+      payment_recharge_bonus_mode: form.payment_recharge_bonus_mode,
+      payment_recharge_bonus_notice: form.payment_recharge_bonus_notice,
+      payment_recharge_bonus_valid_from: form.payment_recharge_bonus_valid_from,
+      payment_recharge_bonus_valid_until: form.payment_recharge_bonus_valid_until,
       payment_enabled_types: form.payment_enabled_types,
       payment_load_balance_strategy: form.payment_load_balance_strategy,
       payment_product_name_prefix: form.payment_product_name_prefix,

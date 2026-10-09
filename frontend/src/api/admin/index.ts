@@ -32,7 +32,6 @@ import channelsAPI from './channels'
 import channelMonitorAPI from './channelMonitor'
 import channelMonitorTemplateAPI from './channelMonitorTemplate'
 import adminPaymentAPI from './payment'
-import rechargePromosAPI from './rechargePromos'
 import modelIntrosAPI from './modelIntros'
 import adminFilesAPI from './files'
 import affiliatesAPI from './affiliates'
@@ -76,7 +75,6 @@ export const adminAPI = {
   channelMonitor: channelMonitorAPI,
   channelMonitorTemplate: channelMonitorTemplateAPI,
   payment: adminPaymentAPI,
-  rechargePromos: rechargePromosAPI,
   modelIntros: modelIntrosAPI,
   files: adminFilesAPI,
   affiliates: affiliatesAPI,
@@ -118,7 +116,6 @@ export {
   channelMonitorAPI,
   channelMonitorTemplateAPI,
   adminPaymentAPI,
-  rechargePromosAPI,
   modelIntrosAPI,
   adminFilesAPI,
   affiliatesAPI,

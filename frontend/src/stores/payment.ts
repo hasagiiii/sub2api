@@ -7,6 +7,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { paymentAPI } from '@/api/payment'
 import type { PaymentConfig, PaymentOrder, RechargePromo, SubscriptionPlan, CreateOrderRequest } from '@/types/payment'
+import { rechargePromoFromCheckout } from '@/utils/rechargeBonus'
 
 export const usePaymentStore = defineStore('payment', () => {
   // ==================== State ====================
@@ -101,7 +102,7 @@ export const usePaymentStore = defineStore('payment', () => {
   }
 
   /**
-   * 拉取当前生效的充值赠送活动。
+   * 拉取当前生效的充值优惠（由 checkout-info 的阶梯 / 有效期派生）。
    *
    * 复用 `/payment/checkout-info`（暂未单独抽接口），首次成功后缓存；
    * 调用方（如 sidebar）可重复调用，store 会按 loaded 标志去重。
@@ -114,7 +115,7 @@ export const usePaymentStore = defineStore('payment', () => {
     rechargePromoLoading.value = true
     try {
       const response = await paymentAPI.getCheckoutInfo()
-      rechargePromo.value = response.data?.recharge_promo ?? null
+      rechargePromo.value = rechargePromoFromCheckout(response.data)
       rechargePromoLoaded.value = true
       return rechargePromo.value
     } catch (error: unknown) {

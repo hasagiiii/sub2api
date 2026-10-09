@@ -125,8 +125,13 @@ export default {
       ribbon: '限时',
       cta_recharge: '立即充值',
       // 头部 hero 行："最高赠送 +X% 余额"——把"+X%"独立成中字号高亮渲染。
+      // banner 标题按优惠模式区分（赠金 / 折扣）
+      title_bonus: '充值赠送活动',
+      title_discount: '充值折扣活动',
       bonus_headline_prefix: '最高赠送',
       bonus_headline_suffix: '余额',
+      discount_headline_prefix: '最高享',
+      discount_headline_suffix: '优惠',
       // tier 项内只渲染金额段；rate% 由模板独立成 span 高亮。
       tier_amount_label: '满 ¥{min}',
       expires_at: '活动至 {date}'
@@ -485,7 +490,6 @@ export default {
     redeemCodes: '兑换码',
     ops: '运维监控',
     promoCodes: '优惠码',
-    rechargePromos: '充值活动记录',
     modelIntros: '模型介绍',
     files: '文件管理',
     settings: '系统设置',
@@ -5253,59 +5257,6 @@ decodeSizeOnRspHint: '开启后上游不返回 size 字段或返回 size=auto �
       failedToLoadUsages: '加载使用记录失败'
     },
 
-    // Recharge Promo Activities (CRUD list)
-    rechargePromos: {
-      title: '充值活动记录',
-      description: '管理充值赠送活动列表，同一时间最多启用一个',
-      createBtn: '新建活动',
-      createTitle: '新建充值活动',
-      editTitle: '编辑充值活动',
-      deleteTitle: '删除活动',
-      deleteConfirm: '确定要删除该活动吗？此操作不可撤销。',
-      toggleHint: '点击切换启用/停用',
-      statusEnabled: '已启用',
-      statusDisabled: '未启用',
-      noLowerBound: '不限开始时间',
-      noUpperBound: '不限结束时间',
-      loadFailed: '加载活动列表失败',
-      created: '活动已创建',
-      updated: '活动已更新',
-      saveFailed: '保存活动失败',
-      toggled: '已切换启用状态',
-      toggleFailed: '切换启用状态失败',
-      deleted: '活动已删除',
-      deleteFailed: '删除活动失败',
-      columns: {
-        name: '活动名称',
-        status: '状态',
-        tiers: '档位',
-        window: '生效区间',
-        updatedAt: '更新时间',
-        actions: '操作'
-      },
-      fields: {
-        name: '活动名称',
-        namePlaceholder: '例如：6 月限时双倍充值',
-        enabled: '立即启用',
-        enabledHint: '启用后会自动停用其它活动（同时只允许一个启用）',
-        validFrom: '开始时间',
-        validUntil: '结束时间',
-        tiers: '赠送档位（min_amount 升序）',
-        addTier: '添加档位',
-        minAmount: '最低支付金额',
-        bonusRate: '赠送比例 (0~0.99)',
-        tiersEmptyHint: '当前没有档位；启用前请至少添加一档',
-        note: '备注（可选）',
-      },
-      errors: {
-        nameRequired: '请填写活动名称',
-        tiersRequiredWhenEnabled: '启用活动前至少需要一个档位',
-        minAmountInvalid: '档位的 min_amount 必须是正数',
-        bonusRateOutOfRange: '档位的 bonus_rate 必须在 [0, 1) 之间',
-        tiersNotAscending: '档位的 min_amount 必须严格升序（不允许重复）',
-        validUntilBeforeFrom: '结束时间必须晚于开始时间'
-      }
-    },
 
     // 文件管理（直接管理图片转存桶里的对象）
     files: {
@@ -8277,15 +8228,10 @@ decodeSizeOnRspHint: '开启后上游不返回 size 字段或返回 size=auto �
     amountNoMethod: '该金额没有可用的支付方式',
     rechargeRatePreview: '当前倍率：1 {currency} = {usd} USD',
     promo: {
-      banner: '充值赠送活动进行中（截止 {validUntil}），按档位享额外赠送余额',
-      bannerNoExpiry: '充值赠送活动进行中，按档位享额外赠送余额',
-      tier: '满 {minAmount} 加赠 {rate}%',
-      tiersJoiner: '；',
-      customHint: '自定义金额到达活动档位同样赠送。',
-      bonusLine: '赠送余额',
-      totalCredited: '合计入账',
-      bonusBadge: '+{rate}%',
-      redDotAria: '充值活动有更新',
+      banner: '充值优惠进行中（截止 {validUntil}），达到档位即享金额按钮上标注的优惠',
+      bannerNoExpiry: '充值优惠进行中，达到档位即享金额按钮上标注的优惠',
+      customHint: '自定义金额达到档位同样享受优惠。',
+      redDotAria: '充值优惠有更新',
       // 二次确认弹窗：用户在充值页停留过久、点击"创建订单"那一刻活动
       // 刚好已过 valid_until 时触发。后端会按当前时间核账，不再发放
       // 赠送 — 我们必须在前端硬截一刀，避免用户以为还能拿到 banner /
@@ -8300,8 +8246,8 @@ decodeSizeOnRspHint: '开启后上游不返回 size 字段或返回 size=auto �
       //     在，为什么没赠送" — 文案要正面回答这个怀疑。
       //   • 主按钮用"继续充值"而不是"确认"——让操作语义自包含，
       //     即使用户没读 body 也知道点下去会走老路。
-      expiredTitle: '充值赠送活动已结束',
-      expiredBody: '此次充值将不再享受加赠余额。是否仍要继续充值？',
+      expiredTitle: '充值优惠已结束',
+      expiredBody: '此次充值将不再享受赠送或折扣优惠。是否仍要继续充值？',
       expiredContinue: '继续充值',
       expiredCancel: '取消',
     },

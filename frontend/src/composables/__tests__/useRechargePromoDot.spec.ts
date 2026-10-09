@@ -31,8 +31,8 @@ function harness(userId: number | null, promo: RechargePromo | null) {
 }
 
 const samplePromo: RechargePromo = {
-  enabled: true,
-  tiers: [{ min_amount: 100, bonus_rate: 0.05 }],
+  mode: 'bonus',
+  tiers: [{ min_amount: 100, bonus_percent: 5 }],
   version: 'abc123',
 }
 
@@ -41,7 +41,7 @@ describe('useRechargePromoDot', () => {
     localStorage.clear()
   })
 
-  it('shows red dot when promo is enabled and user has not seen this version', () => {
+  it('shows red dot when a promo is active and user has not seen this version', () => {
     const { api, wrapper } = harness(42, samplePromo)
     expect(api.shouldShow.value).toBe(true)
     wrapper.unmount()
@@ -75,8 +75,8 @@ describe('useRechargePromoDot', () => {
     wrapper.unmount()
   })
 
-  it('hides when promo is disabled', () => {
-    const { api, wrapper } = harness(42, { ...samplePromo, enabled: false })
+  it('hides when the promo has no version (inactive config)', () => {
+    const { api, wrapper } = harness(42, { ...samplePromo, version: '' })
     expect(api.shouldShow.value).toBe(false)
     wrapper.unmount()
   })

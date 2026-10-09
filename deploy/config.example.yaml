@@ -1336,13 +1336,10 @@ update:
 # Company Accounts And IAM (企业账户与 IAM)
 # =============================================================================
 company:
-  # Keep both product switches off until the public-ID backfill, final
-  # constraints, billing-path acceptance tests, and reconciliation checks pass.
-  # 在公共 ID 回填、最终约束、计费链路验收和对账检查通过前保持关闭。
+  # Default product switches; can be overridden in admin system settings.
+  # 产品开关默认值，可在后台系统设置中覆盖。
   applications_enabled: false
   iam_enabled: false
-  public_ids_finalized: false
-  billing_integration_enabled: false
   # Optional HTTP(S) guide shown beside the enterprise console menu.
   documentation_url: ""
   upgrade_fee: 20

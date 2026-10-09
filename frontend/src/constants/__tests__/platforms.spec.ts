@@ -16,7 +16,8 @@ const concretePlatforms = [
   'higgsfield',
   'minimax',
   'opencode_go',
-  'bytedance'
+  'bytedance',
+  'typesafe'
 ]
 
 describe('platform option catalogs', () => {

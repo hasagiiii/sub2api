@@ -10,6 +10,7 @@ import type {
   LoginAgreementDocument,
   NotifyEmailEntry,
 } from "@/types";
+import type { RechargeBonusTier } from "@/utils/rechargeBonus";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
@@ -42,6 +43,7 @@ export type PlatformType =
   | "deepseek"
   | "minimax"
   | "opencode_go"
+  | "typesafe"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
 
 /** 单平台三档限额；null = 不限制，undefined = 未填（等价 null） */
@@ -72,6 +74,7 @@ export const PLATFORM_QUOTA_PLATFORMS: PlatformType[] = [
   "deepseek",
   "minimax",
   "opencode_go",
+  "typesafe",
 ]
 
 export type SchedulingThresholdPlatformType =
@@ -535,8 +538,6 @@ export interface SystemSettings {
   company_upgrade_fee?: number;
   company_applications_enabled: boolean;
   company_iam_enabled: boolean;
-  company_public_ids_finalized?: boolean;
-  company_billing_integration_enabled?: boolean;
   company_documentation_url: string;
   custom_menu_items: CustomMenuItem[];
   custom_endpoints: CustomEndpoint[];
@@ -730,6 +731,12 @@ export interface SystemSettings {
   payment_balance_recharge_multiplier: number;
   payment_subscription_usd_to_cny_rate: number;
   payment_recharge_fee_rate: number;
+  payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_mode?: string;
+  payment_recharge_bonus_notice?: string;
+  /** 优惠有效期（RFC3339）；空串表示该端不设限 */
+  payment_recharge_bonus_valid_from?: string;
+  payment_recharge_bonus_valid_until?: string;
   payment_load_balance_strategy: string;
   payment_product_name_prefix: string;
   payment_product_name_suffix: string;
@@ -952,8 +959,6 @@ export interface UpdateSettingsRequest {
   company_upgrade_fee?: number;
   company_applications_enabled?: boolean;
   company_iam_enabled?: boolean;
-  company_public_ids_finalized?: boolean;
-  company_billing_integration_enabled?: boolean;
   company_documentation_url?: string;
   compact_home_enabled?: boolean;
   hide_ccs_import_button?: boolean;
@@ -1123,6 +1128,12 @@ export interface UpdateSettingsRequest {
   payment_balance_recharge_multiplier?: number;
   payment_subscription_usd_to_cny_rate?: number;
   payment_recharge_fee_rate?: number;
+  payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_mode?: string;
+  payment_recharge_bonus_notice?: string;
+  /** 优惠有效期（RFC3339）；空串表示该端不设限 */
+  payment_recharge_bonus_valid_from?: string;
+  payment_recharge_bonus_valid_until?: string;
   payment_load_balance_strategy?: string;
   payment_product_name_prefix?: string;
   payment_product_name_suffix?: string;

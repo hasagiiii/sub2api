@@ -59,14 +59,6 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if s.notificationEmailService != nil {
 		s.notificationEmailService.RememberRecipientLocale(ctx, req.UserID, user.Email, req.Locale)
 	}
-	orderAmount := req.Amount
-	limitAmount := req.Amount
-	if plan != nil {
-		orderAmount = plan.Price
-		limitAmount = plan.Price
-	} else if req.OrderType == payment.OrderTypeBalance {
-		orderAmount = calculateCreditedBalance(req.Amount, cfg.BalanceRechargeMultiplier)
-	}
 	feeRate := cfg.RechargeFeeRate
 	methodCurrency := payment.DefaultPaymentCurrency
 	if s.configService != nil {
@@ -74,6 +66,19 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 		if err != nil {
 			return nil, err
 		}
+	}
+	orderAmount := req.Amount
+	limitAmount := req.Amount
+	bonusAmount := 0.0
+	if plan != nil {
+		orderAmount = plan.Price
+		limitAmount = plan.Price
+	} else if req.OrderType == payment.OrderTypeBalance {
+		// 阈值按支付金额命中。赠金模式：到账 = 基数 + 赠送；折扣模式：到账 = 基数，实付基数按折扣减少。
+		quote := quoteRechargeBonus(cfg, req.Amount, methodCurrency)
+		limitAmount = quote.PayBase
+		bonusAmount = quote.Bonus
+		orderAmount = quote.Credited
 	}
 	payAmountStr, payAmount, err := calculateCreateOrderPayAmountForOrderType(limitAmount, feeRate, methodCurrency, req.OrderType, cfg.SubscriptionUSDToCNYRate)
 	if err != nil {
@@ -106,7 +111,7 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if oauthResp != nil {
 		return oauthResp, nil
 	}
-	order, err := s.createOrderInTx(ctx, req, user, plan, cfg, orderAmount, limitAmount, feeRate, payAmount, sel)
+	order, err := s.createOrderInTx(ctx, req, user, plan, cfg, orderAmount, limitAmount, feeRate, payAmount, bonusAmount, sel)
 	if err != nil {
 		return nil, err
 	}
@@ -122,8 +127,8 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 
 // checkRechargePromoExpired 是充值赠送活动到期的二次拦截。
 //
-// 设计目标：用户在充值页停留过久 → 点击"创建订单"那一刻活动 valid_until
-// 已过 / 被禁用 / 被删除时，服务端必须显式告诉用户"赠送已结束"，而不是
+// 设计目标：用户在充值页停留过久 → 点击"创建订单"那一刻优惠阶梯 valid_until
+// 已过 / 被清空时，服务端必须显式告诉用户"优惠已结束"，而不是
 // 让单子静默下出去 → 用户付完钱才发现没赠送。
 //
 // 仅在 balance 充值且前端明确告知"正在向用户展示一笔 > 0 的赠送预览"
@@ -134,8 +139,8 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 // 409 让前端弹"活动已结束，是否继续充值"的二次确认 modal。
 //
 // 用户在 modal 上点"继续充值"会带 PromoExpiredAcknowledged=true 重发，
-// 本闸门放行；fulfillment 阶段仍按服务器时间硬判窗，因此即便绕过本
-// 闸门，也不会误发赠送。
+// 本闸门放行；下单报价仍按服务器时间判窗，因此即便绕过本闸门，也不会误发优惠。
+// 赠金与折扣模式统一以报价的免费额度（Bonus）判断。
 //
 // 故意不做的事：
 //   - 不与 client_expected_bonus 做精确数值比对。活动仍在窗口、但 admin
@@ -159,16 +164,8 @@ func checkRechargePromoExpired(req CreateOrderRequest, cfg *PaymentConfig, now t
 	if req.PromoExpiredAcknowledged {
 		return nil
 	}
-	if cfg == nil {
-		// 防御性分支：cfg 缺失走不到 ResolveRechargeBonus（promo 必为 nil
-		// → 服务端无赠送），与 cfg 存在但 promo nil 同义，仍应拦截。
-		return infraerrors.Conflict(
-			"RECHARGE_PROMO_EXPIRED",
-			"recharge bonus campaign has ended; please confirm to continue without bonus",
-		)
-	}
-	_, serverBonus := ResolveRechargeBonus(req.Amount, cfg.BalanceRechargeMultiplier, cfg.RechargePromo, now)
-	if serverBonus <= 0 {
+	// cfg 缺失时 quoteRechargeBonusAt 按无优惠报价，与"活动已结束"同义，仍应拦截。
+	if quoteRechargeBonusAt(cfg, req.Amount, payment.DefaultPaymentCurrency, now).Bonus <= 0 {
 		return infraerrors.Conflict(
 			"RECHARGE_PROMO_EXPIRED",
 			"recharge bonus campaign has ended; please confirm to continue without bonus",
@@ -220,7 +217,7 @@ func (s *PaymentService) validateSubOrder(ctx context.Context, req CreateOrderRe
 	return plan, nil
 }
 
-func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderRequest, user *User, plan *dbent.SubscriptionPlan, cfg *PaymentConfig, orderAmount, limitAmount, feeRate, payAmount float64, sel *payment.InstanceSelection) (*dbent.PaymentOrder, error) {
+func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderRequest, user *User, plan *dbent.SubscriptionPlan, cfg *PaymentConfig, orderAmount, limitAmount, feeRate, payAmount, bonusAmount float64, sel *payment.InstanceSelection) (*dbent.PaymentOrder, error) {
 	tx, err := s.entClient.Tx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
@@ -256,6 +253,7 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 		SetAmount(orderAmount).
 		SetPayAmount(payAmount).
 		SetFeeRate(feeRate).
+		SetBonusAmount(bonusAmount).
 		SetRechargeCode("").
 		SetOutTradeNo(outTradeNo).
 		SetPaymentType(req.PaymentType).
@@ -551,6 +549,7 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 	s.writeAuditLog(ctx, order.ID, "ORDER_CREATED", fmt.Sprintf("user:%d", req.UserID), map[string]any{
 		"paymentAmount":  req.Amount,
 		"creditedAmount": order.Amount,
+		"bonusAmount":    order.BonusAmount,
 		"payAmount":      order.PayAmount,
 		"paymentType":    req.PaymentType,
 		"orderType":      req.OrderType,
@@ -815,6 +814,7 @@ func buildCreateOrderResponse(order *dbent.PaymentOrder, req CreateOrderRequest,
 		Amount:       order.Amount,
 		PayAmount:    payAmount,
 		FeeRate:      order.FeeRate,
+		BonusAmount:  order.BonusAmount,
 		Status:       OrderStatusPending,
 		ResultType:   resultType,
 		PaymentType:  req.PaymentType,

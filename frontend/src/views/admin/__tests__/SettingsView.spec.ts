@@ -428,8 +428,6 @@ const baseSettingsResponse = {
   company_upgrade_fee: 20,
   company_applications_enabled: false,
   company_iam_enabled: false,
-  company_public_ids_finalized: false,
-  company_billing_integration_enabled: false,
   company_documentation_url: "",
   passkey_enabled: true,
   passkey_configured: true,
@@ -556,6 +554,9 @@ const baseSettingsResponse = {
   payment_balance_recharge_multiplier: 1,
   payment_subscription_usd_to_cny_rate: 0,
   payment_recharge_fee_rate: 0,
+  payment_recharge_bonus_tiers: [],
+  payment_recharge_bonus_mode: "bonus",
+  payment_recharge_bonus_notice: "",
   payment_load_balance_strategy: "round-robin",
   payment_product_name_prefix: "",
   payment_product_name_suffix: "",
@@ -1409,8 +1410,6 @@ describe("admin SettingsView payment visible method controls", () => {
       ...baseSettingsResponse,
       company_applications_enabled: true,
       company_iam_enabled: true,
-      company_public_ids_finalized: true,
-      company_billing_integration_enabled: true,
       company_documentation_url: "https://docs.example.com/company",
       company_upgrade_fee: 35,
     });
@@ -1435,12 +1434,13 @@ describe("admin SettingsView payment visible method controls", () => {
       expect.objectContaining({
         company_applications_enabled: true,
         company_iam_enabled: true,
-        company_public_ids_finalized: true,
-        company_billing_integration_enabled: true,
         company_documentation_url: "https://docs.example.com/company",
         company_upgrade_fee: 35,
       }),
     );
+    const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("company_public_ids_finalized");
+    expect(payload).not.toHaveProperty("company_billing_integration_enabled");
   });
 
   it("shows valid passkey RP configuration and persists the sign-in toggle", async () => {
@@ -1690,6 +1690,138 @@ describe("admin SettingsView payment visible method controls", () => {
       expect.objectContaining({
         api_key_acl_trust_forwarded_ip: true,
         forwarded_client_ip_headers: ["Cf-Connecting-Ip", "X-Client-Ip"],
+      }),
+    );
+  });
+
+  it("loads, edits, and saves recharge bonus tiers and the notice", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_recharge_bonus_tiers: [
+        { min_amount: 500, bonus_percent: 30 },
+        { min_amount: 100, bonus_percent: 20 },
+      ],
+      payment_recharge_bonus_notice: "满 100 送 20%",
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    // 回填按阈值升序，并渲染区间预览（首段为「不赠送」）
+    let rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows).toHaveLength(2);
+    const minValue = (row: (typeof rows)[number]) =>
+      (row.get('[data-testid="recharge-bonus-tier-min-input"]').element as HTMLInputElement).value;
+    expect(minValue(rows[0]!)).toBe("100");
+    expect(minValue(rows[1]!)).toBe("500");
+    expect(wrapper.get('[data-testid="recharge-bonus-tier-preview"]').text()).toContain(
+      "admin.settings.payment.rechargeBonus.previewRangeNone",
+    );
+
+    await wrapper.get('[data-testid="recharge-bonus-tier-add"]').trigger("click");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows).toHaveLength(3);
+    expect(rows[2]!.find('[data-testid="recharge-bonus-tier-incomplete"]').exists()).toBe(true);
+
+    // 与已有档位重复的阈值行内报错，改成新阈值后消失
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-min-input"]').setValue("100");
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-percent-input"]').setValue("25");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.find('[data-testid="recharge-bonus-tier-error"]').exists()).toBe(true);
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-min-input"]').setValue("1000");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.find('[data-testid="recharge-bonus-tier-error"]').exists()).toBe(false);
+
+    // 切到折扣模式：百分比 ≥ 100 行内报错，改回 < 100 后消失
+    await wrapper.get('[data-testid="recharge-bonus-mode-discount"]').trigger("click");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-percent-input"]').setValue("100");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.get('[data-testid="recharge-bonus-tier-error"]').text()).toContain("invalidDiscountPercent");
+    await rows[2]!.get('[data-testid="recharge-bonus-tier-percent-input"]').setValue("25");
+    rows = wrapper.findAll('[data-testid="recharge-bonus-tier-row"]');
+    expect(rows[2]!.find('[data-testid="recharge-bonus-tier-error"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="recharge-bonus-tier-preview"]').text()).toContain(
+      "admin.settings.payment.rechargeBonus.previewRangeDiscount",
+    );
+
+    const notice = wrapper.get('[data-testid="recharge-bonus-notice-input"]');
+    expect((notice.element as HTMLTextAreaElement).value).toBe("满 100 送 20%");
+    await notice.setValue("**新活动**");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_recharge_bonus_tiers: [
+          { min_amount: 100, bonus_percent: 20 },
+          { min_amount: 500, bonus_percent: 30 },
+          { min_amount: 1000, bonus_percent: 25 },
+        ],
+        payment_recharge_bonus_mode: "discount",
+        payment_recharge_bonus_notice: "**新活动**",
+      }),
+    );
+  });
+
+  it("drops incomplete recharge bonus rows and submits an empty list when cleared", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_recharge_bonus_tiers: [{ min_amount: 100, bonus_percent: 20 }],
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    await wrapper.get('[data-testid="recharge-bonus-tier-remove"]').trigger("click");
+    await wrapper.get('[data-testid="recharge-bonus-tier-add"]').trigger("click");
+    expect(wrapper.findAll('[data-testid="recharge-bonus-tier-row"]')).toHaveLength(1);
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ payment_recharge_bonus_tiers: [] }),
+    );
+  });
+
+  it("loads, validates, and saves the recharge bonus validity window", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      payment_recharge_bonus_tiers: [{ min_amount: 100, bonus_percent: 20 }],
+      payment_recharge_bonus_valid_from: "2026-10-01T00:00:00Z",
+      payment_recharge_bonus_valid_until: "",
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+    await openPaymentTab(wrapper);
+
+    const fromInput = wrapper.get('[data-testid="recharge-bonus-valid-from-input"]');
+    const untilInput = wrapper.get('[data-testid="recharge-bonus-valid-until-input"]');
+    expect((fromInput.element as HTMLInputElement).value).not.toBe("");
+    expect((untilInput.element as HTMLInputElement).value).toBe("");
+
+    // 截止早于生效：行内报错
+    await untilInput.setValue("2026-09-01T00:00:00");
+    expect(wrapper.find('[data-testid="recharge-bonus-window-error"]').exists()).toBe(true);
+
+    const until = new Date("2026-11-01T00:00:00");
+    await untilInput.setValue("2026-11-01T00:00:00");
+    expect(wrapper.find('[data-testid="recharge-bonus-window-error"]').exists()).toBe(false);
+
+    await fromInput.setValue("");
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_recharge_bonus_valid_from: "",
+        payment_recharge_bonus_valid_until: until.toISOString().replace(/\.\d{3}Z$/, "Z"),
       }),
     );
   });
@@ -2709,6 +2841,7 @@ describe("admin SettingsView platform quota matrix", () => {
     expect(quotas["gemini"]).toEqual({ daily: null, weekly: null, monthly: null });
     expect(quotas["antigravity"]).toEqual({ daily: null, weekly: null, monthly: null });
     expect(quotas["kiro"]).toEqual({ daily: null, weekly: null, monthly: null });
+    expect(quotas["typesafe"]).toEqual({ daily: null, weekly: null, monthly: null });
   });
 
   it("空输入（v-model.number 产出 \"\"）在提交时清洗为 null 而非空字符串", async () => {

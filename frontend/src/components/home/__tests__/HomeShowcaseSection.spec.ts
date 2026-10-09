@@ -45,11 +45,11 @@ function makeRouter() {
 
 function makePromo(over: Partial<PublicRechargePromo> = {}): PublicRechargePromo {
   return {
-    name: '充值赠送活动',
+    mode: 'bonus',
     valid_from: '2026-01-01T00:00:00Z',
     valid_until: '2026-02-01T00:00:00Z',
-    tiers: [{ min_amount: 100, bonus_rate: 0.05 }],
-    version: '1:1700000000',
+    tiers: [{ min_amount: 100, bonus_percent: 5 }],
+    version: '0123456789abcdef',
     ...over,
   }
 }
@@ -119,7 +119,7 @@ async function mountSection(opts: {
         HomePromoBanner: {
           name: 'HomePromoBanner',
           props: ['promo'],
-          template: '<div data-test="stub-promo-banner">{{ promo.name }}</div>',
+          template: '<div data-test="stub-promo-banner">{{ promo.version }}</div>',
         },
         PlanPlazaCards: {
           name: 'PlanPlazaCards',
@@ -180,7 +180,7 @@ describe('HomeShowcaseSection', () => {
     })
     const banner = wrapper.find('[data-test="stub-promo-banner"]')
     expect(banner.exists()).toBe(true)
-    expect(banner.text()).toContain('充值赠送活动')
+    expect(banner.text()).toContain('0123456789abcdef')
     expect(wrapper.find('[data-test="stub-plan-cards"]').exists()).toBe(true)
   })
 

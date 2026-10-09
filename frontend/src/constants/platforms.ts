@@ -25,7 +25,8 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: "kiro", label: "Kiro" },
   { value: "higgsfield", label: "Higgsfield" },
   { value: 'bytedance', label: 'ByteDance' },
-  { value: 'opencode_go', label: 'OpenCode' }
+  { value: 'opencode_go', label: 'OpenCode' },
+  { value: 'typesafe', label: 'TypeSafe / Jev' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
 
 /** Platforms that can own a group. */

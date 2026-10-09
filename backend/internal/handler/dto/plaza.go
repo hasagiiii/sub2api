@@ -99,25 +99,17 @@ type PlazaPlansResponseDTO struct {
 	CurrencyMeta PlazaCurrencyMetaDTO `json:"currency_meta"`
 }
 
-// PublicRechargePromoTierDTO 是公开充值赠送活动 DTO 的单个赠送档位。
-type PublicRechargePromoTierDTO struct {
-	MinAmount float64 `json:"min_amount"`
-	BonusRate float64 `json:"bonus_rate"`
-}
-
-// PublicRechargePromoDTO 是 GET /api/v1/plaza/recharge-promo 的展示型 promo 体。
-//
-// 与 service.RechargePromo / checkout-info.recharge_promo 的差异（按 design D2）：
-//   - 不含 `enabled`：能出现在响应里就意味着已启用且时间窗内
-//   - 不含 `activity_id`：那是后端审计字段，对匿名前端无意义
-//   - 多一个 `name`：作为运营文案位（首页 banner 标题），同时也回填到
-//     checkout-info.recharge_promo.name 保持一致
+// PublicRechargePromoDTO 是 GET /api/v1/plaza/recharge-promo 的展示型 promo 体，
+// 数据来自充值优惠阶梯配置（RECHARGE_BONUS_*）。能出现在响应里就意味着阶梯非空且在有效期内。
+//   - Mode：bonus（赠金，BonusPercent 为赠送比例）/ discount（折扣，BonusPercent 为折扣比例）
+//   - Tiers.MinAmount：支付金额阈值（支付币种）
+//   - Version：配置指纹，前端用作红点 dismiss key
 type PublicRechargePromoDTO struct {
-	Name       string                       `json:"name"`
-	ValidFrom  *time.Time                   `json:"valid_from,omitempty"`
-	ValidUntil *time.Time                   `json:"valid_until,omitempty"`
-	Tiers      []PublicRechargePromoTierDTO `json:"tiers"`
-	Version    string                       `json:"version"`
+	Mode       string              `json:"mode"`
+	ValidFrom  *time.Time          `json:"valid_from,omitempty"`
+	ValidUntil *time.Time          `json:"valid_until,omitempty"`
+	Tiers      []RechargeBonusTier `json:"tiers"`
+	Version    string              `json:"version"`
 }
 
 // PublicRechargePromoResponseDTO 是 GET /api/v1/plaza/recharge-promo 的整体响应。

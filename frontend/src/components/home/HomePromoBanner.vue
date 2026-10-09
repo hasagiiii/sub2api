@@ -6,10 +6,13 @@
   `payment_enabled === true`. Mutating those guards lives in the parent;
   this component just paints the data.
 
-  SECURITY: `promo.name` is operator-authored and surfaced to anonymous
-  visitors. We render it via `{{ ... }}` (text interpolation) — never
-  `v-html` — so a malicious admin cannot inject `<script>` into the
-  homepage. Tests assert this invariant.
+  DATA: `promo` comes from the recharge bonus tiers configuration
+  (bonus / discount mode + validity window). The backend only returns it
+  while the tiers are non-empty and inside the validity window.
+
+  SECURITY: nothing operator-authored is rendered here (the Markdown notice
+  stays on the recharge page), so the anonymous homepage never renders
+  untrusted HTML.
 
   ANON-AWARE CTA: Anonymous visitors clicking "立即充值" are routed to
   `/login?redirect=/purchase` via `useAuthRedirect.gotoOrLogin('/purchase')`,
@@ -18,10 +21,10 @@
   VISUAL HIERARCHY (per "活动名和活动赠送的文案都要突出一点，但稍微小一点"):
     - Slanted "限时" corner ribbon top-right adds a "limited-time" graphic
       anchor without competing with the headline for typographic weight.
-    - Promo `name` is the headline at a moderately-sized scale (mobile
+    - Mode-based title is the headline at a moderately-sized scale (mobile
       first, scales up on md/lg). Heavy weight + soft text-shadow keeps
       it dominant without going giant-billboard.
-    - Bonus headline ("+X%"): pulled from the highest `bonus_rate`,
+    - Hero headline ("+X%" / "X% OFF"): pulled from the highest tier percent,
       rendered in amber. Sized one notch above the headline so the
       discount magnitude reads at a glance, but small enough that it
       sits in conversation with the name rather than overpowering it.
@@ -105,22 +108,16 @@
 
         <div class="min-w-0 flex-1">
           <!--
-            Operator-authored name. Use `{{ }}` text interpolation. NEVER v-html:
-            spec requires anonymous-visible text to be untrusted-safe.
-
             Visual: gradient text with a soft glow makes the headline pop
-            against the primary background. The inline "限时活动" eyebrow
-            that used to sit above this headline has been removed: the
-            slanted top-right corner ribbon already carries the
-            limited-time visual cue, and the outer section header
-            ("活动专区") provides the textual category — repeating
-            "限时活动" inline became redundant noise.
+            against the primary background. The slanted top-right corner
+            ribbon carries the limited-time cue and the outer section header
+            ("活动专区") provides the textual category.
           -->
           <h3
             class="promo-name text-xl font-extrabold leading-tight tracking-tight text-white md:text-2xl lg:text-3xl"
             data-test="home-promo-name"
           >
-            {{ promo.name }}
+            {{ isDiscount ? t('home.promo.title_discount') : t('home.promo.title_bonus') }}
           </h3>
 
           <!--
@@ -130,30 +127,31 @@
             banner, so we give it its own row at large weight.
           -->
           <div
-            v-if="topBonusRate !== null"
+            v-if="topPercent !== null"
             class="mt-2.5 flex flex-wrap items-baseline gap-x-2 gap-y-1"
+            data-test="home-promo-headline"
           >
             <span class="text-xs font-medium text-white/85 md:text-sm">
-              {{ t('home.promo.bonus_headline_prefix') }}
+              {{ isDiscount ? t('home.promo.discount_headline_prefix') : t('home.promo.bonus_headline_prefix') }}
             </span>
             <span
               class="bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-200 bg-clip-text text-2xl font-black leading-none tracking-tight text-transparent drop-shadow-[0_2px_6px_rgba(251,191,36,0.45)] md:text-3xl"
             >
-              +{{ topBonusRate }}%
+              {{ percentLabel(topPercent) }}
             </span>
             <span class="text-xs font-medium text-white/85 md:text-sm">
-              {{ t('home.promo.bonus_headline_suffix') }}
+              {{ isDiscount ? t('home.promo.discount_headline_suffix') : t('home.promo.bonus_headline_suffix') }}
             </span>
           </div>
 
           <!-- Tier list as horizontal pills (per-amount detail) -->
           <ul
-            v-if="promo.tiers.length > 0"
+            v-if="visibleTiers.length > 0"
             class="mt-4 flex flex-wrap gap-2"
             data-test="home-promo-tiers"
           >
             <li
-              v-for="tier in promo.tiers"
+              v-for="tier in visibleTiers"
               :key="tier.min_amount"
               class="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/25 backdrop-blur-sm md:text-sm"
             >
@@ -166,7 +164,7 @@
                 }}
               </span>
               <span class="font-bold text-amber-200">
-                +{{ formatBonusRate(tier.bonus_rate) }}%
+                {{ percentLabel(tier.bonus_percent) }}
               </span>
             </li>
           </ul>
@@ -208,6 +206,7 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import { useAuthRedirect } from '@/composables/useAuthRedirect'
 import { formatDateTime } from '@/utils/format'
+import { formatRechargeBonusNumber } from '@/utils/rechargeBonus'
 import type { PublicRechargePromo } from '@/api/plaza'
 
 const props = defineProps<{
@@ -231,31 +230,29 @@ function formatTierAmount(amount: number): string {
   })
 }
 
-/**
- * Convert a `bonus_rate` (0..1, e.g. 0.05 → "5") to a percentage string.
- * Use `Math.round(* 1000) / 10` to keep one fractional digit when needed
- * (0.085 → "8.5") without leaking float drift (`0.1+0.2`-style noise).
- */
-function formatBonusRate(rate: number): string {
-  if (!Number.isFinite(rate)) return '0'
-  const pct = Math.round(rate * 1000) / 10
-  // Keep integer percentages clean (5 vs 5.0)
-  return Number.isInteger(pct) ? String(pct) : pct.toFixed(1)
+const isDiscount = computed(() => props.promo.mode === 'discount')
+
+/** Tiers that actually grant something; zero-percent tiers are noise on a banner. */
+const visibleTiers = computed(() =>
+  (props.promo.tiers ?? []).filter((tier) => Number.isFinite(tier.bonus_percent) && tier.bonus_percent > 0),
+)
+
+/** Bonus mode reads "+20%", discount mode reads "20% OFF". */
+function percentLabel(percent: number): string {
+  const text = formatRechargeBonusNumber(percent)
+  return isDiscount.value ? `${text}% OFF` : `+${text}%`
 }
 
 /**
- * Highest bonus rate among all tiers, formatted as a percentage string.
- * Drives the hero "+X%" callout. Returns null when no tiers exist so the
- * row collapses cleanly (rather than rendering "+0%").
+ * Highest percent among all tiers. Drives the hero callout. Returns null when
+ * no tier grants anything so the row collapses cleanly (rather than "+0%").
  */
-const topBonusRate = computed<string | null>(() => {
-  if (!props.promo.tiers || props.promo.tiers.length === 0) return null
-  let max = -Infinity
-  for (const t of props.promo.tiers) {
-    if (Number.isFinite(t.bonus_rate) && t.bonus_rate > max) max = t.bonus_rate
+const topPercent = computed<number | null>(() => {
+  let max = 0
+  for (const tier of visibleTiers.value) {
+    if (tier.bonus_percent > max) max = tier.bonus_percent
   }
-  if (!Number.isFinite(max) || max <= 0) return null
-  return formatBonusRate(max)
+  return max > 0 ? max : null
 })
 
 /**
@@ -266,8 +263,8 @@ const topBonusRate = computed<string | null>(() => {
  * was misleading visitors who would see "Active until Feb 1" and assume
  * the bonus was still claimable any time on Feb 1, when it actually
  * expired at the exact second the operator set. Surfacing H/M/S removes
- * that ambiguity and matches the precision already shown in the admin
- * RechargePromos table and the PaymentView promo banner.
+ * that ambiguity and matches the precision already shown in the
+ * PaymentView promo banner.
  *
  * Implementation: defer to the shared `formatDateTime` util (which uses
  * `Intl.DateTimeFormat` with the active i18n locale and a 24-hour

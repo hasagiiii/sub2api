@@ -1132,7 +1132,6 @@ var ProviderSet = wire.NewSet(
 	NewModelPlazaService,
 	NewContentModerationService,
 	ProvideAffiliateService,
-	NewRechargePromoActivityService,
 	NewModelIntroService,
 	ProvidePaymentConfigService,
 	ProvidePaymentService,
@@ -1197,15 +1196,13 @@ func ProvideUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
 // payment.EncryptionKey type instead of raw []byte, avoiding Wire ambiguity.
-// 同时注入 RechargePromoActivityService —— 充值赠送配置已迁移到独立活动表。
 func ProvidePaymentConfigService(
 	entClient *dbent.Client,
 	sqlDB *sql.DB,
 	settingRepo SettingRepository,
 	key payment.EncryptionKey,
-	activitySvc *RechargePromoActivityService,
 ) *PaymentConfigService {
-	svc := NewPaymentConfigService(entClient, settingRepo, []byte(key), activitySvc)
+	svc := NewPaymentConfigService(entClient, settingRepo, []byte(key))
 	svc.SetSQLDB(sqlDB)
 	return svc
 }
