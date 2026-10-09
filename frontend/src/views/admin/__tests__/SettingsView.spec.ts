@@ -7,7 +7,7 @@ import enCommon from "@/i18n/locales/en/common";
 import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
-import { PLATFORM_QUOTA_PLATFORMS } from "@/api/admin/settings";
+import { listPlatformIds } from "@/constants/platformCatalog";
 import SettingsView from "../SettingsView.vue";
 import { apiClient } from "@/api/client";
 
@@ -2781,7 +2781,7 @@ describe("admin SettingsView platform quota matrix", () => {
 
     const html = wrapper.html();
     // 表格行的平台字段：font-mono 渲染纯英文 platform key
-    for (const platform of PLATFORM_QUOTA_PLATFORMS) {
+    for (const platform of listPlatformIds()) {
       expect(html).toContain(platform);
     }
   });
@@ -2802,7 +2802,7 @@ describe("admin SettingsView platform quota matrix", () => {
     // 应携带嵌套对象，而非扁平字段
     expect(payload).toHaveProperty("default_platform_quotas");
     const quotas = payload["default_platform_quotas"] as Record<string, unknown>;
-    for (const p of PLATFORM_QUOTA_PLATFORMS) {
+    for (const p of listPlatformIds()) {
       expect(quotas).toHaveProperty(p);
       const pq = quotas[p] as Record<string, unknown>;
       expect(pq).toHaveProperty("daily");

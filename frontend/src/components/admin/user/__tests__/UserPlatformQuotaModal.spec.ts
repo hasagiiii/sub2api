@@ -50,8 +50,10 @@ vi.mock('@/components/common/BaseDialog.vue', () => ({
 }))
 
 import UserPlatformQuotaModal from '../UserPlatformQuotaModal.vue'
-import { PLATFORM_QUOTA_PLATFORMS } from '@/api/admin/users'
+import { platformQuotaPlatforms } from '@/api/admin/users'
 import type { PlatformQuotaUpdateItem, UserSubscription } from '@/types'
+
+const PLATFORM_QUOTA_PLATFORMS = platformQuotaPlatforms()
 
 function makeUser(overrides: { subscriptions?: UserSubscription[] } = {}) {
   return { id: 99, email: 'u@example.com', ...overrides } as any
@@ -114,11 +116,11 @@ describe('UserPlatformQuotaModal', () => {
     w.unmount()
   })
 
-  it.each(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe'] as const)(
+  it.each(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe', 'command_code', 'cline'] as const)(
     'saves edits to %s without erasing existing platform limits', async (platform) => {
       const existing: PlatformQuotaUpdateItem[] = [
         { platform: 'openai', daily_limit_usd: 10, weekly_limit_usd: 20, monthly_limit_usd: 100 },
-        ...(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe'] as const).map(p => ({
+        ...(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'typesafe', 'command_code', 'cline'] as const).map(p => ({
           platform: p, daily_limit_usd: 0, weekly_limit_usd: null, monthly_limit_usd: 50,
         })),
       ]

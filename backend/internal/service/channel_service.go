@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -381,7 +382,14 @@ func isPlatformPricingMatch(groupPlatform, pricingPlatform string) bool {
 // 缓存 key 里带 platform，这里放宽白名单不会跨平台误命中。
 func matchingPlatforms(groupPlatform string) []string {
 	if groupPlatform == PlatformComposite {
-		return []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe, PlatformFal, PlatformLeonardo, PlatformAtlasCloud, PlatformApiz, PlatformHiggsfield, PlatformBytedance}
+		platforms := domain.CompositePrecedencePlatformIDs()
+		out := make([]string, 0, len(platforms))
+		for _, platform := range platforms {
+			if canBeCompositeMemberPlatform(platform) {
+				out = append(out, platform)
+			}
+		}
+		return out
 	}
 	return []string{groupPlatform}
 }

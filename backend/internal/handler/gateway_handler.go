@@ -1451,24 +1451,16 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 // 的平台（fal / leonardo / bytedance 等）。这些账号由 SelectAsyncImageAccountInGroup
 // 按 group_id 选取，与分组自身的 platform 无关，因此它们实际能服务的模型也必须
 // 出现在 /v1/models 里，否则客户端看不到自己本可调用的模型。
-var compositeListingPlatforms = []string{
-	service.PlatformAnthropic,
-	service.PlatformGemini,
-	service.PlatformOpenAI,
-	service.PlatformAntigravity,
-	service.PlatformGrok,
-	service.PlatformKimi,
-	service.PlatformZhipu,
-	service.PlatformDeepseek,
-	service.PlatformMiniMax,
-	service.PlatformOpenCodeGo,
-	service.PlatformTypeSafe,
-	service.PlatformFal,
-	service.PlatformLeonardo,
-	service.PlatformBytedance,
-	service.PlatformAtlasCloud,
-	service.PlatformApiz,
-	service.PlatformHiggsfield,
+// 平台按组合分组的回退顺序取自平台清单；Kiro 不能挂入 composite 分组，排除在外。
+func compositeListingPlatforms() []string {
+	platforms := domain.CompositePrecedencePlatformIDs()
+	out := make([]string, 0, len(platforms))
+	for _, platform := range platforms {
+		if platform != service.PlatformKiro {
+			out = append(out, platform)
+		}
+	}
+	return out
 }
 
 // hasStaticDefaultModelList 报告 defaultModelIDsForPlatform 是否为 platform 提供了
@@ -1516,9 +1508,9 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 	}
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
-	contributions := make([]compositeModelContribution, 0, len(compositeListingPlatforms))
+	contributions := make([]compositeModelContribution, 0)
 	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
-	for _, platform := range compositeListingPlatforms {
+	for _, platform := range compositeListingPlatforms() {
 		if platform == service.PlatformTypeSafe && !includeSystemOne {
 			continue
 		}
@@ -1744,10 +1736,13 @@ func defaultModelIDsForPlatform(platform string) []string {
 	case service.PlatformComposite:
 		ids := make([]string, 0)
 		seen := make(map[string]struct{})
-		// TypeSafe is deliberately absent: jev-latest only works through
-		// /v1/systemone, so the static fallback never advertises it to LLM
-		// clients. compositeAvailableModels lists it when the group can serve it.
-		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformFal, service.PlatformLeonardo, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo} {
+		for _, concretePlatform := range domain.CompositePrecedencePlatformIDs() {
+			// TypeSafe is deliberately skipped: jev-latest only works through
+			// /v1/systemone, so the static fallback never advertises it to LLM
+			// clients. compositeAvailableModels lists it when the group can serve it.
+			if concretePlatform == service.PlatformTypeSafe {
+				continue
+			}
 			for _, id := range defaultModelIDsForPlatform(concretePlatform) {
 				if _, ok := seen[id]; ok {
 					continue
