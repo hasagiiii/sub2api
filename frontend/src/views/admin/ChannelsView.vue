@@ -324,8 +324,8 @@
               </div>
             </div>
 
-            <!-- Web Search Emulation (Anthropic only, hidden when global disabled) -->
-            <div v-if="section.platform === 'anthropic' && webSearchGlobalEnabled" class="border-t border-gray-200 pt-3 dark:border-dark-600">
+            <!-- Web Search Emulation (supported platforms only, hidden when global disabled) -->
+            <div v-if="supportsWebSearchEmulation(section.platform) && webSearchGlobalEnabled" class="border-t border-gray-200 pt-3 dark:border-dark-600">
               <div class="flex items-center justify-between">
                 <div>
                   <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -351,6 +351,24 @@
                   </p>
                 </div>
                 <Toggle v-model="section.codex_image_generation_bridge" />
+              </div>
+            </div>
+
+            <div v-if="section.platform === 'openai'" class="border-t border-gray-200 pt-3 dark:border-dark-600">
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <label class="text-xs font-medium text-gray-700 dark:text-gray-300">
+                    {{ t('admin.channels.form.responsesDefaultImageQuality') }}
+                  </label>
+                  <p class="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                    {{ t('admin.channels.form.responsesDefaultImageQualityHint') }}
+                  </p>
+                </div>
+                <Select
+                  v-model="section.responses_default_image_quality"
+                  :options="imageQualityOptions"
+                  class="w-32"
+                />
               </div>
             </div>
 
@@ -422,6 +440,7 @@
               <div class="mb-1 flex items-center justify-between">
                 <label class="input-label text-xs mb-0">{{ t('admin.channels.form.modelPricing', 'Model Pricing') }}</label>
                 <div class="flex items-center gap-2">
+                  <PricingClipboardControls v-model="section.model_pricing" />
                   <button
                     v-if="supportsPricingModelSync(section.platform)"
                     type="button"
@@ -448,6 +467,7 @@
                   :key="idx"
                   :entry="entry"
                   :platform="section.platform"
+                  :model-candidates="getPricingCandidates(section.platform)"
                   enable-time-pricing
                   enable-tier-multipliers
                   @update="updatePricingEntry(sIdx, idx, $event)"
@@ -580,6 +600,7 @@
                       :key="pIdx"
                       :entry="entry"
                       :platform="section.platform"
+                      :model-candidates="getPricingCandidates(section.platform)"
                       @update="rule.pricing.splice(pIdx, 1, $event)"
                       @remove="removeRulePricingEntry(sIdx, ruleIndex, pIdx)"
                     />
@@ -628,14 +649,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
-import { apiIntervalsToForm, apiTimePricingToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, formReasoningEffortMultipliersToAPI, formTimePricingToAPI, isValidPositiveMultiplier, mTokToPerToken, perTokenToMTok, validateIntervals, validateReasoningEffortMultipliers, validateTimePricing } from '@/components/admin/channel/types'
+import { apiIntervalsToForm, apiTimePricingToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, formReasoningEffortMultipliersToAPI, formTimePricingToAPI, isValidPositiveMultiplier, mTokToPerToken, perTokenToMTok, validateIntervals, validateReasoningEffortMultipliers, validateTimePricing, intervalHasPrice, toNullableNumber } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass, platformLabel as catalogPlatformLabel } from '@/utils/platformColors'
@@ -652,6 +673,7 @@ import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
+import PricingClipboardControls from '@/components/admin/channel/PricingClipboardControls.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useKeyedDebouncedSearch } from '@/composables/useKeyedDebouncedSearch'
 
@@ -688,6 +710,7 @@ interface PlatformSection {
   model_pricing: PricingFormEntry[]
   web_search_emulation: boolean
   codex_image_generation_bridge: boolean
+  responses_default_image_quality: 'low' | 'medium' | 'high'
   bedrock_cc_compat: boolean
   account_stats_pricing_rules: FormPricingRule[]
 }
@@ -712,6 +735,12 @@ const statusFilterOptions = computed(() => [
 const statusEditOptions = computed(() => [
   { value: 'active', label: t('admin.channels.statusActive', 'Active') },
   { value: 'disabled', label: t('admin.channels.statusDisabled', 'Disabled') }
+])
+
+const imageQualityOptions = computed(() => [
+  { value: 'low', label: t('admin.groups.imagePricing.quality.low', 'Low') },
+  { value: 'medium', label: t('admin.groups.imagePricing.quality.medium', 'Medium') },
+  { value: 'high', label: t('admin.groups.imagePricing.quality.high', 'High') }
 ])
 
 const billingModelSourceOptions = computed(() => [
@@ -743,6 +772,15 @@ const submitting = ref(false)
 const showDeleteDialog = ref(false)
 const deletingChannel = ref<Channel | null>(null)
 const activeTab = ref<string>('basic')
+
+// ── 定价模型候选清单 ──
+// 每个 platform 下所有已选分组内所有账号 model_mapping key 的并集。
+// 用于 PricingEntryCard → ModelTagInput 的下拉建议，允许管理员从当前渠道
+// 实际能覆盖到的模型中选，而不是靠记忆手写。
+// key: GroupPlatform; value: 已去重排序的模型名数组。
+const pricingModelCandidates = ref<Record<string, string[]>>({})
+// 每个 platform 是否正在加载（避免重复触发）。
+const pricingCandidatesLoading = ref<Record<string, boolean>>({})
 
 // Groups
 const allGroups = ref<AdminGroup[]>([])
@@ -789,6 +827,7 @@ function addPlatformSection(platform: GroupPlatform) {
     model_pricing: [],
     web_search_emulation: false,
     codex_image_generation_bridge: false,
+    responses_default_image_quality: 'medium',
     bedrock_cc_compat: false,
     account_stats_pricing_rules: [],
   })
@@ -810,6 +849,10 @@ function getGroupsForPlatform(platform: GroupPlatform): AdminGroup[] {
   return allGroups.value.filter(
     g => g.platform === platform || (g.platform === 'composite' && compositePlatforms.value.includes(platform))
   )
+}
+
+function supportsWebSearchEmulation(platform: GroupPlatform): boolean {
+  return platform === 'anthropic' || platform === 'kiro'
 }
 
 // ── Group helpers ──
@@ -854,7 +897,93 @@ function toggleGroupInSection(sectionIdx: number, groupId: number) {
   } else {
     section.group_ids.push(groupId)
   }
+  // 分组变化会导致候选模型集变化：失效缓存并重新加载。
+  invalidatePricingCandidates(section.platform)
+  void loadPricingCandidatesForPlatform(section.platform)
 }
+
+// ── 定价模型候选加载 ──
+// 数据源：admin GET /accounts?platform=xxx&group=gid + GET /accounts/{id}/models。
+// 聚合每个已选分组下的所有账号的可用模型列表，返回并集。
+// 空 groupIds 或无账号时结果为空数组（下拉不展示）。
+async function loadPricingCandidatesForPlatform(platform: string): Promise<void> {
+  if (pricingCandidatesLoading.value[platform]) return
+  const section = form.platforms.find(s => s.platform === platform)
+  if (!section) return
+  const groupIds = section.group_ids
+  if (!groupIds || groupIds.length === 0) {
+    pricingModelCandidates.value[platform] = []
+    return
+  }
+  pricingCandidatesLoading.value[platform] = true
+  try {
+    // 1) 按 group 拉账号列表（每个 group 单独一次调用，因为 List 接口只支持单值 group）。
+    const accountLists = await Promise.allSettled(
+      groupIds.map(gid =>
+        adminAPI.accounts.list(1, 200, {
+          platform,
+          group: String(gid),
+          status: 'active',
+          lite: 'true'
+        })
+      )
+    )
+    const accountIdSet = new Set<number>()
+    for (const r of accountLists) {
+      if (r.status !== 'fulfilled') continue
+      for (const acc of r.value?.items || []) {
+        if (typeof acc?.id === 'number') accountIdSet.add(acc.id)
+      }
+    }
+    if (accountIdSet.size === 0) {
+      pricingModelCandidates.value[platform] = []
+      return
+    }
+    // 2) 并发拉每个账号的 available models（getAvailableModels 返回各平台 model 数组，
+    //    都包含 id 字段），去重合并。
+    const modelResults = await Promise.allSettled(
+      [...accountIdSet].map(id => adminAPI.accounts.getAvailableModels(id))
+    )
+    const merged = new Set<string>()
+    for (const r of modelResults) {
+      if (r.status !== 'fulfilled') continue
+      for (const m of r.value || []) {
+        // getAvailableModels 各平台返回结构不同（claude/openai/gemini/kiro/xai/antigravity），
+        // 但都定义了 id 字段，用可选链兜底。
+        const id = (m as { id?: string })?.id
+        if (id && typeof id === 'string') merged.add(id)
+      }
+    }
+    pricingModelCandidates.value[platform] = [...merged].sort()
+  } catch (err) {
+    // 加载失败静默降级：下拉不展示，用户仍可自由输入。
+    console.warn('[channels] failed to load pricing model candidates for', platform, err)
+    pricingModelCandidates.value[platform] = []
+  } finally {
+    pricingCandidatesLoading.value[platform] = false
+  }
+}
+
+function invalidatePricingCandidates(platform: string) {
+  delete pricingModelCandidates.value[platform]
+}
+
+function getPricingCandidates(platform: string): string[] {
+  return pricingModelCandidates.value[platform] || []
+}
+
+// activeTab 切换时按需触发候选加载：
+// - 目标 tab 非 basic 才有意义（basic 页不展示定价卡）。
+// - 缓存已有或正在加载中的 platform 跳过（避免抖动）。
+watch(activeTab, (tab) => {
+  if (!showDialog.value) return
+  if (!tab || tab === 'basic') return
+  if (pricingModelCandidates.value[tab] !== undefined) return
+  if (pricingCandidatesLoading.value[tab]) return
+  const section = form.platforms.find(s => s.platform === tab)
+  if (!section || section.group_ids.length === 0) return
+  void loadPricingCandidatesForPlatform(tab)
+})
 
 // ── Pricing helpers ──
 function addPricingEntry(sectionIdx: number) {
@@ -870,6 +999,7 @@ function addPricingEntry(sectionIdx: number) {
     flex_multiplier: null,
     reasoning_effort_multipliers: null,
     image_input_price: null,
+    image_input_price_per_image: null,
     image_output_price: null,
     per_request_price: null,
     intervals: [],
@@ -909,6 +1039,7 @@ async function syncLatestModels(sectionIdx: number) {
       flex_multiplier: null,
       reasoning_effort_multipliers: null,
       image_input_price: null,
+      image_input_price_per_image: null,
       image_output_price: null,
       per_request_price: null,
       intervals: [],
@@ -976,6 +1107,7 @@ function addRulePricingEntry(sectionIdx: number, ruleIndex: number) {
     cache_write_1h_price: null,
     cache_read_price: null,
     image_input_price: null,
+    image_input_price_per_image: null,
     image_output_price: null,
     per_request_price: null,
     intervals: [],
@@ -1095,6 +1227,7 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
             cache_read_price: mTokToPerToken(p.cache_read_price),
             reasoning_effort_multipliers: formReasoningEffortMultipliersToAPI(p.reasoning_effort_multipliers),
             image_input_price: mTokToPerToken(p.image_input_price),
+            image_input_price_per_image: toNullableNumber(p.image_input_price_per_image),
             image_output_price: mTokToPerToken(p.image_output_price),
             per_request_price: p.per_request_price != null && p.per_request_price !== '' ? Number(p.per_request_price) : null,
             intervals: formIntervalsToAPI(p.intervals || []),
@@ -1141,6 +1274,7 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
         flex_multiplier: entry.flex_multiplier != null && entry.flex_multiplier !== '' ? Number(entry.flex_multiplier) : null,
         reasoning_effort_multipliers: formReasoningEffortMultipliersToAPI(entry.reasoning_effort_multipliers),
         image_input_price: mTokToPerToken(entry.image_input_price),
+        image_input_price_per_image: toNullableNumber(entry.image_input_price_per_image),
         image_output_price: mTokToPerToken(entry.image_output_price),
         per_request_price: entry.per_request_price != null && entry.per_request_price !== '' ? Number(entry.per_request_price) : null,
         intervals: formIntervalsToAPI(entry.intervals || []),
@@ -1156,7 +1290,7 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
   const wsEmulation: Record<string, boolean> = {}
   for (const section of form.platforms) {
     if (!section.enabled) continue
-    if (section.platform === 'anthropic') {
+    if (supportsWebSearchEmulation(section.platform)) {
       wsEmulation[section.platform] = !!section.web_search_emulation
     }
   }
@@ -1179,6 +1313,18 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
     delete featuresConfig.codex_image_generation_bridge
   }
 
+  const responsesDefaultImageQuality: Record<string, string> = {}
+  for (const section of form.platforms) {
+    if (section.enabled && section.platform === 'openai') {
+      responsesDefaultImageQuality[section.platform] = section.responses_default_image_quality
+    }
+  }
+  if (Object.keys(responsesDefaultImageQuality).length > 0) {
+    featuresConfig.responses_default_image_quality = responsesDefaultImageQuality
+  } else {
+    delete featuresConfig.responses_default_image_quality
+  }
+
   const bedrockCCCompat: Record<string, boolean> = {}
   for (const section of form.platforms) {
     if (!section.enabled) continue
@@ -1190,6 +1336,20 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
     featuresConfig.bedrock_cc_compat = bedrockCCCompat
   } else {
     delete featuresConfig.bedrock_cc_compat
+  }
+
+  // 持久化"用户显式反选"的 concrete 平台清单。
+  // 场景：当渠道绑定了 composite（混合）分组时，apiToForm 会把 platformOrder 里所有
+  // concrete 平台的 section 都拉起来；如果不记录反选，则下一次打开时被反选掉的平台
+  // 会被 composite 分支重新点亮。这里把 form.platforms 中 enabled=false 的项显式写入
+  // features_config.disabled_platforms，apiToForm 回填时会据此剔除。
+  const disabledPlatforms = form.platforms
+    .filter(s => !s.enabled)
+    .map(s => s.platform)
+  if (disabledPlatforms.length > 0) {
+    featuresConfig.disabled_platforms = disabledPlatforms
+  } else {
+    delete featuresConfig.disabled_platforms
   }
 
   return { group_ids: uniqueGroupIds, model_pricing, model_mapping, features_config: featuresConfig }
@@ -1218,6 +1378,17 @@ function apiToForm(channel: Channel): PlatformSection[] {
   for (const p of Object.keys(channel.model_mapping || {})) {
     if (platformOrder.value.includes(p as GroupPlatform)) activePlatforms.add(p as GroupPlatform)
   }
+  // 剔除用户此前显式反选的平台（formToAPI 写入 features_config.disabled_platforms）。
+  // 没有这一步，绑定了 composite 分组的渠道每次刷新都会把所有平台重新拉起，
+  // 导致"反选保存无效"。
+  const disabledPlatformsRaw = channel.features_config?.disabled_platforms
+  if (Array.isArray(disabledPlatformsRaw)) {
+    for (const p of disabledPlatformsRaw) {
+      if (typeof p === 'string' && platformOrder.value.includes(p as GroupPlatform)) {
+        activePlatforms.delete(p as GroupPlatform)
+      }
+    }
+  }
 
   // Build sections in platform order
   const sections: PlatformSection[] = []
@@ -1244,6 +1415,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
         flex_multiplier: p.flex_multiplier,
         reasoning_effort_multipliers: p.reasoning_effort_multipliers ? { ...p.reasoning_effort_multipliers } : null,
         image_input_price: perTokenToMTok(p.image_input_price),
+            image_input_price_per_image: toNullableNumber(p.image_input_price_per_image),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
         intervals: apiIntervalsToForm(p.intervals || []),
@@ -1256,6 +1428,11 @@ function apiToForm(channel: Channel): PlatformSection[] {
     const webSearchEnabled = wsEmulation?.[platform] === true
     const codexImageGenerationBridge = fc?.codex_image_generation_bridge as Record<string, boolean> | undefined
     const codexImageGenerationBridgeEnabled = codexImageGenerationBridge?.[platform] === true
+    const responsesDefaultImageQuality = fc?.responses_default_image_quality as Record<string, unknown> | undefined
+    const configuredImageQuality = responsesDefaultImageQuality?.[platform]
+    const defaultImageQuality = configuredImageQuality === 'low' || configuredImageQuality === 'high'
+      ? configuredImageQuality
+      : 'medium'
     const bedrockCCCompatEnabled = fc?.bedrock_cc_compat === true
 
     sections.push({
@@ -1267,6 +1444,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
       model_pricing: pricing,
       web_search_emulation: webSearchEnabled,
       codex_image_generation_bridge: codexImageGenerationBridgeEnabled,
+      responses_default_image_quality: defaultImageQuality,
       bedrock_cc_compat: bedrockCCCompatEnabled,
       account_stats_pricing_rules: [],
     })
@@ -1372,6 +1550,9 @@ async function openCreateDialog() {
   editingChannel.value = null
   resetForm()
   await Promise.all([loadGroups(), loadAllChannelsForConflict()])
+  // 新建时候选缓存清空，等用户选分组后按需加载。
+  pricingModelCandidates.value = {}
+  pricingCandidatesLoading.value = {}
   showDialog.value = true
 }
 
@@ -1392,6 +1573,15 @@ async function openEditDialog(channel: Channel) {
 
   // Populate ruleAccountNameCache for existing rule accounts
   await populateRuleAccountNameCache()
+
+  // 编辑打开时清空缓存并对所有 enabled section 后台预加载候选模型清单。
+  pricingModelCandidates.value = {}
+  pricingCandidatesLoading.value = {}
+  for (const section of form.platforms) {
+    if (section.enabled && section.group_ids.length > 0) {
+      void loadPricingCandidatesForPlatform(section.platform)
+    }
+  }
 
   showDialog.value = true
 }
@@ -1436,6 +1626,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
         cache_read_price: perTokenToMTok(p.cache_read_price),
         reasoning_effort_multipliers: p.reasoning_effort_multipliers ? { ...p.reasoning_effort_multipliers } : null,
         image_input_price: perTokenToMTok(p.image_input_price),
+        image_input_price_per_image: p.image_input_price_per_image,
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
         intervals: apiIntervalsToForm(p.intervals || []),
@@ -1534,13 +1725,13 @@ async function handleSubmit() {
     }
   }
 
-  // 校验 per_request/image 模式必须有价格 (只校验启用的平台)
+  // 校验 per_request/image/video 模式必须有价格 (只校验启用的平台)
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const entry of section.model_pricing) {
       if (entry.models.length === 0) continue
-      if ((entry.billing_mode === 'per_request' || entry.billing_mode === 'image') &&
+      if ((entry.billing_mode === 'per_request' || entry.billing_mode === 'image' || entry.billing_mode === 'video') &&
           (entry.per_request_price == null || entry.per_request_price === '') &&
-          (!entry.intervals || entry.intervals.length === 0)) {
+          (!entry.intervals || !entry.intervals.some(intervalHasPrice))) {
         appStore.showError(t('admin.channels.form.perRequestPriceRequired'))
         return
       }
