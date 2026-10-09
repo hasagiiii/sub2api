@@ -33,6 +33,29 @@
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
+        <!-- 异步视频平台专属：支持视频模型 开关 -->
+        <div
+          v-if="isVideoAccountPlatform(account.platform)"
+          class="rounded-lg border border-pink-200 bg-pink-50 p-4 dark:border-pink-900/40 dark:bg-pink-900/10"
+        >
+          <label class="flex cursor-pointer items-start gap-3">
+            <input
+              v-model="videoModelsEnabled"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500"
+              data-testid="video-models-enabled"
+            />
+            <span class="flex-1">
+              <span class="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                {{ t('admin.accounts.video.modelsEnabled') }}
+              </span>
+              <span class="mt-1 block text-xs text-gray-600 dark:text-gray-400">
+                {{ t('admin.accounts.video.modelsEnabledHint') }}
+              </span>
+            </span>
+          </label>
+        </div>
+
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -892,6 +915,20 @@
             </div>
           </div>
         </template>
+      </div>
+
+      <div v-if="isKiroAccount && !isKiroRelay" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <label class="input-label">{{ t('admin.accounts.kiroCreditUnitPriceUsd') }}</label>
+        <input
+          v-model.number="kiroCreditUnitPriceUsd"
+          type="number"
+          min="0"
+          step="0.001"
+          class="input"
+          placeholder="0"
+          data-testid="kiro-credit-unit-price-usd"
+        />
+        <p class="input-hint">{{ t('admin.accounts.kiroCreditUnitPriceUsdHint') }}</p>
       </div>
 
       <!-- Upstream fields (only for upstream type) -->
@@ -2202,7 +2239,7 @@
       </div>
 
       <div
-        v-if="account?.type === 'apikey'"
+        v-if="supportsUpstreamBillingProbe(account?.platform, account?.type)"
         class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div>
@@ -3391,6 +3428,8 @@ import {
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
+import { isKiroRelayAccount } from '@/utils/kiroAccount'
+import { supportsUpstreamBillingProbe } from '@/utils/upstreamBillingProbe'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
 import { DEFAULT_EXCEL_BPS_MODELS, VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
@@ -3578,6 +3617,10 @@ const baseUrlHint = computed(() => {
 
 const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
 const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
+// Kiro 积分单价适用于所有 Kiro 直连账号(OAuth 与 API Key 都直连 AWS、消费积分)。
+const isKiroAccount = computed(() => props.account?.platform === 'kiro')
+// Kiro 外部中转账号(apikey + 已配 base_url)是外接渠道,与 Kiro 积分无关。
+const isKiroRelay = computed(() => isKiroRelayAccount(props.account))
 
 // Model mapping type
 interface ModelMapping {
@@ -3596,6 +3639,7 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const kiroCreditUnitPriceUsd = ref(0)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
@@ -3888,6 +3932,12 @@ const readUpstreamRequestIdHeader = (extra: unknown): string => {
   return typeof value === 'string' ? value : ''
 }
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
+const isVideoAccountPlatform = (platform?: string): boolean =>
+  platform === 'fal' || platform === 'atlascloud' || platform === 'apiz' || platform === 'higgsfield'
+// 异步视频平台账号专属："支持视频模型" 开关。勾选后，账号 model_mapping 中的视频模型
+// 会被 /user/video-models 聚合并对当前用户暴露。缺省 false，与 backend
+// domain.VideoModelsEnabledExtraKey 常量对齐。
+const videoModelsEnabled = ref(false)
 const antigravityProjectId = ref('')
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
@@ -4463,6 +4513,17 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	const extra = newAccount.extra as Record<string, unknown> | undefined
 	mixedScheduling.value = extra?.mixed_scheduling === true
 	allowOverages.value = extra?.allow_overages === true
+	// 回填视频平台的“支持视频模型”开关；兼容旧版 fal_ 前缀键。
+	videoModelsEnabled.value =
+		isVideoAccountPlatform(newAccount.platform) &&
+		(extra?.video_models_enabled === true ||
+			(extra?.video_models_enabled === undefined && extra?.fal_video_models_enabled === true))
+	const kiroCreditUnitPrice = extra?.kiro_credit_unit_price_usd
+	kiroCreditUnitPriceUsd.value = typeof kiroCreditUnitPrice === 'number'
+		? kiroCreditUnitPrice
+		: typeof kiroCreditUnitPrice === 'string'
+			? Number(kiroCreditUnitPrice) || 0
+			: 0
 	upstreamRequestIdHeader.value = readUpstreamRequestIdHeader(extra)
 	openAIImagesUrlToB64JsonEnabled.value = extra?.images_url_to_b64_json === true
 	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
@@ -5547,7 +5608,10 @@ const handleSubmit = async () => {
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
     // 整体覆盖：只带仍勾选的分组，没有列出的分组由后端恢复为不限制
     updatePayload.group_allowed_models = buildGroupAllowedModelsPayload(form.group_ids, groupAllowedModels.value)
-    if (props.account.type === 'apikey') {
+    // 仅文本平台 apikey 账号可开启上游倍率探测；媒体平台（fal / atlascloud / apiz /
+    // higgsfield / ByteDance 等）不实现 /v1/sub2api/billing，不提交该字段，
+    // 否则后端会以 UPSTREAM_BILLING_PROBE_ACCOUNT_INVALID 拒绝整个更新。
+    if (supportsUpstreamBillingProbe(props.account.platform, props.account.type)) {
       updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
       if (upstreamBillingRateSyncEnabled.value) {
@@ -5934,6 +5998,32 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.allow_overages
       }
+      updatePayload.extra = newExtra
+    }
+
+    // 仅 Kiro 直连账号持久化积分单价;外部中转账号是外接渠道,与 Kiro 积分无关。
+    if (props.account.platform === 'kiro' && !isKiroRelay.value) {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      const unitPrice = Number(kiroCreditUnitPriceUsd.value ?? 0)
+      newExtra.kiro_credit_unit_price_usd = Number.isFinite(unitPrice) ? unitPrice : 0
+      updatePayload.extra = newExtra
+    }
+
+    // 异步视频平台账号的“支持视频模型”开关，与 backend domain.VideoModelsEnabledExtraKey 对齐；
+    // 保存时迁移并清理旧键，避免残留 true 值影响 /user/video-models 聚合结果。
+    if (isVideoAccountPlatform(props.account.platform)) {
+      const currentExtra =
+        (updatePayload.extra as Record<string, unknown>) ||
+        ((props.account.extra as Record<string, unknown>) || {})
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (videoModelsEnabled.value) {
+        newExtra.video_models_enabled = true
+      } else {
+        delete newExtra.video_models_enabled
+      }
+      delete newExtra.fal_video_models_enabled
       updatePayload.extra = newExtra
     }
 
