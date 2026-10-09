@@ -27,48 +27,38 @@ func TestCheckRechargePromoExpired(t *testing.T) {
 	futureValidUntil := fixedNow.Add(24 * time.Hour)
 	pastValidFrom := fixedNow.Add(-24 * time.Hour)
 
-	// activeCfg 是"服务端此刻仍在窗口期、能正常发赠送"的标准配置：
-	// multiplier=1, 单档 100/5%。用例中需要"非到期/非禁用"的场景都
-	// 引用它。
+	// activeCfg 是"服务端此刻仍在有效期、能正常发赠送"的标准配置：
+	// multiplier=1, 单档 100/5%。用例中需要"非到期/非清空"的场景都引用它。
+	tiers := []RechargeBonusTier{{MinAmount: 100, BonusPercent: 5}}
 	activeCfg := &PaymentConfig{
 		BalanceRechargeMultiplier: 1,
-		RechargePromo: &RechargePromo{
-			Enabled:    true,
-			ValidFrom:  &pastValidFrom,
-			ValidUntil: &futureValidUntil,
-			Tiers: []RechargePromoTier{
-				{MinAmount: 100, BonusRate: 0.05},
-			},
-		},
+		RechargeBonusTiers:        tiers,
+		RechargeBonusValidFrom:    &pastValidFrom,
+		RechargeBonusValidUntil:   &futureValidUntil,
 	}
 
 	expiredCfg := &PaymentConfig{
 		BalanceRechargeMultiplier: 1,
-		RechargePromo: &RechargePromo{
-			Enabled:    true,
-			ValidFrom:  &pastValidFrom,
-			ValidUntil: &pastValidUntil, // 已经过期 1 小时
-			Tiers: []RechargePromoTier{
-				{MinAmount: 100, BonusRate: 0.05},
-			},
-		},
+		RechargeBonusTiers:        tiers,
+		RechargeBonusValidFrom:    &pastValidFrom,
+		RechargeBonusValidUntil:   &pastValidUntil, // 已经过期 1 小时
 	}
 
-	disabledCfg := &PaymentConfig{
+	notStartedCfg := &PaymentConfig{
 		BalanceRechargeMultiplier: 1,
-		RechargePromo: &RechargePromo{
-			Enabled:    false, // admin 中途禁用
-			ValidFrom:  &pastValidFrom,
-			ValidUntil: &futureValidUntil,
-			Tiers: []RechargePromoTier{
-				{MinAmount: 100, BonusRate: 0.05},
-			},
-		},
+		RechargeBonusTiers:        tiers,
+		RechargeBonusValidFrom:    &futureValidUntil, // 尚未开始
+	}
+
+	discountCfg := &PaymentConfig{
+		BalanceRechargeMultiplier: 1,
+		RechargeBonusTiers:        tiers,
+		RechargeBonusMode:         RechargeBonusModeDiscount,
+		RechargeBonusValidUntil:   &futureValidUntil,
 	}
 
 	noPromoCfg := &PaymentConfig{
-		BalanceRechargeMultiplier: 1,
-		RechargePromo:             nil, // admin 删除 / 从未启用
+		BalanceRechargeMultiplier: 1, // admin 清空阶梯 / 从未配置
 	}
 
 	tests := []struct {
@@ -117,16 +107,26 @@ func TestCheckRechargePromoExpired(t *testing.T) {
 			wantReason: "",
 		},
 		{
-			// admin 中途把活动 disable —— 用户视角与"valid_until 已过"
-			// 没区别：客户端仍展示赠送、服务端不再发。同样 409。
-			name: "disabled_promo_with_expectation_returns_409",
+			// valid_from 尚未到达：客户端（缓存或时钟偏差）展示了赠送、服务端不发 → 409。
+			name: "not_started_promo_with_expectation_returns_409",
 			req: CreateOrderRequest{
 				OrderType:           payment.OrderTypeBalance,
 				Amount:              200,
 				ClientExpectedBonus: 10,
 			},
-			cfg:        disabledCfg,
+			cfg:        notStartedCfg,
 			wantReason: "RECHARGE_PROMO_EXPIRED",
+		},
+		{
+			// 折扣模式仍在有效期内：报价的免费额度 > 0 → 放行。
+			name: "active_discount_with_expectation_passes",
+			req: CreateOrderRequest{
+				OrderType:           payment.OrderTypeBalance,
+				Amount:              200,
+				ClientExpectedBonus: 10,
+			},
+			cfg:        discountCfg,
+			wantReason: "",
 		},
 		{
 			// 兼容路径：直接 curl 打接口 / 老前端没传 expected_bonus
@@ -156,7 +156,7 @@ func TestCheckRechargePromoExpired(t *testing.T) {
 			wantReason: "",
 		},
 		{
-			// 活动从未开过 / 被删除（cfg.RechargePromo == nil）但 client
+			// 阶梯从未配置 / 被清空但 client
 			// 居然还发了 expected_bonus > 0 —— 状态自相矛盾，但语义上
 			// "客户端期待 vs 服务端 0"完全成立，仍应拦截让用户确认。
 			name: "no_active_promo_but_client_expects_returns_409",

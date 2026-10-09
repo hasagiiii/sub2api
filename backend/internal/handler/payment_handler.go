@@ -158,72 +158,47 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 		BalanceRechargeMultiplier:     cfg.BalanceRechargeMultiplier,
 		SubscriptionUSDToCNYRate:      cfg.SubscriptionUSDToCNYRate,
 		RechargeFeeRate:               cfg.RechargeFeeRate,
+		RechargeBonusTiers:            []service.RechargeBonusTier{},
+		RechargeBonusMode:             cfg.RechargeBonusMode,
+		RechargeBonusValidFrom:        cfg.RechargeBonusValidFrom,
+		RechargeBonusValidUntil:       cfg.RechargeBonusValidUntil,
 		HelpText:                      cfg.HelpText,
 		HelpImageURL:                  cfg.HelpImageURL,
 		StripePublishableKey:          cfg.StripePublishableKey,
 		AlipayForceQRCode:             cfg.AlipayForceQRCode,
 		AlipayMobilePrecreateDeepLink: alipayMobilePrecreateDeepLink,
 	}
-	// 仅在活动开启 + 当前时刻位于有效期内时把 RechargePromo 透出，否则保持 nil 以让前端
-	// 直接判断 `if (recharge_promo)` 而不必在每个调用点重复时间窗与 enabled 的判断。
-	if cfg.RechargePromo != nil && cfg.RechargePromo.IsActiveAt(time.Now()) {
-		resp.RechargePromo = checkoutPromoFromConfig(cfg.RechargePromo)
+	// 仅在有效期内下发阶梯与活动文案；期外下发空阶梯，前端无需重复判窗。
+	// 有效期本身始终下发，前端据此展示倒计时并在到期后自动隐藏。
+	if cfg.RechargeBonusActiveAt(time.Now()) {
+		resp.RechargeBonusTiers = cfg.RechargeBonusTiers
+		resp.RechargeBonusNotice = cfg.RechargeBonusNotice
+		resp.RechargeBonusVersion = cfg.RechargeBonusVersion()
 	}
 	response.Success(c, resp)
 }
 
 type checkoutInfoResponse struct {
-	Methods                       map[string]service.MethodLimits `json:"methods"`
-	GlobalMin                     float64                         `json:"global_min"`
-	GlobalMax                     float64                         `json:"global_max"`
-	Plans                         []checkoutPlan                  `json:"plans"`
-	BalanceDisabled               bool                            `json:"balance_disabled"`
-	BalanceRechargeMultiplier     float64                         `json:"balance_recharge_multiplier"`
-	SubscriptionUSDToCNYRate      float64                         `json:"subscription_usd_to_cny_rate"`
-	RechargeFeeRate               float64                         `json:"recharge_fee_rate"`
-	HelpText                      string                          `json:"help_text"`
-	HelpImageURL                  string                          `json:"help_image_url"`
-	StripePublishableKey          string                          `json:"stripe_publishable_key"`
-	AlipayForceQRCode             bool                            `json:"alipay_force_qrcode"`
-	RechargePromo                 *checkoutRechargePromo          `json:"recharge_promo,omitempty"`
-	AlipayMobilePrecreateDeepLink bool                            `json:"alipay_mobile_precreate_deep_link"`
-}
-
-// checkoutRechargePromo 是返回给前端的活动配置（区别于服务层的 RechargePromo：
-// 这里不暴露空结构、时间戳总用 RFC3339）。
-type checkoutRechargePromo struct {
-	Enabled bool `json:"enabled"`
-	// Name 是当前活动的展示标题（运营文案位）。匿名公开端点
-	// `/api/v1/plaza/recharge-promo` 也返回相同字段，前端用它作为
-	// 首页 banner 的标题。
-	Name       string                      `json:"name,omitempty"`
-	ValidFrom  *time.Time                  `json:"valid_from,omitempty"`
-	ValidUntil *time.Time                  `json:"valid_until,omitempty"`
-	Tiers      []checkoutRechargePromoTier `json:"tiers"`
-	Version    string                      `json:"version"`
-}
-
-type checkoutRechargePromoTier struct {
-	MinAmount float64 `json:"min_amount"`
-	BonusRate float64 `json:"bonus_rate"`
-}
-
-func checkoutPromoFromConfig(p *service.RechargePromo) *checkoutRechargePromo {
-	if p == nil {
-		return nil
-	}
-	tiers := make([]checkoutRechargePromoTier, 0, len(p.Tiers))
-	for _, t := range p.Tiers {
-		tiers = append(tiers, checkoutRechargePromoTier{MinAmount: t.MinAmount, BonusRate: t.BonusRate})
-	}
-	return &checkoutRechargePromo{
-		Enabled:    p.Enabled,
-		Name:       p.Name,
-		ValidFrom:  p.ValidFrom,
-		ValidUntil: p.ValidUntil,
-		Tiers:      tiers,
-		Version:    p.Version,
-	}
+	Methods                   map[string]service.MethodLimits `json:"methods"`
+	GlobalMin                 float64                         `json:"global_min"`
+	GlobalMax                 float64                         `json:"global_max"`
+	Plans                     []checkoutPlan                  `json:"plans"`
+	BalanceDisabled           bool                            `json:"balance_disabled"`
+	BalanceRechargeMultiplier float64                         `json:"balance_recharge_multiplier"`
+	SubscriptionUSDToCNYRate  float64                         `json:"subscription_usd_to_cny_rate"`
+	RechargeFeeRate           float64                         `json:"recharge_fee_rate"`
+	RechargeBonusTiers        []service.RechargeBonusTier     `json:"recharge_bonus_tiers"`
+	RechargeBonusMode         string                          `json:"recharge_bonus_mode"`
+	RechargeBonusNotice       string                          `json:"recharge_bonus_notice"`
+	RechargeBonusValidFrom    *time.Time                      `json:"recharge_bonus_valid_from"`
+	RechargeBonusValidUntil   *time.Time                      `json:"recharge_bonus_valid_until"`
+	// RechargeBonusVersion 优惠配置指纹（红点 dismiss key）；期外为空。
+	RechargeBonusVersion          string `json:"recharge_bonus_version"`
+	HelpText                      string `json:"help_text"`
+	HelpImageURL                  string `json:"help_image_url"`
+	StripePublishableKey          string `json:"stripe_publishable_key"`
+	AlipayForceQRCode             bool   `json:"alipay_force_qrcode"`
+	AlipayMobilePrecreateDeepLink bool   `json:"alipay_mobile_precreate_deep_link"`
 }
 
 // planGroupSummary 描述套餐绑定的单个分组，供前端逐分组展示徽标与限额。
@@ -336,15 +311,14 @@ type CreateOrderRequest struct {
 	// embedded browsers that strip the "Mobile" keyword).
 	IsMobile *bool `json:"is_mobile,omitempty"`
 	// ClientExpectedBonus 是前端在点击"创建订单"那一刻、对当前 Amount
-	// 计算出的赠送金额（与后端 ResolveRechargeBonus 同算法 mirror）。
-	// 仅在 balance 充值且页面 banner / breakdown 上正在向用户展示
-	// 赠送时才 > 0；其它场景（订阅、未到档、活动未开）应为 0 / 缺省。
+	// 计算出的优惠免费额度（赠金模式为赠送额，折扣模式为折扣对应的到账额）。
+	// 仅在 balance 充值且页面正在向用户展示优惠时才 > 0；
+	// 其它场景（订阅、未到档、不在有效期）应为 0 / 缺省。
 	//
 	// 这是"用户原本期待赠送 $X"的语义信号，用于让 service 在
 	// CreateOrder 阶段判断：用户期待 > 0 但服务端当时已不发任何赠送
-	// （活动 valid_until 已过、被禁用、被删除等）→ 拦截让用户二次确认。
-	// 不参与金额计算、不影响 fulfillment（fulfillment 始终以服务器
-	// 当前时间重判窗为准），仅作 UX 通知触发条件。
+	// （有效期已过、阶梯被清空等）→ 拦截让用户二次确认。
+	// 不参与金额计算（报价始终以服务器当前时间判窗为准），仅作 UX 通知触发条件。
 	ClientExpectedBonus float64 `json:"client_expected_bonus,omitempty"`
 	// PromoExpiredAcknowledged = true 表示前端弹过"活动已结束，是否
 	// 仍要继续充值"的二次确认 modal、用户已经点了"继续充值"。带上
@@ -595,6 +569,7 @@ type PublicOrderResult struct {
 	Amount              float64    `json:"amount"`
 	PayAmount           float64    `json:"pay_amount"`
 	FeeRate             float64    `json:"fee_rate"`
+	BonusAmount         float64    `json:"bonus_amount"`
 	Currency            string     `json:"currency"`
 	PaymentType         string     `json:"payment_type"`
 	OrderType           string     `json:"order_type"`
@@ -630,6 +605,7 @@ func buildPublicOrderResult(order *dbent.PaymentOrder) PublicOrderResult {
 		Amount:              order.Amount,
 		PayAmount:           order.PayAmount,
 		FeeRate:             order.FeeRate,
+		BonusAmount:         order.BonusAmount,
 		Currency:            service.PaymentOrderCurrency(order),
 		PaymentType:         order.PaymentType,
 		OrderType:           order.OrderType,
@@ -738,6 +714,7 @@ type PaymentOrderResult struct {
 	Amount              float64    `json:"amount"`
 	PayAmount           float64    `json:"pay_amount"`
 	FeeRate             float64    `json:"fee_rate"`
+	BonusAmount         float64    `json:"bonus_amount"`
 	Currency            string     `json:"currency"`
 	PaymentType         string     `json:"payment_type"`
 	OutTradeNo          string     `json:"out_trade_no"`
@@ -776,6 +753,7 @@ func sanitizePaymentOrderForResponse(order *dbent.PaymentOrder) *PaymentOrderRes
 		Amount:              order.Amount,
 		PayAmount:           order.PayAmount,
 		FeeRate:             order.FeeRate,
+		BonusAmount:         order.BonusAmount,
 		Currency:            service.PaymentOrderCurrency(order),
 		PaymentType:         order.PaymentType,
 		OutTradeNo:          order.OutTradeNo,

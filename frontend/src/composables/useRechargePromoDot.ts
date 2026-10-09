@@ -2,7 +2,7 @@ import { computed, onBeforeUnmount, onMounted, ref, type ComputedRef } from 'vue
 import type { RechargePromo } from '@/types/payment'
 
 /**
- * 充值赠送活动红点 dismiss 的整体一次方案。
+ * 充值优惠红点 dismiss 的整体一次方案。
  *
  * 设计取舍：
  *   - 红点用 localStorage 落 `${userId}:${version}` 一份 key 而不是每天刷新；
@@ -10,13 +10,13 @@ import type { RechargePromo } from '@/types/payment'
  *   - 跨标签页通过监听 `storage` 事件保持同步，这样在另一个 tab dismiss 后
  *     当前 tab 不会还顶着红点。
  *
- * 与服务端的耦合点：`promo.version` 由后端针对规范化 JSON 计算，
+ * 与服务端的耦合点：`promo.version` 由后端针对模式 + 阶梯 + 有效期计算指纹，
  *   后端 no-op save 不会改 version，前端因此不会刷红点 → 这是“不刷新”需求。
  */
 export interface UseRechargePromoDotOptions {
   /** 当前登录用户 id；未登录返回 null。 */
   userId: ComputedRef<number | null>
-  /** 后端下发的活动配置，未启用 / 不在窗口内时为 null。 */
+  /** 当前生效的充值优惠；无阶梯 / 不在有效期内时为 null。 */
   promo: ComputedRef<RechargePromo | null | undefined>
 }
 
@@ -55,7 +55,7 @@ export function useRechargePromoDot(options: UseRechargePromoDotOptions): UseRec
   const shouldShow = computed<boolean>(() => {
     void sharedDismissTick.value // 触发依赖：dismiss/跨 tab 变化都会改它
     const p = promo.value
-    if (!p || !p.enabled || !p.version) return false
+    if (!p || !p.version) return false
     const key = storageKey.value
     if (!key) return false
     if (typeof window === 'undefined') return false

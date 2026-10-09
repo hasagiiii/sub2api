@@ -319,8 +319,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
-	rechargePromoActivityService := service.NewRechargePromoActivityService(client)
-	paymentConfigService := service.ProvidePaymentConfigService(client, db, settingRepository, encryptionKey, rechargePromoActivityService)
+	paymentConfigService := service.ProvidePaymentConfigService(client, db, settingRepository, encryptionKey)
 	registry := payment.ProvideRegistry()
 	defaultLoadBalancer := payment.ProvideDefaultLoadBalancer(client, encryptionKey)
 	paymentService := service.ProvidePaymentService(client, registry, defaultLoadBalancer, redeemService, subscriptionService, paymentConfigService, userRepository, groupRepository, affiliateService, notificationEmailService, organizationService, costCenterService)
@@ -374,7 +373,6 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	promptService := securityaudit.NewPromptService(configManager, postgreSQLRepository, redisPayloadStore, openAICompatibleScanner, atomicMetrics)
 	promptAdminHandler := securityaudit.NewPromptAdminHandler(promptService)
 	paymentHandler := admin.NewPaymentHandler(paymentService, paymentConfigService)
-	rechargePromoHandler := admin.NewRechargePromoHandler(rechargePromoActivityService)
 	modelIntroService := service.NewModelIntroService(db)
 	accountService := service.NewAccountService(accountRepository, groupRepository)
 	modelIntroHandler := admin.NewModelIntroHandler(modelIntroService, accountService)
@@ -427,7 +425,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	openCodeGoUsageService := service.ProvideOpenCodeGoUsageService(accountRepository, httpUpstream, settingService, leaderLockCache, db, configConfig)
 	idempotencyCoordinator := service.ProvideIdempotencyCoordinator(idempotencyRepository, configConfig)
 	claudeResetCreditService := service.ProvideClaudeResetCreditService(accountRepository, claudeTokenProvider, proxyRepository, settingService, idempotencyCoordinator, leaderLockCache)
-	adminHandlers := handler.ProvideAdminHandlers(requestCaptureHandler, dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, dataManagementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, openAIOAuthReauthHandler, geminiOAuthHandler, antigravityOAuthHandler, kiroOAuthHandler, grokOAuthHandler, cnProviderHandler, proxyHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, pluginHandler, adminAPIKeyHandler, scheduledTestHandler, pelicanGroupTestHandler, accountOpsHandler, accountTokenGuardHandler, accountTokenGuardV2Handler, channelHandler, channelMonitorHandler, channelMonitorRequestTemplateHandler, contentModerationHandler, promptAdminHandler, paymentHandler, rechargePromoHandler, modelIntroHandler, affiliateHandler, supportTicketHandler, supportTicketNotificationHandler, supportFaqHandler, supportDocIndexHandler, supportChatLogHandler, oidcClientHandler, oidcSigningKeyHandler, oidcProviderSettingsHandler, innerAPIAppHandler, complianceHandler, cosImageHandler, fileHandler, asyncMediaConfigHandler, auditLogHandler, costCenterHandler, upstreamBillingProbeService, ollamaCloudUsageService, settingService, openCodeGoUsageService, codexHarvestService, openAIGatewayService, claudeResetCreditService)
+	adminHandlers := handler.ProvideAdminHandlers(requestCaptureHandler, dashboardHandler, adminUserHandler, groupHandler, accountHandler, adminAnnouncementHandler, dataManagementHandler, backupHandler, oAuthHandler, openAIOAuthHandler, openAIOAuthReauthHandler, geminiOAuthHandler, antigravityOAuthHandler, kiroOAuthHandler, grokOAuthHandler, cnProviderHandler, proxyHandler, adminRedeemHandler, promoHandler, settingHandler, opsHandler, systemHandler, adminSubscriptionHandler, adminUsageHandler, userAttributeHandler, errorPassthroughHandler, tlsFingerprintProfileHandler, pluginHandler, adminAPIKeyHandler, scheduledTestHandler, pelicanGroupTestHandler, accountOpsHandler, accountTokenGuardHandler, accountTokenGuardV2Handler, channelHandler, channelMonitorHandler, channelMonitorRequestTemplateHandler, contentModerationHandler, promptAdminHandler, paymentHandler, modelIntroHandler, affiliateHandler, supportTicketHandler, supportTicketNotificationHandler, supportFaqHandler, supportDocIndexHandler, supportChatLogHandler, oidcClientHandler, oidcSigningKeyHandler, oidcProviderSettingsHandler, innerAPIAppHandler, complianceHandler, cosImageHandler, fileHandler, asyncMediaConfigHandler, auditLogHandler, costCenterHandler, upstreamBillingProbeService, ollamaCloudUsageService, settingService, openCodeGoUsageService, codexHarvestService, openAIGatewayService, claudeResetCreditService)
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(configConfig)
 	userMsgQueueCache := repository.NewUserMsgQueueCache(redisClient)
 	userMessageQueueService := service.ProvideUserMessageQueueService(userMsgQueueCache, rpmCache, configConfig)
@@ -454,7 +452,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	availableChannelHandler := handler.NewAvailableChannelHandler(channelService, apiKeyService, settingService)
 	plazaAccountSource := service.ProvidePlazaAccountSource(accountRepository)
 	plazaService := service.NewPlazaService(pricingService, billingService, groupRepository, plazaAccountSource, paymentConfigService)
-	plazaHandler := handler.NewPlazaHandler(plazaService, rechargePromoActivityService)
+	plazaHandler := handler.NewPlazaHandler(plazaService, paymentConfigService)
 	pelicanShowcaseHandler := handler.NewPelicanShowcaseHandler(pelicanShowcaseService)
 	modelPlazaService := service.NewModelPlazaService(channelRepository, groupRepository, pricingService, billingService, modelPricingResolver)
 	modelPlazaHandler := handler.NewModelPlazaHandler(modelPlazaService, apiKeyService, settingService)

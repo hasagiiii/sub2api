@@ -1,12 +1,25 @@
 package routes
 
 import (
+	"time"
+
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
+	ratelimit "github.com/Wei-Shaw/sub2api/internal/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
+)
+
+// publicOrderVerifyRateLimit caps anonymous legacy out_trade_no lookups per
+// client IP. The payment result page polls at most a handful of times per
+// order, so this leaves ample headroom for real users while making
+// out_trade_no enumeration impractical.
+const (
+	publicOrderVerifyRateLimit       = 20
+	publicOrderVerifyRateLimitWindow = time.Minute
 )
 
 // RegisterPaymentRoutes registers all payment-related routes:
@@ -16,12 +29,12 @@ func RegisterPaymentRoutes(
 	paymentHandler *handler.PaymentHandler,
 	webhookHandler *handler.PaymentWebhookHandler,
 	adminPaymentHandler *admin.PaymentHandler,
-	adminRechargePromoHandler *admin.RechargePromoHandler,
 	jwtAuth middleware.JWTAuthMiddleware,
 	adminAuth middleware.AdminAuthMiddleware,
 	auditLog middleware.AuditLogMiddleware,
 	settingService *service.SettingService,
 	panelRateLimiter *middleware.PanelRateLimiter,
+	redisClient *redis.Client,
 ) {
 	// --- User-facing payment endpoints (authenticated) ---
 	authenticated := v1.Group("/payment")
@@ -51,9 +64,15 @@ func RegisterPaymentRoutes(
 	// Signed resume-token recovery is the preferred public lookup path.
 	// The legacy anonymous out_trade_no verify endpoint remains available as a
 	// persisted-state compatibility path for staggered upgrades.
+	// The anonymous verify endpoint is IP rate-limited to prevent out_trade_no
+	// enumeration. It fails open on Redis errors so an outage never blocks a
+	// user who is mid-payment from seeing their result.
+	publicRateLimiter := ratelimit.NewRateLimiter(redisClient)
 	public := v1.Group("/payment/public")
 	{
-		public.POST("/orders/verify", paymentHandler.VerifyOrderPublic)
+		public.POST("/orders/verify",
+			publicRateLimiter.Limit("payment-public-order-verify", publicOrderVerifyRateLimit, publicOrderVerifyRateLimitWindow),
+			paymentHandler.VerifyOrderPublic)
 		public.POST("/orders/resolve", paymentHandler.ResolveOrderPublicByResumeToken)
 	}
 
@@ -109,21 +128,6 @@ func RegisterPaymentRoutes(
 			providers.POST("", adminPaymentHandler.CreateProvider)
 			providers.PUT("/:id", adminPaymentHandler.UpdateProvider)
 			providers.DELETE("/:id", adminPaymentHandler.DeleteProvider)
-		}
-	}
-
-	// --- Admin recharge promo activities (admin auth) ---
-	// 充值赠送活动以独立列表 CRUD 管理（不再嵌在系统设置里）。
-	if adminRechargePromoHandler != nil {
-		promoGroup := v1.Group("/admin/recharge-promos")
-		promoGroup.Use(gin.HandlerFunc(adminAuth))
-		{
-			promoGroup.GET("", adminRechargePromoHandler.List)
-			promoGroup.POST("", adminRechargePromoHandler.Create)
-			promoGroup.GET("/:id", adminRechargePromoHandler.Get)
-			promoGroup.PUT("/:id", adminRechargePromoHandler.Update)
-			promoGroup.DELETE("/:id", adminRechargePromoHandler.Delete)
-			promoGroup.POST("/:id/toggle", adminRechargePromoHandler.Toggle)
 		}
 	}
 }

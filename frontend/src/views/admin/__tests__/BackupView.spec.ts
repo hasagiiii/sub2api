@@ -11,6 +11,7 @@ const {
   deleteBackup,
   listBackups,
   getDownloadURL,
+  restoreBackup,
 } = vi.hoisted(() => ({
   getS3Config: vi.fn(),
   getImageStorageConfig: vi.fn(),
@@ -19,6 +20,7 @@ const {
   deleteBackup: vi.fn(),
   listBackups: vi.fn(),
   getDownloadURL: vi.fn(),
+  restoreBackup: vi.fn(),
 }))
 
 vi.mock('@/api', () => ({
@@ -37,7 +39,7 @@ vi.mock('@/api', () => ({
       getBackup: vi.fn(),
       deleteBackup,
       getDownloadURL,
-      restoreBackup: vi.fn(),
+      restoreBackup,
     },
   },
 }))
@@ -78,6 +80,13 @@ const baseRecord = (id: string, parts?: unknown[]) => ({
 
 const wrappers: ReturnType<typeof mount>[] = []
 
+// 弹窗经 Teleport 渲染到 body：点击 body 中最后一个（最上层弹窗内的）同名按钮。
+function clickBodyButton(text: string) {
+  const buttons = Array.from(document.body.querySelectorAll('button')).filter(button => button.textContent?.trim() === text)
+  expect(buttons.length).toBeGreaterThan(0)
+  buttons[buttons.length - 1].click()
+}
+
 function mountBackupView() {
   const wrapper = mount(BackupView, {
     global: {
@@ -106,6 +115,27 @@ describe('admin BackupView', () => {
     wrappers.splice(0).forEach(wrapper => wrapper.unmount())
     vi.restoreAllMocks()
     document.body.innerHTML = ''
+  })
+
+  it.each(['backup', 'restore'])('does not resume %s polling after navigation during initial loading', async (operation) => {
+    vi.useFakeTimers()
+    let finish!: (value: object) => void
+    listBackups.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = mountBackupView()
+    try {
+      await flushPromises()
+      wrapper.unmount()
+      finish({ items: [{ ...baseRecord('pending'),
+        status: operation === 'backup' ? 'running' : 'completed',
+        restore_status: operation === 'restore' ? 'running' : undefined,
+      }] })
+      await flushPromises()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      wrapper.unmount()
+      vi.clearAllTimers()
+      vi.useRealTimers()
+    }
   })
 
   it('显示分卷数并在下载时列出每个分卷链接', async () => {
@@ -264,18 +294,45 @@ describe('admin BackupView', () => {
 
   it('归档删除需要单独确认，有限归档不会显示永不过期', async () => {
     listBackups.mockResolvedValue({ items: [{ ...baseRecord('archived'), monthly_archive: { dates: ['2026-09-01', '2026-09-15'], retain_count: 12 } }] })
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const confirm = vi.spyOn(window, 'confirm')
     const wrapper = mountBackupView()
     await flushPromises()
     expect(wrapper.text()).toContain('admin.backup.archive.badge')
     expect(wrapper.get('tbody tr td:nth-child(6)').text()).toBe('admin.backup.archive.retainLatest')
-    const button = wrapper.findAll('button').find(button => button.text() === 'common.delete')!
-    await button.trigger('click')
-    expect(confirm).toHaveBeenCalledWith('admin.backup.archive.deleteConfirm')
+    await wrapper.findAll('button').find(button => button.text() === 'common.delete')!.trigger('click')
+    await flushPromises()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('admin.backup.archive.deleteConfirm')
     expect(deleteBackup).not.toHaveBeenCalled()
-    confirm.mockReturnValue(true)
-    await button.trigger('click')
+    clickBodyButton('common.delete')
     await flushPromises()
     expect(deleteBackup).toHaveBeenCalledWith('archived', true)
+  })
+
+  it('恢复备份使用统一确认与密码输入弹框而不是 window.confirm / window.prompt', async () => {
+    listBackups.mockResolvedValue({ items: [baseRecord('backup-1')] })
+    restoreBackup.mockReset().mockResolvedValue({ ...baseRecord('backup-1'), restore_status: 'running' })
+    const confirm = vi.spyOn(window, 'confirm')
+    const prompt = vi.spyOn(window, 'prompt')
+    const wrapper = mountBackupView()
+    await flushPromises()
+
+    await wrapper.findAll('button').find(button => button.text() === 'admin.backup.actions.restore')!.trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('admin.backup.actions.restoreConfirm')
+    clickBodyButton('common.confirm')
+    await flushPromises()
+
+    const passwordInput = document.body.querySelector<HTMLInputElement>('input[autocomplete="current-password"]')
+    expect(passwordInput).not.toBeNull()
+    passwordInput!.value = 'restore-password'
+    passwordInput!.dispatchEvent(new Event('input'))
+    await flushPromises()
+    clickBodyButton('common.confirm')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(prompt).not.toHaveBeenCalled()
+    expect(restoreBackup).toHaveBeenCalledWith('backup-1', 'restore-password')
   })
 })

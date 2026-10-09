@@ -835,18 +835,6 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/admin/recharge-promos',
-    name: 'AdminRechargePromos',
-    component: () => import('@/views/admin/RechargePromosView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: true,
-      title: 'Recharge Promotions',
-      titleKey: 'admin.rechargePromos.title',
-      descriptionKey: 'admin.rechargePromos.description'
-    }
-  },
-  {
     path: '/admin/files',
     name: 'AdminFiles',
     component: () => import('@/views/admin/AdminFilesView.vue'),

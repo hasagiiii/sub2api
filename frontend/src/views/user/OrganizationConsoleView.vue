@@ -2102,10 +2102,15 @@ function onUsageErrorPageSize(pageSize: number) {
 
 async function loadCurrentTabData(tab: Tab) {
   if (tab === 'finance') {
-    const memberData = await organizationAPI.listMembers()
+    // 授权弹窗依赖策略列表；/organization/policies 仅 owner 可调用，与“授权”按钮的可见性一致。
+    const [memberData, policyData] = await Promise.all([
+      organizationAPI.listMembers(),
+      isOwner.value ? organizationAPI.listPolicies() : Promise.resolve(null),
+    ])
     members.value = memberData.items
     memberLimit.value = memberData.member_limit
     usedSlots.value = memberData.used_slots
+    if (policyData) policies.value = policyData
     return
   }
   if (tab === 'limits') {
@@ -2115,11 +2120,7 @@ async function loadCurrentTabData(tab: Tab) {
     usedSlots.value = memberData.used_slots
     spendLimitUsage.value = await organizationAPI.getSpendLimitUsage()
     if (canManageSpendLimits.value) {
-      const [policyData, rules] = await Promise.all([
-        organizationAPI.listPolicies(), organizationAPI.listSpendLimits(),
-      ])
-      policies.value = policyData
-      spendLimitRules.value = rules
+      spendLimitRules.value = await organizationAPI.listSpendLimits()
     }
     return
   }

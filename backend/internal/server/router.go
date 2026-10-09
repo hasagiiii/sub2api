@@ -147,7 +147,7 @@ func registerRoutes(
 	routes.RegisterModelPlazaRoutes(v1, h, optionalJWTAuth, settingService, panelRateLimiter)
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg)
-	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, h.Admin.RechargePromo, jwtAuth, adminAuth, auditLog, settingService, panelRateLimiter)
+	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, auditLog, settingService, panelRateLimiter, redisClient)
 	routes.RegisterPlazaRoutes(v1, h, redisClient)
 	routes.RegisterOidcProviderRoutes(r, h)
 	routes.RegisterInboxRoutes(v1, inboxHandler, inboxWS, jwtAuth, adminAuth)

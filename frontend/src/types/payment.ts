@@ -25,6 +25,12 @@ export type OrderType = 'balance' | 'subscription'
 
 // ==================== Configuration ====================
 
+/** 充值赠送档位：支付金额 ≥ min_amount 时在到账基数上赠送 bonus_percent% */
+export interface RechargeBonusTier {
+  min_amount: number
+  bonus_percent: number
+}
+
 export interface PaymentConfig {
   payment_enabled: boolean
   min_amount: number
@@ -71,36 +77,42 @@ export interface CheckoutInfoResponse {
   /** Subscription CNY conversion rate (1 USD = X CNY); 0 = disabled, plan price is charged as-is */
   subscription_usd_to_cny_rate: number
   recharge_fee_rate: number
+  /** 充值赠送阶梯（按 min_amount 升序）；缺失/空数组 = 不赠送 */
+  recharge_bonus_tiers?: RechargeBonusTier[]
+  /** 阶梯模式：bonus 赠金 / discount 折扣；缺失按 bonus */
+  recharge_bonus_mode?: string
+  /** 充值页金额区顶部的 Markdown 活动文案；空 = 不展示（不在有效期内时后端下发空串） */
+  recharge_bonus_notice?: string
+  /** 优惠有效期起点（RFC3339）；null = 不设限 */
+  recharge_bonus_valid_from?: string | null
+  /** 优惠有效期终点（RFC3339，开区间）；null = 不设限 */
+  recharge_bonus_valid_until?: string | null
+  /** 优惠配置指纹（红点 dismiss key）；不在有效期内或无阶梯时为空 */
+  recharge_bonus_version?: string
   help_text: string
   help_image_url: string
   stripe_publishable_key: string
   /** When true, Alipay payments on mobile always show the QR code instead of redirecting */
   alipay_force_qrcode?: boolean
-  /**
-   * 充值赠送活动；后端只在活动开启 + 当前时间在窗口内时下发，否则字段为 undefined。
-   * 与 balance_recharge_multiplier 是两个独立概念（一个加余额、一个影响消费），
-   * 前端不要把两者乘起来。
-   */
-  recharge_promo?: RechargePromo
   /** When true, official Alipay mobile orders use precreate plus an Alipay app deep link */
   alipay_mobile_precreate_deep_link?: boolean
 }
 
-/** 一个赠送档位：当 pay_amount ≥ min_amount 时按 bonus_rate 赠送（取最高匹配档）。 */
-export interface RechargePromoTier {
-  min_amount: number
-  bonus_rate: number
-}
-
-/** 充值赠送活动配置；前端按 tiers 升序、最高匹配档命中。 */
+/**
+ * 当前生效的充值优惠（由充值优惠阶梯配置派生，供 banner / 红点使用）。
+ * 只有阶梯非空且处于有效期内时才存在；首页公开接口与 checkout-info 同形。
+ */
 export interface RechargePromo {
-  enabled: boolean
+  /** bonus 赠金（bonus_percent 为赠送比例）/ discount 折扣（bonus_percent 为折扣比例） */
+  mode: 'bonus' | 'discount'
+  /** 后台配置的 Markdown 活动文案；可为空 */
+  notice?: string
   /** ISO8601 起始时间；缺省（null/undefined）视为无下限。 */
   valid_from?: string | null
   /** ISO8601 截止时间；缺省（null/undefined）视为无上限。 */
   valid_until?: string | null
-  tiers: RechargePromoTier[]
-  /** 后端计算的稳定 hash；红点 dismiss key 由 (userId, version) 组成。 */
+  tiers: RechargeBonusTier[]
+  /** 后端计算的配置指纹；红点 dismiss key 由 (userId, version) 组成。 */
   version: string
 }
 
@@ -113,6 +125,8 @@ export interface PaymentOrder {
   pay_amount: number
   currency?: string
   fee_rate: number
+  /** 充值赠送额度（USD），已计入 amount */
+  bonus_amount?: number
   payment_type: string
   out_trade_no: string
   status: OrderStatus
@@ -238,19 +252,18 @@ export interface CreateOrderRequest {
   wechat_resume_token?: string
   is_mobile?: boolean
   /**
-   * 前端在点击"创建订单"瞬间、对当前 amount 计算出的赠送预览金额
-   * （与后端 ResolveRechargeBonus 同算法 mirror）。后端用它配合
-   * 服务器当前时间二次判窗：用户期待 > 0 但服务端不再发任何赠送
+   * 前端在点击"创建订单"瞬间、对当前 amount 计算出的优惠免费额度预览
+   * （与后端 quoteRechargeBonus 同算法 mirror；赠金为赠送额，折扣为折扣部分对应到账）。
+   * 后端用它配合服务器当前时间二次判窗：用户期待 > 0 但服务端不再给优惠
    * → 返回 409 RECHARGE_PROMO_EXPIRED 让前端弹二次确认。
    *
-   * 仅在 balance 充值且赠送预览 > 0 时上报；订阅 / 未到档 / 无活动
-   * 一律不传或 0。详见 PaymentView submitBalanceWithPromoGuard。
+   * 仅在 balance 充值且优惠预览 > 0 时上报；订阅 / 未到档 / 不在有效期
+   * 一律不传或 0。
    */
   client_expected_bonus?: number
   /**
    * 用户在"活动已结束"二次确认 modal 上点过"继续充值"，重发请求时
-   * 携带 true，后端跳过 promo 拦截。fulfillment 仍按服务器时间核账，
-   * 不会因此误发赠送。
+   * 携带 true，后端跳过优惠拦截。报价仍按服务器时间判窗，不会误发优惠。
    */
   promo_expired_acknowledged?: boolean
 }
@@ -287,6 +300,7 @@ export interface CreateOrderResult {
   payment_env?: string
   pay_amount: number
   fee_rate: number
+  bonus_amount?: number
   expires_at: string
   result_type?: CreateOrderResultType
   payment_type?: string

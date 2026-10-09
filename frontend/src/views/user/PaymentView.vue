@@ -56,37 +56,36 @@
               <p class="text-gray-500 dark:text-gray-400">{{ t('payment.notAvailable') }}</p>
             </div>
             <template v-else>
-            <!-- 充值赠送活动 banner（活动开启 + 在窗口内时由后端下发） -->
+            <!-- 充值优惠 banner（阶梯非空 + 在有效期内时由后端下发） -->
             <div
               v-if="rechargePromo"
               class="card border border-amber-200 bg-amber-50 p-4 dark:border-amber-700/40 dark:bg-amber-900/20"
+              data-testid="recharge-promo-banner"
             >
               <p class="text-sm font-medium text-amber-800 dark:text-amber-200">
                 {{ promoValidUntilLabel
                     ? t('payment.promo.banner', { validUntil: promoValidUntilLabel })
                     : t('payment.promo.bannerNoExpiry') }}
               </p>
-              <div
-                v-if="promoTiers.length"
-                class="mt-1 text-xs text-amber-700 dark:text-amber-300"
-              >
-                <span v-for="(tier, idx) in promoTiers" :key="tier.min_amount">
-                  {{ t('payment.promo.tier', {
-                    minAmount: tier.min_amount,
-                    rate: Math.round(tier.bonus_rate * 100),
-                  }) }}<span v-if="idx < promoTiers.length - 1">{{ t('payment.promo.tiersJoiner') }}</span>
-                </span>
-
-                <p>{{ t('payment.promo.customHint') }}</p>
-              </div>
+              <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">{{ t('payment.promo.customHint') }}</p>
             </div>
             <div class="card p-6">
+              <!-- 充值赠送活动文案（后台 Markdown 配置，空则不渲染） -->
+              <div
+                v-if="renderedBonusNotice"
+                class="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-relaxed text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100 [&_a]:font-medium [&_a]:underline [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_ol]:my-1 [&_ol]:ml-5 [&_ol]:list-decimal [&_p]:my-1 [&_strong]:font-semibold [&_ul]:my-1 [&_ul]:ml-5 [&_ul]:list-disc"
+                data-testid="recharge-bonus-notice"
+                v-html="renderedBonusNotice"
+              ></div>
               <AmountInput
                 v-model="amount"
                 :amounts="[10, 20, 50, 100, 200, 500, 1000, 2000, 5000]"
                 :min="globalMinAmount"
                 :max="globalMaxAmount"
-                :bonus-tiers="promoTiers"
+                :bonus-tiers="rechargeBonusTiers"
+                :bonus-mode="rechargeBonusMode"
+                :multiplier="balanceRechargeMultiplier"
+                :currency="selectedCurrency"
                 :show-red-dots="showPromoRedDots"
                 @bonus-preset-clicked="onPromoPresetClicked"
               />
@@ -103,36 +102,27 @@
               <div class="space-y-2 text-sm">
                 <div class="flex justify-between">
                   <span class="text-gray-500 dark:text-gray-400">{{ t('payment.paymentAmount') }}</span>
-                  <span class="text-gray-900 dark:text-white">{{ formatSelectedPaymentAmount(validAmount) }}</span>
+                  <span :class="discountAmount > 0 ? 'text-gray-400 line-through dark:text-gray-500' : 'text-gray-900 dark:text-white'">{{ formatSelectedPaymentAmount(validAmount) }}</span>
+                </div>
+                <div v-if="discountAmount > 0" class="flex justify-between" data-testid="recharge-discount-row">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.rechargeBonus.discountLabelWithPercent', { percent: formatRechargeBonusNumber(bonusQuote.percent) }) }}</span>
+                  <span class="font-medium text-red-600 dark:text-red-400">-{{ formatSelectedPaymentAmount(discountAmount) }}</span>
                 </div>
                 <div v-if="feeRate > 0" class="flex justify-between">
                   <span class="text-gray-500 dark:text-gray-400">{{ t('payment.fee') }} ({{ feeRate }}%)</span>
                   <span class="text-gray-900 dark:text-white">{{ formatSelectedPaymentAmount(feeAmount) }}</span>
                 </div>
-                <div v-if="feeRate > 0" class="flex justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
+                <div v-if="showActualPay" class="flex justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
                   <span class="font-medium text-gray-700 dark:text-gray-300">{{ t('payment.actualPay') }}</span>
                   <span class="text-lg font-bold text-primary-600 dark:text-primary-400">{{ formatSelectedPaymentAmount(totalAmount) }}</span>
                 </div>
-                <div v-if="balanceRechargeMultiplier !== 1" class="flex justify-between" :class="{ 'border-t border-gray-200 pt-2 dark:border-dark-600': feeRate <= 0 }">
+                <div v-if="showBonusRow" class="flex justify-between" :class="{ 'border-t border-gray-200 pt-2 dark:border-dark-600': !showActualPay }" data-testid="recharge-bonus-row">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.rechargeBonus.amountLabelWithPercent', { percent: formatRechargeBonusNumber(bonusQuote.percent) }) }}</span>
+                  <span class="font-medium text-red-600 dark:text-red-400">+${{ bonusQuote.bonus.toFixed(2) }}</span>
+                </div>
+                <div v-if="showCreditedBalance" class="flex justify-between" :class="{ 'border-t border-gray-200 pt-2 dark:border-dark-600': !showActualPay && !showBonusRow }" data-testid="recharge-credited-row">
                   <span class="text-gray-500 dark:text-gray-400">{{ t('payment.creditedBalance') }}</span>
-                  <span class="text-gray-900 dark:text-white">${{ creditedAmount.toFixed(2) }}</span>
-                </div>
-                <!-- 赠送：仅当当前金额命中赠送档位时显示 -->
-                <div
-                  v-if="currentBonus > 0"
-                  class="flex justify-between"
-                  :class="{ 'border-t border-gray-200 pt-2 dark:border-dark-600': feeRate <= 0 && balanceRechargeMultiplier === 1 }"
-                >
-                  <span class="text-gray-500 dark:text-gray-400">{{ t('payment.promo.bonusLine') }}</span>
-                  <span class="font-medium text-amber-600 dark:text-amber-400">+${{ currentBonus.toFixed(2) }}</span>
-                </div>
-                <!-- 合计入账：creditedBalance + bonus；仅有赠送时才有意义 -->
-                <div
-                  v-if="currentBonus > 0"
-                  class="flex justify-between border-t border-gray-200 pt-2 dark:border-dark-600"
-                >
-                  <span class="font-medium text-gray-700 dark:text-gray-300">{{ t('payment.promo.totalCredited') }}</span>
-                  <span class="text-lg font-bold text-amber-600 dark:text-amber-400">${{ totalCredited.toFixed(2) }}</span>
+                  <span :class="bonusQuote.percent > 0 ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-900 dark:text-white'">${{ creditedAmount.toFixed(2) }}</span>
                 </div>
                 <p v-if="balanceRechargeMultiplier !== 1" class="border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
                   {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: balanceRechargeMultiplier.toFixed(2) }) }}
@@ -397,7 +387,15 @@ import { organizationAPI } from '@/api/organization'
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import { isMobileDevice } from '@/utils/device'
 import { hasPeakRate, formatPeakRateWindow, serverTimezoneLabel, type PeakRateFields } from '@/utils/peak-rate'
-import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType, RechargePromo } from '@/types/payment'
+import type { SubscriptionPlan, CheckoutInfoResponse, CreateOrderResult, OrderType } from '@/types/payment'
+import {
+  formatRechargeBonusNumber,
+  isRechargeBonusTimestampReached,
+  normalizeRechargeBonusMode,
+  normalizeRechargeBonusTiers,
+  quoteRechargeBonus,
+  rechargePromoFromCheckout,
+} from '@/utils/rechargeBonus'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
@@ -700,11 +698,19 @@ function onPaymentSettled() {
 const checkout = ref<CheckoutInfoResponse>({
   methods: {}, global_min: 0, global_max: 0,
   plans: [], balance_disabled: false, balance_recharge_multiplier: 1, subscription_usd_to_cny_rate: 0, recharge_fee_rate: 0, help_text: '', help_image_url: '', stripe_publishable_key: '',
+  recharge_bonus_tiers: [], recharge_bonus_mode: 'bonus', recharge_bonus_notice: '',
 })
 
 const renderedHelpText = computed(() => DOMPurify.sanitize(
   marked.parse(checkout.value.help_text || '', { async: false, gfm: true, breaks: false }),
 ))
+
+// 充值赠送活动文案：后台 Markdown 配置，空字符串时金额卡顶部不渲染
+const renderedBonusNotice = computed(() => {
+  const raw = (checkout.value.recharge_bonus_notice || '').trim()
+  if (!raw) return ''
+  return DOMPurify.sanitize(marked.parse(raw, { async: false, gfm: true, breaks: true }))
+})
 
 // 订阅功能开关（public settings 的 subscription_enabled，opt-out）。关闭后购买页只保留充值：
 // 不再渲染「订阅」tab，只剩单个 tab 时顶部切换器也随之隐藏。
@@ -743,47 +749,14 @@ const subscriptionUsdToCnyRate = computed(() => {
   const rate = checkout.value.subscription_usd_to_cny_rate
   return Number.isFinite(rate) && rate > 0 ? rate : 0
 })
-const creditedAmount = computed(() => Math.round((validAmount.value * balanceRechargeMultiplier.value) * 100) / 100)
+const rechargeBonusTiers = computed(() => normalizeRechargeBonusTiers(checkout.value.recharge_bonus_tiers))
+const rechargeBonusMode = computed(() => normalizeRechargeBonusMode(checkout.value.recharge_bonus_mode))
 
 /**
- * 充值赠送活动；后端只在活动开启 + 当前时间在窗口内时下发，否则字段缺失。
- * 与 balance_recharge_multiplier 是两个完全独立的概念（一个加余额、一个作用于消费），
- * 这里只读后端结果、不再二次判断时间窗。
+ * 当前生效的充值优惠（banner / 红点用）；由 checkout-info 的阶梯 + 有效期派生。
+ * 后端只在有效期内下发阶梯与 version，这里不再二次判断时间窗。
  */
-const rechargePromo = computed<RechargePromo | null>(() => checkout.value?.recharge_promo ?? null)
-
-/** AmountInput 等子组件需要的 tier 数组；活动不存在时空数组以便组件无脑渲染。 */
-const promoTiers = computed(() => rechargePromo.value?.tiers ?? [])
-
-/**
- * 计算 `payAmount` 应得的赠送金额（与后端 ResolveRechargeBonus 对齐）：
- * 升序 tiers 中最高匹配档命中（档位匹配仍以 payAmount 为准），
- * bonus = ceil(payAmount × multiplier × bonusRate × 100) / 100。
- *
- * 注意：赠送基数是 credited_balance（payAmount × multiplier），不是裸 payAmount——
- * 这与后端公式严格一致，避免前后端预览出现 0.01 级偏差。
- */
-function bonusForAmount(payAmount: number): number {
-  const promo = rechargePromo.value
-  if (!promo || !promo.enabled || promo.tiers.length === 0) return 0
-  if (!Number.isFinite(payAmount) || payAmount <= 0) return 0
-  let rate = 0
-  for (const tier of promo.tiers) {
-    if (payAmount >= tier.min_amount) {
-      rate = tier.bonus_rate
-    } else {
-      break
-    }
-  }
-  if (rate <= 0) return 0
-  return Math.ceil(payAmount * balanceRechargeMultiplier.value * rate * 100) / 100
-}
-
-/** 当前金额的赠送，用于 breakdown 行渲染。 */
-const currentBonus = computed(() => bonusForAmount(validAmount.value))
-
-/** 合计入账 = credited_balance + bonus（两个相加，绝不相乘）。 */
-const totalCredited = computed(() => Math.round((creditedAmount.value + currentBonus.value) * 100) / 100)
+const rechargePromo = computed(() => rechargePromoFromCheckout(checkout.value))
 
 const promoDot = useRechargePromoDot({
   userId: computed(() => user.value?.id ?? null),
@@ -797,13 +770,12 @@ const showRechargeTabDot = computed(() => promoDot.shouldShow.value)
 const showPromoRedDots = computed(() => promoDot.shouldShow.value)
 
 /**
- * Render the recharge promo's `valid_until` ISO timestamp down to the
+ * Render the recharge bonus `valid_until` ISO timestamp down to the
  * second. The bare `Date#toLocaleString()` we used previously is locale-
  * dependent — some runtimes drop seconds from the default short format,
  * which made "ends at 23:59:59" indistinguishable from "ends at 23:59"
  * for users on those locales. Hand the explicit options bag in so all
- * locales get H/M/S, matching the homepage banner and the admin
- * RechargePromos table.
+ * locales get H/M/S, matching the homepage banner.
  *
  * Empty / unparseable inputs fall through to '' (banner switches to the
  * "no expiry" copy) or to the original raw string (defensive, never
@@ -845,34 +817,33 @@ function onTabClicked(key: 'recharge' | 'subscription') {
 }
 
 function onPromoPresetClicked(_amount: number) {
-  // 点击命中赠送档位的金额即 dismiss 红点（即使不进入提交流程）
+  // 点击命中优惠档位的金额即 dismiss 红点（即使不进入提交流程）
   if (promoDot.shouldShow.value) {
     promoDot.dismiss()
   }
 }
 
 /**
- * 充值赠送活动是否在"此时此刻"已经过期。
+ * 充值优惠是否在"此时此刻"已经过期。
  *
  * 设计取舍：
- *   • 不做成 reactive computed + 定时器轮询。该判定只在用户点击
- *     "创建订单"那一刻才有意义，平时 banner / breakdown 维持
- *     onMounted 时的快照即可（用户已经在看着 banner 操作，让 banner
- *     在他眼皮底下文案突变反而比弹窗确认更出戏）。一次性 Date.now()
- *     比较 → 零额外生命周期、零清理负担。
- *   • 后端只在 enabled + 在窗口内时才下发 recharge_promo，所以拿到
- *     promo 一定意味着"页面打开时活动是开着的"，能形成 expired 这
- *     一过渡只能因为用户停留过久。这正是题目要拦的场景。
- *   • valid_until 缺省（无截止活动）→ 永不过期；解析失败 → 保守判
- *     定为未过期（避免后端推坏数据时无脑封锁支付通路）。
+ *   • 只在用户点击"创建订单"那一刻判定（一次性 Date.now() 比较），
+ *     平时 banner / 价签维持 onMounted 时的快照，零定时器负担。
+ *   • 后端只在有效期内下发阶梯，拿到优惠即意味着"页面打开时优惠有效"，
+ *     形成 expired 只能因为用户停留过久，这正是要拦的场景。
+ *   • valid_until 缺省 → 永不过期；解析失败 → 保守判定为未过期。
  */
 function isPromoExpiredNow(): boolean {
-  const promo = rechargePromo.value
-  if (!promo) return false
-  if (!promo.valid_until) return false
-  const ts = Date.parse(promo.valid_until)
-  if (!Number.isFinite(ts)) return false
-  return Date.now() >= ts
+  return isRechargeBonusTimestampReached(rechargePromo.value?.valid_until)
+}
+
+/** 指定金额当前预览的优惠免费额度（赠金为赠送额，折扣为折扣部分对应的到账额）。 */
+function expectedBonusFor(payAmount: number): number {
+  return quoteRechargeBonus(rechargeBonusTiers.value, payAmount, {
+    multiplier: balanceRechargeMultiplier.value,
+    mode: rechargeBonusMode.value,
+    currencyDigits: currencyFractionDigits(selectedCurrency.value),
+  }).bonus
 }
 
 /**
@@ -965,6 +936,19 @@ function formatSelectedSubscriptionPaymentAmount(value: number): string {
   return formatSelectedPaymentAmount(subscriptionPaymentAmountForCurrency(value, selectedCurrency.value))
 }
 
+// 充值优惠：阈值按输入金额命中；赠金模式按到账基数（输入 × 倍率）加赠送，折扣模式按百分比减实付。
+// 与后端 quoteRechargeBonus 一致；渠道限额、手续费、实付都按折后基数（payBaseAmount）计算，提交仍发送输入金额。
+const bonusQuote = computed(() => quoteRechargeBonus(rechargeBonusTiers.value, validAmount.value, {
+  multiplier: balanceRechargeMultiplier.value,
+  mode: rechargeBonusMode.value,
+  currencyDigits: currencyFractionDigits(selectedCurrency.value),
+}))
+const payBaseAmount = computed(() => bonusQuote.value.payBase)
+const discountAmount = computed(() => roundPaymentAmount(validAmount.value - payBaseAmount.value, selectedCurrency.value))
+const creditedAmount = computed(() => bonusQuote.value.credited)
+const showBonusRow = computed(() => bonusQuote.value.mode !== 'discount' && bonusQuote.value.bonus > 0)
+const showCreditedBalance = computed(() => balanceRechargeMultiplier.value !== 1 || bonusQuote.value.percent > 0)
+
 const methodOptions = computed<PaymentMethodOption[]>(() =>
   enabledMethods.value.map((type) => {
     const ml = visibleMethods.value[type]
@@ -972,41 +956,42 @@ const methodOptions = computed<PaymentMethodOption[]>(() =>
       type,
       display_name: ml?.display_name,
       fee_rate: ml?.fee_rate ?? 0,
-      available: ml?.available !== false && amountFitsMethod(validAmount.value, type),
+      available: ml?.available !== false && amountFitsMethod(payBaseAmount.value, type),
     }
   })
 )
 
 const feeRate = computed(() => checkout.value?.recharge_fee_rate ?? 0)
 const feeAmount = computed(() =>
-  feeRate.value > 0 && validAmount.value > 0
-    ? Math.ceil(((validAmount.value * feeRate.value) / 100) * 100) / 100
+  feeRate.value > 0 && payBaseAmount.value > 0
+    ? Math.ceil(((payBaseAmount.value * feeRate.value) / 100) * 100) / 100
     : 0
 )
 const totalAmount = computed(() =>
-  feeRate.value > 0 && validAmount.value > 0
-    ? Math.round((validAmount.value + feeAmount.value) * 100) / 100
-    : validAmount.value
+  feeRate.value > 0 && payBaseAmount.value > 0
+    ? Math.round((payBaseAmount.value + feeAmount.value) * 100) / 100
+    : payBaseAmount.value
 )
+const showActualPay = computed(() => feeRate.value > 0 || discountAmount.value > 0)
 
 const amountError = computed(() => {
   if (validAmount.value <= 0) return ''
   // No method can handle this amount
-  if (!enabledMethods.value.some((m) => amountFitsMethod(validAmount.value, m))) {
+  if (!enabledMethods.value.some((m) => amountFitsMethod(payBaseAmount.value, m))) {
     return t('payment.amountNoMethod')
   }
   // Selected method can't handle this amount (but others can)
   const ml = selectedLimit.value
   if (ml) {
-    if (ml.single_min > 0 && validAmount.value < ml.single_min) return t('payment.amountTooLow', { min: formatSelectedPaymentAmount(ml.single_min) })
-    if (ml.single_max > 0 && validAmount.value > ml.single_max) return t('payment.amountTooHigh', { max: formatSelectedPaymentAmount(ml.single_max) })
+    if (ml.single_min > 0 && payBaseAmount.value < ml.single_min) return t('payment.amountTooLow', { min: formatSelectedPaymentAmount(ml.single_min) })
+    if (ml.single_max > 0 && payBaseAmount.value > ml.single_max) return t('payment.amountTooHigh', { max: formatSelectedPaymentAmount(ml.single_max) })
   }
   return ''
 })
 
 const canSubmit = computed(() =>
   validAmount.value > 0
-    && amountFitsMethod(validAmount.value, selectedMethod.value)
+    && amountFitsMethod(payBaseAmount.value, selectedMethod.value)
     && selectedLimit.value?.available !== false
 )
 
@@ -1054,7 +1039,7 @@ const canSubmitSubscription = computed(() =>
 )
 
 // Auto-switch to first available method when current selection can't handle the amount
-watch(() => [validAmount.value, selectedMethod.value] as const, ([amt, method]) => {
+watch(() => [payBaseAmount.value, selectedMethod.value] as const, ([amt, method]) => {
   if (amt <= 0 || amountFitsMethod(amt, method)) return
   const available = enabledMethods.value.find((m) => amountFitsMethod(amt, m))
   if (available) selectedMethod.value = available
@@ -1123,15 +1108,13 @@ function closeRenewalModal() {
 
 async function handleSubmitRecharge() {
   if (!canSubmit.value || submitting.value) return
-  // 充值赠送活动到期防呆：用户停留时间过长时，页面上的 banner /
-  // breakdown 加赠行依然来自 onMounted 时拿到的 checkout-info 快照
-  // （rechargePromo 不会自己刷），但 valid_until 已经悄悄过期了。
-  // 后端在 createOrder 时会按服务器当前时间重新判窗，赠送会被静默
-  // 拒绝 —— 那一刻用户已经付完钱、看着账单和 UI 上 +$X.XX 对不上号
-  // 才反应过来，体验非常糟糕。
+  // 充值优惠到期防呆：用户停留时间过长时，页面上的 banner / 价签 /
+  // 摘要优惠行依然来自 onMounted 时拿到的 checkout-info 快照，但
+  // valid_until 已经悄悄过期了。后端在 createOrder 时会按服务器当前
+  // 时间重新报价，优惠会被静默取消 —— 用户看到的金额与实际对不上。
   //
   // 这里在客户端判窗 + 二次确认：只要 valid_until 已过就先弹一个
-  // 模态告诉用户"加赠没了，是否仍继续"，确认后才走老路。判断只发
+  // 模态告诉用户"优惠没了，是否仍继续"，确认后才走老路。判断只发
   // 生在点击的瞬间（一次性 Date.now() 比较），不需要轮询定时器；
   // 那种情况发生频率远低于支付主流程，加 setInterval 反而引入清理
   // 复杂度。
@@ -1140,13 +1123,12 @@ async function handleSubmitRecharge() {
     showPromoExpiredModal.value = true
     return
   }
-  // 把当前金额的赠送预览金额（与后端 ResolveRechargeBonus 同算法
-  // mirror）随请求带给 server。这是触发 server 端 RECHARGE_PROMO_EXPIRED
-  // 二次校验的唯一信号 — 只有 client 明确表明"我正在向用户展示 $X
-  // 赠送"时，server 才会在赠送实际不发的时候返回 409；其它路径
-  // (订阅 / recovery 重放) 不传该字段，server 一律放行。
+  // 把当前金额的优惠预览（与后端 quoteRechargeBonus 同算法 mirror）随请求
+  // 带给 server。这是触发 server 端 RECHARGE_PROMO_EXPIRED 二次校验的唯一
+  // 信号 — 只有 client 明确表明"我正在向用户展示优惠"时，server 才会在
+  // 优惠实际不发的时候返回 409；其它路径（订阅 / recovery 重放）不传该字段。
   await createOrder(validAmount.value, 'balance', undefined, {
-    expectedBonus: bonusForAmount(validAmount.value),
+    expectedBonus: bonusQuote.value.bonus,
   })
 }
 
@@ -1161,13 +1143,11 @@ async function confirmRechargeAfterPromoExpired() {
   showPromoExpiredModal.value = false
   pendingExpiredAmount.value = 0
   if (amt > 0) {
-    // 用户已二次确认；带 ack=true 重发，server 跳过 promo 拦截。
-    // expectedBonus 仍传当前的本地预览：让 server 能精确比对（虽然
-    // 在 ack=true 路径下 server 不再读这个字段做拦截判定，仍透传
-    // 是为了语义自包含 — 这次提交在客户端的"期待"是什么，链路上始终
-    // 一致）。fulfillment 阶段按服务器时间重判窗，不会因此误发赠送。
+    // 用户已二次确认；带 ack=true 重发，server 跳过优惠拦截。
+    // expectedBonus 仍传当前的本地预览，保持这次提交"期待"在链路上一致；
+    // server 报价按服务器时间判窗，不会因此误发优惠。
     await createOrder(amt, 'balance', undefined, {
-      expectedBonus: bonusForAmount(amt),
+      expectedBonus: expectedBonusFor(amt),
       promoExpiredAcknowledged: true,
     })
   }
@@ -1351,7 +1331,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     }
   } catch (err: unknown) {
     const apiErr = err as Record<string, unknown>
-    // 充值赠送活动到期 — 服务端兜底拦截。
+    // 充值优惠到期 — 服务端兜底拦截。
     //
     // 客户端时钟可能慢于真实时间，本地 isPromoExpiredNow() 漏判时
     // server 会返回 409 RECHARGE_PROMO_EXPIRED；我们必须把这条错误
@@ -1553,9 +1533,9 @@ onMounted(async () => {
   try {
     const res = await paymentAPI.getCheckoutInfo()
     checkout.value = res.data
-    // 把活动配置同步到 payment store，让侧边栏 /purchase 红点直接复用，
+    // 把优惠配置同步到 payment store，让侧边栏 /purchase 红点直接复用，
     // 避免两侧各自再发一次 checkout-info。
-    paymentStore.setRechargePromo(res.data?.recharge_promo ?? null)
+    paymentStore.setRechargePromo(rechargePromoFromCheckout(res.data))
     if (enabledMethods.value.length) {
       const order: readonly string[] = METHOD_ORDER
       const sorted = [...enabledMethods.value].sort((a, b) => {

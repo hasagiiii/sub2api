@@ -255,8 +255,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyCompanyUpgradeFee] = strconv.FormatFloat(settings.CompanyUpgradeFee, 'f', -1, 64)
 	updates[SettingKeyCompanyApplicationsEnabled] = strconv.FormatBool(settings.CompanyApplicationsEnabled)
 	updates[SettingKeyCompanyIAMEnabled] = strconv.FormatBool(settings.CompanyIAMEnabled)
-	updates[SettingKeyCompanyPublicIDsFinalized] = strconv.FormatBool(settings.CompanyPublicIDsFinalized)
-	updates[SettingKeyCompanyBillingIntegrationEnabled] = strconv.FormatBool(settings.CompanyBillingIntegrationEnabled)
 	updates[SettingKeyCompanyDocumentationURL] = strings.TrimSpace(settings.CompanyDocumentationURL)
 	updates[SettingKeyAuditLogRetentionDays] = strconv.Itoa(settings.AuditLogRetentionDays)
 

@@ -338,7 +338,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
-	if err := NormalizeOpenCodeGoProtocolRulesCredentials(input.Credentials); err != nil {
+	if err := NormalizeProtocolRulesCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
 	duplicate, err := buildAccountForCreate(input, accountExtra)
@@ -429,6 +429,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	accountExtra = MergeOpenAICodexTicketExtra(accountExtra, nil)
 	if input.Platform == PlatformBytedance && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("bytedance accounts require apikey authentication")
+	}
+	if input.Platform == PlatformTypeSafe && input.Type != AccountTypeAPIKey {
+		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
@@ -564,7 +567,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
-	if err := NormalizeOpenCodeGoProtocolRulesCredentials(input.Credentials); err != nil {
+	if err := NormalizeProtocolRulesCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
 	// Never persist ephemeral SSO/password secrets after OAuth conversion.
@@ -642,6 +645,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if account.Platform == PlatformTypeSafe && input.Type != "" && input.Type != AccountTypeAPIKey {
+		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
 	var normalizedExtra map[string]any
 	if input.Extra != nil {
@@ -722,7 +728,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err := NormalizeHeaderOverrideCredentials(account.Credentials); err != nil {
 			return nil, err
 		}
-		if err := NormalizeOpenCodeGoProtocolRulesCredentials(account.Credentials); err != nil {
+		if err := NormalizeProtocolRulesCredentials(account.Credentials); err != nil {
 			return nil, err
 		}
 		// Strip SSO/password residue that must never sit next to OAuth tokens.
@@ -1262,7 +1268,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	if err := NormalizeHeaderOverrideCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
-	if err := NormalizeOpenCodeGoProtocolRulesCredentials(input.Credentials); err != nil {
+	if err := NormalizeProtocolRulesCredentials(input.Credentials); err != nil {
 		return nil, err
 	}
 	// A bulk mapping edit without a scope is an explicit legacy allowlist edit.

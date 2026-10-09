@@ -122,19 +122,17 @@ type SimpleModeConfig struct {
 }
 
 type CompanyConfig struct {
-	ApplicationsEnabled       bool    `mapstructure:"applications_enabled"`
-	IAMEnabled                bool    `mapstructure:"iam_enabled"`
-	PublicIDsFinalized        bool    `mapstructure:"public_ids_finalized"`
-	BillingIntegrationEnabled bool    `mapstructure:"billing_integration_enabled"`
-	DocumentationURL          string  `mapstructure:"documentation_url"`
-	UpgradeFee                float64 `mapstructure:"upgrade_fee"`
-	UpgradeCurrency           string  `mapstructure:"upgrade_currency"`
-	DefaultMemberLimit        int     `mapstructure:"default_member_limit"`
-	OutboxPollSeconds         int     `mapstructure:"outbox_poll_seconds"`
-	OutboxMaxAttempts         int     `mapstructure:"outbox_max_attempts"`
-	ReconcileIntervalSeconds  int     `mapstructure:"reconcile_interval_seconds"`
-	ReviewQueueAlertSeconds   int     `mapstructure:"review_queue_alert_seconds"`
-	OutboxLagAlertSeconds     int     `mapstructure:"outbox_lag_alert_seconds"`
+	ApplicationsEnabled      bool    `mapstructure:"applications_enabled"`
+	IAMEnabled               bool    `mapstructure:"iam_enabled"`
+	DocumentationURL         string  `mapstructure:"documentation_url"`
+	UpgradeFee               float64 `mapstructure:"upgrade_fee"`
+	UpgradeCurrency          string  `mapstructure:"upgrade_currency"`
+	DefaultMemberLimit       int     `mapstructure:"default_member_limit"`
+	OutboxPollSeconds        int     `mapstructure:"outbox_poll_seconds"`
+	OutboxMaxAttempts        int     `mapstructure:"outbox_max_attempts"`
+	ReconcileIntervalSeconds int     `mapstructure:"reconcile_interval_seconds"`
+	ReviewQueueAlertSeconds  int     `mapstructure:"review_queue_alert_seconds"`
+	OutboxLagAlertSeconds    int     `mapstructure:"outbox_lag_alert_seconds"`
 }
 
 // AsyncMediaConfig 异步媒体（fal 等异步图片平台）任务相关配置。
@@ -2828,8 +2826,6 @@ func setEnvReachableDefaults() {
 	// explicitly attest that public IDs and every billing path are ready.
 	viper.SetDefault("company.applications_enabled", false)
 	viper.SetDefault("company.iam_enabled", false)
-	viper.SetDefault("company.public_ids_finalized", false)
-	viper.SetDefault("company.billing_integration_enabled", false)
 	viper.SetDefault("company.documentation_url", "")
 	viper.SetDefault("company.upgrade_fee", 20.0)
 	viper.SetDefault("company.upgrade_currency", "USD")
@@ -2858,9 +2854,6 @@ func (c *Config) Validate() error {
 	}
 	if c.Company.ReconcileIntervalSeconds < 1 || c.Company.ReviewQueueAlertSeconds < 1 || c.Company.OutboxLagAlertSeconds < 1 {
 		return fmt.Errorf("company reconciliation interval and alert thresholds must be positive")
-	}
-	if (c.Company.ApplicationsEnabled || c.Company.IAMEnabled) && (!c.Company.PublicIDsFinalized || !c.Company.BillingIntegrationEnabled) {
-		return fmt.Errorf("company features require public_ids_finalized and billing_integration_enabled")
 	}
 	c.Company.DocumentationURL = strings.TrimSpace(c.Company.DocumentationURL)
 	if c.Company.DocumentationURL != "" {

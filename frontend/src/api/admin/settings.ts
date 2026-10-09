@@ -4,12 +4,15 @@
  */
 
 import { apiClient } from "../client";
+import { listPlatformIds } from "@/constants/platformCatalog";
 import type {
+  AccountPlatform,
   CustomEndpoint,
   CustomMenuItem,
   LoginAgreementDocument,
   NotifyEmailEntry,
 } from "@/types";
+import type { RechargeBonusTier } from "@/utils/rechargeBonus";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
@@ -24,24 +27,27 @@ export interface SupportChatFAQ {
 }
 
 // ── 平台限额类型 ──────────────────────────────────────────────────
-export type PlatformType =
-  | "anthropic"
-  | "openai"
-  | "gemini"
-  | "antigravity"
-  | "kiro"
-  | "grok"
-  | "fal"
-  | "leonardo"
-  | "atlascloud"
-  | "apiz"
-  | "higgsfield"
-  | "bytedance"
-  | "kimi"
-  | "zhipu"
-  | "deepseek"
-  | "minimax"
-  | "opencode_go"
+/** 可设置默认限额的平台：平台清单中的全部具体平台（与后端 AllowedQuotaPlatforms 同源）。 */
+export type PlatformType = AccountPlatform
+// ── 可信代理动态拉取（switch-trusted-proxies-dynamic）─────────────
+export interface TrustedProxyDynamicSource {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  interval_seconds: number;
+  timeout_seconds: number;
+}
+
+export interface TrustedProxyDynamicSourceStatus {
+  id: string;
+  last_run_at?: string;
+  last_success_at?: string;
+  last_error?: string;
+  cidr_count: number;
+  next_run_at?: string;
+}
+
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
 
 /** 单平台三档限额；null = 不限制，undefined = 未填（等价 null） */
@@ -54,25 +60,6 @@ export interface PlatformQuotaLimits {
 /** 全平台默认限额 map（key = PlatformType） */
 export type DefaultPlatformQuotasMap = Partial<Record<PlatformType, PlatformQuotaLimits>>
 
-export const PLATFORM_QUOTA_PLATFORMS: PlatformType[] = [
-  "anthropic",
-  "openai",
-  "gemini",
-  "antigravity",
-  "kiro",
-  "grok",
-  "fal",
-  "leonardo",
-  "atlascloud",
-  "apiz",
-  "higgsfield",
-  "bytedance",
-  "kimi",
-  "zhipu",
-  "deepseek",
-  "minimax",
-  "opencode_go",
-]
 
 export type SchedulingThresholdPlatformType =
   | "openai"
@@ -82,11 +69,12 @@ export type SchedulingThresholdPlatformType =
   | "zhipu"
   | "minimax"
   | "opencode_go"
+  | "command_code"
 
 export type AccountSchedulingThresholdsMap = Record<SchedulingThresholdPlatformType, number>
 
 // 与后端 AllowedSchedulingThresholdPlatforms 保持一致（deepseek 为余额型，
-// 走余额检测而非用量阈值；minimax Coding/Token Plan 与 OpenCode GO 有滚动窗口）。
+// 走余额检测而非用量阈值；minimax Coding/Token Plan、OpenCode GO 与 Command Code 有滚动窗口）。
 export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] = [
   "openai",
   "anthropic",
@@ -95,6 +83,7 @@ export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] =
   "zhipu",
   "minimax",
   "opencode_go",
+  "command_code",
 ]
 
 export function normalizeAccountSchedulingThresholdsMap(
@@ -116,10 +105,10 @@ export function sanitizeAccountSchedulingThresholdsMap(
   return normalizeAccountSchedulingThresholdsMap(input)
 }
 
-/** 归一化为全部支持平台 × 3 窗口（缺失填 null），供模板非空绑定 */
+/** 归一化为全部平台 × 3 窗口（缺失填 null），供模板非空绑定 */
 export function normalizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | null): DefaultPlatformQuotasMap {
   const result: DefaultPlatformQuotasMap = {}
-  for (const p of PLATFORM_QUOTA_PLATFORMS) {
+  for (const p of listPlatformIds()) {
     const src = input?.[p]
     result[p] = {
       daily:   typeof src?.daily === "number" ? src.daily : null,
@@ -130,11 +119,11 @@ export function normalizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | nu
   return result
 }
 
-/** 提交前清洗：非有限数/负数/空字符串 → null（保留 0 = 显式禁用），返回完整平台嵌套 map */
+/** 提交前清洗：非有限数/负数/空字符串 → null（保留 0 = 显式禁用），返回全部平台嵌套 map */
 export function sanitizePlatformQuotasMap(input?: DefaultPlatformQuotasMap | null): DefaultPlatformQuotasMap {
   const clean = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null)
   const result: DefaultPlatformQuotasMap = {}
-  for (const p of PLATFORM_QUOTA_PLATFORMS) {
+  for (const p of listPlatformIds()) {
     const src = input?.[p]
     result[p] = { daily: clean(src?.daily), weekly: clean(src?.weekly), monthly: clean(src?.monthly) }
   }
@@ -458,6 +447,14 @@ export interface SystemSettings {
   session_binding_enabled: boolean; // 会话 IP/UA 绑定
   step_up_enabled: boolean; // 敏感操作 step-up 2FA
   audit_log_retention_days: number; // 审计日志保留天数
+
+  // 可信代理动态拉取（switch-trusted-proxies-dynamic）
+  trusted_proxies_dynamic_enabled: boolean;
+  trusted_proxies_dynamic_sources: TrustedProxyDynamicSource[];
+  trusted_proxies_dynamic_extra_cidrs: string[];
+  // 只读展示字段
+  trusted_proxies_static_cidrs: string[];
+  trusted_proxies_dynamic_source_statuses: TrustedProxyDynamicSourceStatus[];
   login_agreement_enabled: boolean;
   login_agreement_mode: "modal" | "checkbox" | string;
   login_agreement_updated_at: string;
@@ -535,10 +532,11 @@ export interface SystemSettings {
   company_upgrade_fee?: number;
   company_applications_enabled: boolean;
   company_iam_enabled: boolean;
-  company_public_ids_finalized?: boolean;
-  company_billing_integration_enabled?: boolean;
   company_documentation_url: string;
   custom_menu_items: CustomMenuItem[];
+  custom_menu_embed_auth_params: boolean;
+  /** 后端派生的自定义菜单版本 hash（只读） */
+  custom_menu_version: string;
   custom_endpoints: CustomEndpoint[];
   // SMTP settings
   smtp_host: string;
@@ -730,6 +728,12 @@ export interface SystemSettings {
   payment_balance_recharge_multiplier: number;
   payment_subscription_usd_to_cny_rate: number;
   payment_recharge_fee_rate: number;
+  payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_mode?: string;
+  payment_recharge_bonus_notice?: string;
+  /** 优惠有效期（RFC3339）；空串表示该端不设限 */
+  payment_recharge_bonus_valid_from?: string;
+  payment_recharge_bonus_valid_until?: string;
   payment_load_balance_strategy: string;
   payment_product_name_prefix: string;
   payment_product_name_suffix: string;
@@ -793,6 +797,7 @@ export interface SystemSettings {
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
+  video_feature_enabled: boolean;
 
   // The Pelican showcase settings are edited on the Smart Ops page (api/admin/pelicanTests).
 
@@ -882,6 +887,10 @@ export interface UpdateSettingsRequest {
   session_binding_enabled?: boolean; // 会话 IP/UA 绑定
   step_up_enabled?: boolean; // 敏感操作 step-up 2FA
   audit_log_retention_days?: number; // 审计日志保留天数
+  // 可信代理动态拉取
+  trusted_proxies_dynamic_enabled?: boolean;
+  trusted_proxies_dynamic_sources?: TrustedProxyDynamicSource[];
+  trusted_proxies_dynamic_extra_cidrs?: string[];
   login_agreement_enabled?: boolean;
   login_agreement_mode?: "modal" | "checkbox" | string;
   login_agreement_updated_at?: string;
@@ -952,8 +961,6 @@ export interface UpdateSettingsRequest {
   company_upgrade_fee?: number;
   company_applications_enabled?: boolean;
   company_iam_enabled?: boolean;
-  company_public_ids_finalized?: boolean;
-  company_billing_integration_enabled?: boolean;
   company_documentation_url?: string;
   compact_home_enabled?: boolean;
   hide_ccs_import_button?: boolean;
@@ -961,6 +968,7 @@ export interface UpdateSettingsRequest {
   table_page_size_options?: number[];
   backend_mode_enabled?: boolean;
   custom_menu_items?: CustomMenuItem[];
+  custom_menu_embed_auth_params?: boolean;
   custom_endpoints?: CustomEndpoint[];
   smtp_host?: string;
   smtp_port?: number;
@@ -1123,6 +1131,12 @@ export interface UpdateSettingsRequest {
   payment_balance_recharge_multiplier?: number;
   payment_subscription_usd_to_cny_rate?: number;
   payment_recharge_fee_rate?: number;
+  payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_mode?: string;
+  payment_recharge_bonus_notice?: string;
+  /** 优惠有效期（RFC3339）；空串表示该端不设限 */
+  payment_recharge_bonus_valid_from?: string;
+  payment_recharge_bonus_valid_until?: string;
   payment_load_balance_strategy?: string;
   payment_product_name_prefix?: string;
   payment_product_name_suffix?: string;
@@ -1174,6 +1188,7 @@ export interface UpdateSettingsRequest {
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
+  video_feature_enabled?: boolean;
 
   // Subscription feature switch
   subscription_enabled?: boolean;
@@ -1627,6 +1642,40 @@ export async function updateRectifierSettings(
   return data;
 }
 
+// ==================== Fal Upscale Settings ====================
+
+/** fal upscale 系统配置（OpenAI 出图回包分辨率不足时同步放大）。 */
+export interface FalUpscaleSettings {
+  endpoint: string;
+  timeout_seconds: number;
+  /** token 仅回显是否已设置，不回显明文 */
+  token_set: boolean;
+}
+
+/** 更新入参：token 为空表示保留现有 token。 */
+export interface UpdateFalUpscaleSettings {
+  endpoint: string;
+  timeout_seconds: number;
+  token: string;
+}
+
+export async function getFalUpscaleSettings(): Promise<FalUpscaleSettings> {
+  const { data } = await apiClient.get<FalUpscaleSettings>(
+    "/admin/settings/fal-upscale",
+  );
+  return data;
+}
+
+export async function updateFalUpscaleSettings(
+  settings: UpdateFalUpscaleSettings,
+): Promise<FalUpscaleSettings> {
+  const { data } = await apiClient.put<FalUpscaleSettings>(
+    "/admin/settings/fal-upscale",
+    settings,
+  );
+  return data;
+}
+
 // ==================== OpenAI Fast Policy Settings ====================
 
 /**
@@ -1759,6 +1808,38 @@ export async function resetWebSearchUsage(payload: {
   );
 }
 
+// ── Support Chat：外部 LLM 凭据探活（change-support-chat-external-llm §4） ──
+//
+// 让 admin 在 Settings 页里点 "Test connection" 探测一下当前填的 base_url + api_key
+// 是否能 reach 到一个 OpenAI-compatible 上游。后端会 5s 超时 POST 一个 max_tokens=1
+// 的 ping payload，并把结果归一化成 ok/latency/status_code/error 四字段返回。
+export interface TestSupportChatLLMConnectionRequest {
+  base_url: string;
+  /** 可以是 cleartext，也可以是后端 GET 下发的掩码——后端会识别掩码并替换为已存值。 */
+  api_key: string;
+  /** 可选：缺省时后端取 support_chat_model（gpt-4o-mini）。 */
+  model?: string;
+}
+
+export interface TestSupportChatLLMConnectionResult {
+  ok: boolean;
+  latency_ms: number;
+  /** 没真正发出 HTTP（如 invalid_base_url）时为 null。 */
+  status_code: number | null;
+  /** 归一化错误码：timeout / dns_lookup_failed / connection_refused / tls_error / invalid_base_url / missing_api_key / upstream non-2xx / 或上游 error.message 原文。 */
+  error?: string;
+}
+
+export async function adminTestSupportChatLLMConnection(
+  payload: TestSupportChatLLMConnectionRequest,
+): Promise<TestSupportChatLLMConnectionResult> {
+  const { data } = await apiClient.post<TestSupportChatLLMConnectionResult>(
+    "/admin/support/chat/test-llm-connection",
+    payload,
+  );
+  return data;
+}
+
 export const settingsAPI = {
   getSettings,
   updateSettings,
@@ -1782,6 +1863,8 @@ export const settingsAPI = {
   updateStreamTimeoutSettings,
   getRectifierSettings,
   updateRectifierSettings,
+  getFalUpscaleSettings,
+  updateFalUpscaleSettings,
   getBetaPolicySettings,
   updateBetaPolicySettings,
   getWebSearchEmulationConfig,

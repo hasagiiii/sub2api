@@ -50,21 +50,10 @@ func (PaymentOrder) Fields() []ent.Field {
 		field.Float("fee_rate").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(0),
-		// 充值赠送金额（promo bonus）。订单结算时计算并落字段，便于审计/退款。
-		// 仅 order_type = balance 的订单可能为非零；订阅订单始终为 0。
+		// 充值赠送额度（USD）。已计入 amount；单独记录用于订单展示与推广返利基数剔除。
 		field.Float("bonus_amount").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,2)"}).
 			Default(0),
-		// 命中的赠送档位倍率（如 0.05 = 5%）。冗余存储，便于历史报表分组。
-		field.Float("bonus_rate").
-			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
-			Default(0),
-		// 命中的活动 id，对应 recharge_promo_activities.id。命中赠送（bonus_amount > 0）
-		// 时填入；订阅订单或未命中赠送时为 NULL。
-		// 关联保留为弱引用（不建外键约束），以便后续清理活动历史不会反向影响订单审计。
-		field.Int64("activity_id").
-			Optional().
-			Nillable(),
 		field.String("recharge_code").
 			MaxLen(64),
 

@@ -5,6 +5,7 @@
  * 其中 `models` 接口的 query 参数已在后端校验：`q` ≤ 64 字符。
  */
 
+import type { RechargeBonusTier } from '@/types/payment'
 import { apiClient } from './client'
 
 // ==================== Types ====================
@@ -110,32 +111,20 @@ export interface PlazaPlansResponse {
 // ==================== Public Recharge Promo ====================
 
 /**
- * Single bonus tier on a public recharge campaign.
+ * Active recharge promotion returned by `GET /api/v1/plaza/recharge-promo`.
  *
- * Mirrors `dto.PublicRechargePromoTierDTO` 1-to-1.
- */
-export interface PublicRechargePromoTier {
-  /** Inclusive lower bound of the tier (CNY). */
-  min_amount: number
-  /** Multiplicative bonus rate, e.g. 0.05 means +5% extra USD credited. */
-  bonus_rate: number
-}
-
-/**
- * Active recharge campaign payload returned by `GET /api/v1/plaza/recharge-promo`.
- *
- * Mirrors `dto.PublicRechargePromoDTO` exactly. The backend deliberately
- * **omits** `enabled` (presence implies enabled) and `activity_id`
- * (internal audit field) compared to the authenticated `checkout-info`
- * counterpart. The `version` string is the same dismiss-key contract
- * (`{id}:{updated_at_unix}`) used elsewhere.
+ * Mirrors `dto.PublicRechargePromoDTO`: derived from the recharge bonus tiers
+ * configuration and only present while the tiers are non-empty and inside the
+ * validity window. `version` is the same red-dot dismiss-key fingerprint the
+ * authenticated checkout-info returns as `recharge_bonus_version`.
  */
 export interface PublicRechargePromo {
-  /** Operator-authored display name; used as the banner title. Plain text — never inject as HTML. */
-  name: string
+  /** bonus: extra credit (`bonus_percent` is the bonus %); discount: `bonus_percent` is the discount %. */
+  mode: 'bonus' | 'discount'
   valid_from?: string
   valid_until?: string
-  tiers: PublicRechargePromoTier[]
+  /** Ascending by `min_amount` (payment currency). */
+  tiers: RechargeBonusTier[]
   version: string
 }
 

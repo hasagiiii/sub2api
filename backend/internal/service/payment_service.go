@@ -90,19 +90,19 @@ type CreateOrderRequest struct {
 	// 仅对 OrderType = subscription 有意义；为 0 时保持个人订单行为不变。
 	OrganizationID int64
 	Locale         string
-	// ClientExpectedBonus 携带前端在提交瞬间、对 Amount 算出的赠送
-	// 预览金额（mirror 算法 = ResolveRechargeBonus）。仅当前端正在向
-	// 用户展示一笔 > 0 的赠送时才有值；订阅订单 / 未到档 / 无活动
+	// ClientExpectedBonus 携带前端在提交瞬间、对 Amount 算出的优惠
+	// 免费额度预览（mirror 算法 = quoteRechargeBonus）。仅当前端正在向
+	// 用户展示一笔 > 0 的优惠时才有值；订阅订单 / 未到档 / 不在有效期
 	// 一律为 0。
 	//
-	// CreateOrder 用它配合服务端当前时间二次判窗：用户期待赠送但
-	// 服务端已不再发放（活动 valid_until 已过 / 禁用 / 删除）→ 返回
+	// CreateOrder 用它配合服务端当前时间二次判窗：用户期待优惠但
+	// 服务端已不再发放（有效期已过 / 阶梯被清空）→ 返回
 	// 409 RECHARGE_PROMO_EXPIRED 让前端弹二次确认。该字段不进入金额
 	// 计算、不写订单；只是 UX 通知层的触发条件。
 	ClientExpectedBonus float64
 	// PromoExpiredAcknowledged = 用户在二次确认 modal 上点过"继续
-	// 充值"，重发请求时携带此标志，CreateOrder 跳过 promo 拦截。
-	// fulfillment 阶段仍按服务器时间硬判窗，不会误发赠送。
+	// 充值"，重发请求时携带此标志，CreateOrder 跳过优惠拦截。
+	// 报价仍按服务器时间判窗，不会误发优惠。
 	PromoExpiredAcknowledged bool
 }
 
@@ -111,6 +111,7 @@ type CreateOrderResponse struct {
 	Amount                        float64                         `json:"amount"`
 	PayAmount                     float64                         `json:"pay_amount"`
 	FeeRate                       float64                         `json:"fee_rate"`
+	BonusAmount                   float64                         `json:"bonus_amount"`
 	Status                        string                          `json:"status"`
 	ResultType                    payment.CreatePaymentResultType `json:"result_type,omitempty"`
 	PaymentType                   string                          `json:"payment_type"`

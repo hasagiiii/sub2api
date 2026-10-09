@@ -368,6 +368,36 @@
         </div>
       </transition>
     </teleport>
+    <ConfirmDialog :show="showRestoreDialog" :title="t('admin.backup.actions.restore')" :message="t('admin.backup.actions.restoreConfirm')" :confirm-text="t('common.confirm')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmRestore" @cancel="showRestoreDialog = false" />
+    <BaseDialog :show="showRestorePasswordDialog" :title="t('admin.backup.actions.restore')" width="narrow" @close="cancelRestorePassword">
+      <form id="restore-backup-password-form" class="space-y-4" @submit.prevent="submitRestorePassword">
+        <Input
+          v-model="restorePassword"
+          type="password"
+          :label="t('admin.backup.actions.restorePasswordPrompt')"
+          :placeholder="t('admin.backup.actions.restorePasswordPrompt')"
+          autocomplete="current-password"
+          required
+        />
+      </form>
+
+      <template #footer>
+        <div class="flex justify-end space-x-3">
+          <button type="button" class="btn btn-secondary" @click="cancelRestorePassword">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-danger"
+            :disabled="!restorePassword.trim() || Boolean(restoringId)"
+            @click="submitRestorePassword"
+          >
+            {{ restoringId ? t('common.loading') : t('common.confirm') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+    <ConfirmDialog :show="showRemoveDialog" :title="t('admin.backup.actions.delete')" :message="t(pendingRemoveArchived ? 'admin.backup.archive.deleteConfirm' : 'admin.backup.actions.deleteConfirm')" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmRemove" @cancel="showRemoveDialog = false" />
     <!-- 分卷下载链接 -->
     <teleport to="body">
       <transition name="modal">
@@ -418,6 +448,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'
 import { useAppStore } from '@/stores'
+import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import Input from '@/components/common/Input.vue'
 import type {
   BackupS3Config,
   BackupScheduleConfig,
@@ -529,6 +562,13 @@ const backups = ref<BackupRecord[]>([])
 const loadingBackups = ref(false)
 const creatingBackup = ref(false)
 const restoringId = ref('')
+const showRestoreDialog = ref(false)
+const showRestorePasswordDialog = ref(false)
+const pendingRestoreId = ref('')
+const restorePassword = ref('')
+const showRemoveDialog = ref(false)
+const pendingRemoveId = ref('')
+const pendingRemoveArchived = computed(() => !!backups.value.find(record => record.id === pendingRemoveId.value)?.monthly_archive)
 const manualExpireDays = ref(14)
 const downloadParts = ref<BackupDownloadPart[]>([])
 const downloadPartsModalOpen = ref(false)
@@ -537,6 +577,7 @@ const downloadPartsModalOpen = ref(false)
 const pollingTimer = ref<ReturnType<typeof setInterval> | null>(null)
 const restoringPollingTimer = ref<ReturnType<typeof setInterval> | null>(null)
 const MAX_POLL_COUNT = 900
+let disposed = false
 
 function updateRecordInList(updated: BackupRecord) {
   const idx = backups.value.findIndex(r => r.id === updated.id)
@@ -546,6 +587,7 @@ function updateRecordInList(updated: BackupRecord) {
 }
 
 function startPolling(backupId: string) {
+  if (disposed) return
   stopPolling()
   let count = 0
   pollingTimer.value = setInterval(async () => {
@@ -582,6 +624,7 @@ function stopPolling() {
 }
 
 function startRestorePolling(backupId: string) {
+  if (disposed) return
   stopRestorePolling()
   let count = 0
   restoringPollingTimer.value = setInterval(async () => {
@@ -851,10 +894,29 @@ function closeDownloadParts() {
   downloadParts.value = []
 }
 
-async function restoreBackup(id: string) {
-  if (!window.confirm(t('admin.backup.actions.restoreConfirm'))) return
-  const password = window.prompt(t('admin.backup.actions.restorePasswordPrompt'))
-  if (!password) return
+function restoreBackup(id: string) {
+  pendingRestoreId.value = id
+  showRestoreDialog.value = true
+}
+async function confirmRestore() {
+  showRestoreDialog.value = false
+  restorePassword.value = ''
+  showRestorePasswordDialog.value = true
+}
+
+function cancelRestorePassword() {
+  showRestorePasswordDialog.value = false
+  restorePassword.value = ''
+  pendingRestoreId.value = ''
+}
+
+async function submitRestorePassword() {
+  const id = pendingRestoreId.value
+  const password = restorePassword.value
+  if (!id || !password.trim()) return
+  showRestorePasswordDialog.value = false
+  restorePassword.value = ''
+  pendingRestoreId.value = ''
   restoringId.value = id
   try {
     const record = await backupStepUp.run(() => adminAPI.backup.restoreBackup(id, password))
@@ -873,9 +935,16 @@ async function restoreBackup(id: string) {
   }
 }
 
-async function removeBackup(id: string) {
+function removeBackup(id: string) {
+  pendingRemoveId.value = id
+  showRemoveDialog.value = true
+}
+async function confirmRemove() {
+  showRemoveDialog.value = false
+  const id = pendingRemoveId.value
+  pendingRemoveId.value = ''
+  if (!id) return
   const archived = !!backups.value.find(record => record.id === id)?.monthly_archive
-  if (!window.confirm(t(archived ? 'admin.backup.archive.deleteConfirm' : 'admin.backup.actions.deleteConfirm'))) return
   try {
     await adminAPI.backup.deleteBackup(id, archived)
     appStore.showSuccess(t('admin.backup.actions.deleted'))
@@ -930,6 +999,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
   stopPolling()
   stopRestorePolling()
   document.removeEventListener('visibilitychange', handleVisibilityChange)

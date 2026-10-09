@@ -27,14 +27,14 @@ vi.mock('vue-i18n', async () => {
 
 function makePromo(over: Partial<PublicRechargePromo> = {}): PublicRechargePromo {
   return {
-    name: '春节充值大放送',
+    mode: 'bonus',
     valid_from: '2026-01-01T00:00:00Z',
     valid_until: '2026-02-01T00:00:00Z',
     tiers: [
-      { min_amount: 100, bonus_rate: 0.05 },
-      { min_amount: 500, bonus_rate: 0.1 },
+      { min_amount: 100, bonus_percent: 5 },
+      { min_amount: 500, bonus_percent: 10 },
     ],
-    version: '1:1700000000',
+    version: '0123456789abcdef',
     ...over,
   }
 }
@@ -88,14 +88,11 @@ describe('HomePromoBanner', () => {
     expect(ribbon.classes()).toContain('pointer-events-none')
   })
 
-  it('以纯文本渲染活动名（不走 v-html，挡 XSS）', async () => {
-    const malicious = makePromo({ name: '<script>alert(1)</script>恶意活动' })
-    const { wrapper } = await mountBanner(malicious)
-    const nameEl = wrapper.find('[data-test="home-promo-name"]')
-    // 文本里包含原始字符；HTML 里不能出现 <script> 标签
-    expect(nameEl.text()).toContain('<script>')
-    expect(nameEl.text()).toContain('恶意活动')
-    expect(wrapper.html()).not.toContain('<script>alert(1)')
+  it('标题按优惠模式取 i18n 文案（赠金 / 折扣）', async () => {
+    const bonus = await mountBanner(makePromo())
+    expect(bonus.wrapper.get('[data-test="home-promo-name"]').text()).toBe('home.promo.title_bonus')
+    const discount = await mountBanner(makePromo({ mode: 'discount' }))
+    expect(discount.wrapper.get('[data-test="home-promo-name"]').text()).toBe('home.promo.title_discount')
   })
 
   it('渲染每一档 tier，min_amount 透传 i18n 参数；rate% 由模板独立高亮渲染', async () => {
@@ -107,19 +104,19 @@ describe('HomePromoBanner', () => {
     // 金额段走 i18n key `tier_amount_label`，参数 min 透传
     expect(items[0].text()).toContain('home.promo.tier_amount_label')
     expect(items[0].text()).toContain('min=100')
-    // rate% 是模板侧的字面文本（formatBonusRate(0.05) → "5"，整数百分比保持纯整数）
+    // 百分比是模板侧的字面文本（整数百分比保持纯整数）
     expect(items[0].text()).toContain('+5%')
     expect(items[1].text()).toContain('min=500')
     expect(items[1].text()).toContain('+10%')
   })
 
-  it('hero "最高赠送 +X%" 行：从所有 tier 取最大 bonus_rate 渲染', async () => {
+  it('hero "最高赠送 +X%" 行：从所有 tier 取最大 bonus_percent 渲染', async () => {
     const { wrapper } = await mountBanner(
       makePromo({
         tiers: [
-          { min_amount: 100, bonus_rate: 0.05 },
-          { min_amount: 500, bonus_rate: 0.12 }, // 最高档
-          { min_amount: 300, bonus_rate: 0.08 },
+          { min_amount: 100, bonus_percent: 5 },
+          { min_amount: 500, bonus_percent: 12 }, // 最高档
+          { min_amount: 300, bonus_percent: 8 },
         ],
       }),
     )
@@ -130,11 +127,24 @@ describe('HomePromoBanner', () => {
     expect(html).toContain('+12%')
   })
 
+  it('折扣模式：hero 与档位均渲染 "X% OFF"', async () => {
+    const { wrapper } = await mountBanner(
+      makePromo({ mode: 'discount', tiers: [{ min_amount: 100, bonus_percent: 10 }, { min_amount: 500, bonus_percent: 15.5 }] }),
+    )
+    const headline = wrapper.get('[data-test="home-promo-headline"]').text()
+    expect(headline).toContain('home.promo.discount_headline_prefix')
+    expect(headline).toContain('15.5% OFF')
+    const items = wrapper.get('[data-test="home-promo-tiers"]').findAll('li')
+    expect(items[0].text()).toContain('10% OFF')
+    expect(wrapper.text()).not.toContain('+10%')
+  })
+
   it('tiers 全部为 0 / 负值时 hero 行不渲染（避免 "+0%"）', async () => {
     const { wrapper } = await mountBanner(
-      makePromo({ tiers: [{ min_amount: 100, bonus_rate: 0 }] }),
+      makePromo({ tiers: [{ min_amount: 100, bonus_percent: 0 }] }),
     )
     expect(wrapper.text()).not.toContain('home.promo.bonus_headline_prefix')
+    expect(wrapper.find('[data-test="home-promo-tiers"]').exists()).toBe(false)
   })
 
   it('tiers 为空数组时不渲染 tier 列表（防止空 <ul>）', async () => {

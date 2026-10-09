@@ -3,7 +3,6 @@ package dto
 import (
 	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -66,8 +65,6 @@ type SystemSettings struct {
 	CompanyUpgradeFee                   float64                         `json:"company_upgrade_fee"`
 	CompanyApplicationsEnabled          bool                            `json:"company_applications_enabled"`
 	CompanyIAMEnabled                   bool                            `json:"company_iam_enabled"`
-	CompanyPublicIDsFinalized           bool                            `json:"company_public_ids_finalized"`
-	CompanyBillingIntegrationEnabled    bool                            `json:"company_billing_integration_enabled"`
 	CompanyDocumentationURL             string                          `json:"company_documentation_url"`
 	// 可信代理动态拉取（switch-trusted-proxies-dynamic）
 	TrustedProxiesDynamicEnabled    bool                                `json:"trusted_proxies_dynamic_enabled"`
@@ -324,11 +321,18 @@ type SystemSettings struct {
 	PaymentBalanceRechargeMultiplier float64  `json:"payment_balance_recharge_multiplier"`
 	PaymentSubscriptionUSDToCNYRate  float64  `json:"payment_subscription_usd_to_cny_rate"`
 	PaymentRechargeFeeRate           float64  `json:"payment_recharge_fee_rate"`
-	PaymentLoadBalanceStrat          string   `json:"payment_load_balance_strategy"`
-	PaymentProductNamePrefix         string   `json:"payment_product_name_prefix"`
-	PaymentProductNameSuffix         string   `json:"payment_product_name_suffix"`
-	PaymentHelpImageURL              string   `json:"payment_help_image_url"`
-	PaymentHelpText                  string   `json:"payment_help_text"`
+	// 充值赠送阶梯与活动文案
+	PaymentRechargeBonusTiers  []RechargeBonusTier `json:"payment_recharge_bonus_tiers"`
+	PaymentRechargeBonusMode   string              `json:"payment_recharge_bonus_mode"`
+	PaymentRechargeBonusNotice string              `json:"payment_recharge_bonus_notice"`
+	// 优惠有效期（RFC3339），空串表示该端不设限
+	PaymentRechargeBonusValidFrom  string `json:"payment_recharge_bonus_valid_from"`
+	PaymentRechargeBonusValidUntil string `json:"payment_recharge_bonus_valid_until"`
+	PaymentLoadBalanceStrat        string `json:"payment_load_balance_strategy"`
+	PaymentProductNamePrefix       string `json:"payment_product_name_prefix"`
+	PaymentProductNameSuffix       string `json:"payment_product_name_suffix"`
+	PaymentHelpImageURL            string `json:"payment_help_image_url"`
+	PaymentHelpText                string `json:"payment_help_text"`
 
 	// Cancel rate limit
 	PaymentCancelRateLimitEnabled bool   `json:"payment_cancel_rate_limit_enabled"`
@@ -341,10 +345,6 @@ type SystemSettings struct {
 	PaymentAlipayForceQRCode bool `json:"payment_alipay_force_qrcode"`
 	// Use Alipay face-to-face precreate and an app deep link on mobile clients.
 	PaymentAlipayMobilePrecreateDeepLink bool `json:"payment_alipay_mobile_precreate_deep_link"`
-
-	// 充值赠送活动配置（与 BalanceRechargeMultiplier 互不影响，叠加方式为加法）。
-	// 当未配置或活动关闭时返回 nil，前端据此判断是否渲染 banner / 红点。
-	PaymentRechargePromo *AdminRechargePromo `json:"payment_recharge_promo,omitempty"`
 
 	// 余额、订阅到期与账号限额通知
 	BalanceLowNotifyEnabled         bool               `json:"balance_low_notify_enabled"`
@@ -671,58 +671,6 @@ type OpenAIFastPolicyRule struct {
 // OpenAIFastPolicySettings OpenAI fast 策略配置 DTO
 type OpenAIFastPolicySettings struct {
 	Rules []OpenAIFastPolicyRule `json:"rules"`
-}
-
-// AdminRechargePromo 是管理员表单交换的 RechargePromo DTO。
-// 与 service.RechargePromo 同形，但专门挂在 dto 层避免循环依赖。
-type AdminRechargePromo struct {
-	Enabled    bool                     `json:"enabled"`
-	ValidFrom  *time.Time               `json:"valid_from,omitempty"`
-	ValidUntil *time.Time               `json:"valid_until,omitempty"`
-	Tiers      []AdminRechargePromoTier `json:"tiers"`
-	Version    string                   `json:"version,omitempty"`
-}
-
-// AdminRechargePromoTier 一个赠送档位（金额单位 = 网关本币）。
-type AdminRechargePromoTier struct {
-	MinAmount float64 `json:"min_amount"`
-	BonusRate float64 `json:"bonus_rate"`
-}
-
-// AdminRechargePromoFromService 把 service 层结构转为 DTO，nil 透传。
-func AdminRechargePromoFromService(p *service.RechargePromo) *AdminRechargePromo {
-	if p == nil {
-		return nil
-	}
-	tiers := make([]AdminRechargePromoTier, 0, len(p.Tiers))
-	for _, t := range p.Tiers {
-		tiers = append(tiers, AdminRechargePromoTier{MinAmount: t.MinAmount, BonusRate: t.BonusRate})
-	}
-	return &AdminRechargePromo{
-		Enabled:    p.Enabled,
-		ValidFrom:  p.ValidFrom,
-		ValidUntil: p.ValidUntil,
-		Tiers:      tiers,
-		Version:    p.Version,
-	}
-}
-
-// ToService 把 DTO 转为 service 层结构，nil 透传；Version 字段会被服务层重新计算并覆盖。
-func (p *AdminRechargePromo) ToService() *service.RechargePromo {
-	if p == nil {
-		return nil
-	}
-	tiers := make([]service.RechargePromoTier, 0, len(p.Tiers))
-	for _, t := range p.Tiers {
-		tiers = append(tiers, service.RechargePromoTier{MinAmount: t.MinAmount, BonusRate: t.BonusRate})
-	}
-	return &service.RechargePromo{
-		Enabled:    p.Enabled,
-		ValidFrom:  p.ValidFrom,
-		ValidUntil: p.ValidUntil,
-		Tiers:      tiers,
-		Version:    p.Version,
-	}
 }
 
 // EmailTemplateEventOption 描述可编辑的通知邮件事件。

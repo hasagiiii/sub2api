@@ -95,11 +95,12 @@ vi.mock('@/utils/device', () => ({
 
 interface PromoTierFixture {
   min_amount: number
-  bonus_rate: number
+  bonus_percent: number
 }
 
+/** 对应 checkout-info 的 recharge_bonus_* 字段（后端只在有效期内下发阶梯与 version）。 */
 interface PromoFixture {
-  enabled: boolean
+  mode?: 'bonus' | 'discount'
   version: string
   valid_from?: string | null
   valid_until?: string | null
@@ -108,19 +109,19 @@ interface PromoFixture {
 
 function defaultPromoFixture(): PromoFixture {
   return {
-    enabled: true,
+    mode: 'bonus',
     version: 'v1',
     valid_from: null,
     valid_until: null,
     tiers: [
-      { min_amount: 100, bonus_rate: 0.05 },
-      { min_amount: 500, bonus_rate: 0.08 },
+      { min_amount: 100, bonus_percent: 5 },
+      { min_amount: 500, bonus_percent: 8 },
     ],
   }
 }
 
 interface CheckoutFixtureOptions {
-  /** undefined → 不下发 recharge_promo 字段；null → 字段为 null；object → 携带 promo。 */
+  /** undefined / null → 无优惠（阶梯为空）；object → 下发阶梯与有效期。 */
   promo?: PromoFixture | null
   balance_recharge_multiplier?: number
 }
@@ -150,8 +151,17 @@ function checkoutFixture(opts: CheckoutFixtureOptions = {}) {
     help_image_url: '',
     stripe_publishable_key: '',
   }
-  if ('promo' in opts) {
-    data.recharge_promo = opts.promo
+  if (opts.promo) {
+    data.recharge_bonus_tiers = opts.promo.tiers
+    data.recharge_bonus_mode = opts.promo.mode ?? 'bonus'
+    data.recharge_bonus_notice = ''
+    data.recharge_bonus_valid_from = opts.promo.valid_from ?? null
+    data.recharge_bonus_valid_until = opts.promo.valid_until ?? null
+    data.recharge_bonus_version = opts.promo.version
+  } else {
+    data.recharge_bonus_tiers = []
+    data.recharge_bonus_mode = 'bonus'
+    data.recharge_bonus_version = ''
   }
   return { data }
 }
@@ -188,40 +198,49 @@ describe('PaymentView · recharge bonus promo', () => {
   })
 
   describe('campaign banner', () => {
-    it('omits the promo banner when checkout-info has no recharge_promo', async () => {
+    it('omits the promo banner when checkout-info has no bonus tiers', async () => {
       getCheckoutInfo.mockResolvedValue(checkoutFixture())
       const wrapper = mountPaymentView()
       await flushPromises()
 
-      const html = wrapper.html()
-      expect(html).not.toContain('payment.promo.banner')
-      expect(html).not.toContain('payment.promo.bannerNoExpiry')
-      expect(html).not.toContain('payment.promo.tier')
+      expect(wrapper.find('[data-testid="recharge-promo-banner"]').exists()).toBe(false)
+      expect(setRechargePromo).toHaveBeenCalledWith(null)
     })
 
-    it('renders the no-expiry banner copy plus tier list when recharge_promo is present without valid_until', async () => {
+    it('renders the no-expiry banner copy when tiers are present without valid_until', async () => {
       getCheckoutInfo.mockResolvedValue(checkoutFixture({ promo: defaultPromoFixture() }))
       const wrapper = mountPaymentView()
       await flushPromises()
 
-      const html = wrapper.html()
       // t() 被 mock 成 identity，所以 i18n key 直接出现在 DOM 里。
-      expect(html).toContain('payment.promo.bannerNoExpiry')
-      expect(html).not.toContain('payment.promo.banner ') // 防止 `banner` 误判：实际渲染的是 bannerNoExpiry
-      expect(html).toContain('payment.promo.tier')
+      const banner = wrapper.get('[data-testid="recharge-promo-banner"]')
+      expect(banner.text()).toContain('payment.promo.bannerNoExpiry')
+      expect(banner.text()).toContain('payment.promo.customHint')
+      expect(setRechargePromo).toHaveBeenCalledWith(expect.objectContaining({ version: 'v1', mode: 'bonus' }))
+    })
+
+    it('renders the expiry banner copy when valid_until is configured', async () => {
+      getCheckoutInfo.mockResolvedValue(checkoutFixture({
+        promo: { ...defaultPromoFixture(), valid_until: '2999-01-01T00:00:00Z' },
+      }))
+      const wrapper = mountPaymentView()
+      await flushPromises()
+
+      const text = wrapper.get('[data-testid="recharge-promo-banner"]').text()
+      expect(text).toContain('payment.promo.banner')
+      expect(text).not.toContain('payment.promo.bannerNoExpiry')
     })
   })
 
   describe('breakdown bonus row', () => {
-    it('hides the bonus and total-credited rows when no amount is entered', async () => {
+    it('hides the bonus and credited rows when no amount is entered', async () => {
       getCheckoutInfo.mockResolvedValue(checkoutFixture({ promo: defaultPromoFixture() }))
       const wrapper = mountPaymentView()
       await flushPromises()
 
-      const html = wrapper.html()
       // 整张 breakdown 卡片都要求 validAmount > 0；金额为空时这两行根本不会出现。
-      expect(html).not.toContain('payment.promo.bonusLine')
-      expect(html).not.toContain('payment.promo.totalCredited')
+      expect(wrapper.find('[data-testid="recharge-bonus-row"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="recharge-credited-row"]').exists()).toBe(false)
     })
 
     it('keeps the bonus row hidden when the amount is below the lowest tier', async () => {
@@ -231,30 +250,27 @@ describe('PaymentView · recharge bonus promo', () => {
 
       const amountInput = wrapper.findComponent(AmountInput)
       expect(amountInput.exists()).toBe(true)
-      // 50 < 100（最低档），bonusForAmount → 0，bonus 行应保持隐藏。
+      // 50 < 100（最低档），quote.bonus → 0，bonus 行应保持隐藏。
       amountInput.vm.$emit('update:modelValue', 50)
       await flushPromises()
 
-      expect(wrapper.html()).not.toContain('payment.promo.bonusLine')
+      expect(wrapper.find('[data-testid="recharge-bonus-row"]').exists()).toBe(false)
     })
 
-    it('renders the bonus / total-credited rows once a tier-eligible amount is entered', async () => {
+    it('renders the bonus / credited rows once a tier-eligible amount is entered', async () => {
       getCheckoutInfo.mockResolvedValue(checkoutFixture({ promo: defaultPromoFixture() }))
       const wrapper = mountPaymentView()
       await flushPromises()
 
       const amountInput = wrapper.findComponent(AmountInput)
-      // 200 命中 (min_amount=100, bonus_rate=0.05)；
-      // bonus = ceil(200 × 1 × 0.05 × 100) / 100 = 10；total = 200 + 10 = 210。
+      // 200 命中 (min_amount=100, bonus_percent=5)；
+      // bonus = 200 × 1 × 5% = 10；到账 = 200 + 10 = 210。
       amountInput.vm.$emit('update:modelValue', 200)
       await flushPromises()
 
-      const html = wrapper.html()
-      expect(html).toContain('payment.promo.bonusLine')
-      expect(html).toContain('payment.promo.totalCredited')
       // 模板里 `+$` 与 `$` 是硬编码字符串，跟 i18n / formatPaymentAmount 解耦，断言稳定。
-      expect(html).toContain('+$10.00')
-      expect(html).toContain('$210.00')
+      expect(wrapper.get('[data-testid="recharge-bonus-row"]').text()).toContain('+$10.00')
+      expect(wrapper.get('[data-testid="recharge-credited-row"]').text()).toContain('$210.00')
     })
   })
 
@@ -302,7 +318,7 @@ describe('PaymentView · recharge bonus promo', () => {
      * 触发到期场景的最小 fixture：
      *   • 把 `valid_until` 钉在 2020 年 — 远比任何现实运行时早，
      *     `Date.now() >= ts` 必为真，无需 `vi.useFakeTimers`。
-     *   • tiers / enabled 保持默认，让 banner 与 breakdown 加赠行
+     *   • tiers 保持默认，让 banner 与 breakdown 加赠行
      *     仍然渲染——这正是题目里"用户停留过久，banner 还摆着但
      *     窗口期已过"的状态。
      */
@@ -402,7 +418,7 @@ describe('PaymentView · recharge bonus promo', () => {
       // 后端拦截判窗的唯一信号是这个字段——前端必须在每次 balance 提交
       // 时把"banner / breakdown 上正在向用户展示的赠送预览金额"如实
       // 上报。这里守 happy path：promo 还在窗口、用户付 200 → 命中
-      // 200×1×0.05 = 10 这一档，payload 必须带 client_expected_bonus=10。
+      // 200×1×5% = 10 这一档，payload 必须带 client_expected_bonus=10。
       // 一旦该字段被误删，server 的 RECHARGE_PROMO_EXPIRED 闸门会彻底
       // 失效（client 永远不发期待 → server 永远不拦），属于安全回归
       // 必须有测试守住。
@@ -426,6 +442,24 @@ describe('PaymentView · recharge bonus promo', () => {
       // 没确认过就不该带 ack；只有用户在 modal 上点了"继续充值"重发
       // 时才允许出现。
       expect(payload.promo_expired_acknowledged).toBeUndefined()
+    })
+
+    it('forwards the discount-mode free credit as client_expected_bonus', async () => {
+      // 折扣模式：输入 200、9 折 → 实付 180，到账仍 200，免费额度 = 20。
+      getCheckoutInfo.mockResolvedValue(checkoutFixture({
+        promo: { ...defaultPromoFixture(), mode: 'discount', tiers: [{ min_amount: 100, bonus_percent: 10 }] },
+      }))
+      createOrder.mockResolvedValue({})
+
+      const wrapper = mountPaymentView()
+      await flushPromises()
+      await enterTierAmount(wrapper, 200)
+
+      await findSubmitButton(wrapper).trigger('click')
+      await flushPromises()
+
+      const payload = createOrder.mock.calls[0]?.[0] as Record<string, unknown>
+      expect(payload).toMatchObject({ amount: 200, order_type: 'balance', client_expected_bonus: 20 })
     })
 
     // 服务端兜底路径：客户端时钟与服务端有偏差、或 admin 在用户停留期间
