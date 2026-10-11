@@ -76,6 +76,7 @@ type AccountHandler struct {
 	codexTicketSettings     *service.SettingService
 	codexHarvest            *service.CodexHarvestService
 	openAIGatewayService    *service.OpenAIGatewayService
+	accountUserLimit        *service.AccountUserLimitService
 }
 
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.

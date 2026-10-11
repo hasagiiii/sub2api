@@ -515,6 +515,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := ValidateAccountCostMultiplierExtra(input.Extra); err != nil {
 		return nil, err
 	}
+	if err := ValidateAccountMaxUsersExtra(input.Extra); err != nil {
+		return nil, err
+	}
 	if err := s.ApplyOAuthAutoConfig(ctx, input); err != nil {
 		return nil, err
 	}
@@ -640,6 +643,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
 	if err := ValidateAccountCostMultiplierExtra(input.Extra); err != nil {
+		return nil, err
+	}
+	if err := ValidateAccountMaxUsersExtra(input.Extra); err != nil {
 		return nil, err
 	}
 	if err := ValidateGroupAllowedModels(input.GroupAllowedModels); err != nil {
@@ -1079,6 +1085,9 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
 	if err := ValidateAccountCostMultiplierExtra(input.Extra); err != nil {
+		return nil, err
+	}
+	if err := ValidateAccountMaxUsersExtra(input.Extra); err != nil {
 		return nil, err
 	}
 	// Managed probe/session state may only enter through dedicated typed endpoints.

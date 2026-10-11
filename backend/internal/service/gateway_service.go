@@ -804,6 +804,14 @@ type GatewayService struct {
 	userPlatformQuotaRepo  UserPlatformQuotaRepository
 	billingContextResolver *BillingContextResolver
 	costCenter             CostCenterWriter
+	accountUserLimit       *AccountUserLimitService
+}
+
+// SetAccountUserLimitService 注入账号最大用户数服务（nil 表示不启用）。
+func (s *GatewayService) SetAccountUserLimitService(limit *AccountUserLimitService) {
+	if s != nil {
+		s.accountUserLimit = limit
+	}
 }
 
 func (s *GatewayService) SetBillingContextResolver(resolver *BillingContextResolver) {

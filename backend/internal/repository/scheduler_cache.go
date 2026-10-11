@@ -1054,6 +1054,8 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"rpm_sticky_buffer",
 		"max_sessions",
 		"session_idle_timeout_minutes",
+		// 账号最大用户数门在候选过滤阶段读取本投影，缺失会让受限账号对所有用户放行。
+		service.AccountMaxUsersExtraKey,
 		"openai_oauth_responses_websockets_v2_enabled",
 		"openai_oauth_responses_websockets_v2_mode",
 		"openai_apikey_responses_websockets_v2_enabled",

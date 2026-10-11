@@ -46,6 +46,12 @@ func (s *GatewayService) SelectFalAccountInGroup(ctx context.Context, groupID *i
 // 这里按“哪个平台的账号支持该模型”做混合选号，选中后转发到对应平台的账号，
 // 而不是硬编码只取 fal 平台账号。
 func (s *GatewayService) selectFalAccountInGroupSingle(ctx context.Context, groupID *int64, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, api string) (*Account, error) {
+	return s.selectAccountWithUserLimit(ctx, excludedIDs, func(excluded map[int64]struct{}) (*Account, error) {
+		return s.selectFalAccountInGroupCandidate(ctx, groupID, sessionHash, requestedModel, excluded, api)
+	})
+}
+
+func (s *GatewayService) selectFalAccountInGroupCandidate(ctx context.Context, groupID *int64, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, api string) (*Account, error) {
 	accounts, err := s.listSchedulableVideoAccounts(ctx, groupID)
 	if err != nil {
 		return nil, err
@@ -73,7 +79,8 @@ func (s *GatewayService) selectFalAccountInGroupSingle(ctx context.Context, grou
 		return s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) &&
 			s.isAccountSchedulableForQuota(account) &&
 			s.isAccountSchedulableForWindowCost(ctx, account, false) &&
-			s.isAccountSchedulableForRPM(ctx, account, false)
+			s.isAccountSchedulableForRPM(ctx, account, false) &&
+			s.accountUserLimit.Allows(ctx, account)
 	}
 
 	if sessionHash != "" && s.cache != nil {
@@ -448,6 +455,22 @@ func (s *GatewayService) selectImageAccountMixedSingle(
 	preferPlatform string,
 	allowedPlatforms map[string]struct{},
 ) (*Account, error) {
+	return s.selectAccountWithUserLimit(ctx, excludedIDs, func(excluded map[int64]struct{}) (*Account, error) {
+		return s.selectImageAccountMixedCandidate(ctx, groupID, sessionHash, requestedModel, excluded, imageCapability, falAPI, preferPlatform, allowedPlatforms)
+	})
+}
+
+func (s *GatewayService) selectImageAccountMixedCandidate(
+	ctx context.Context,
+	groupID *int64,
+	sessionHash string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	imageCapability OpenAIImagesCapability,
+	falAPI string,
+	preferPlatform string,
+	allowedPlatforms map[string]struct{},
+) (*Account, error) {
 	accounts, err := s.listSchedulableImageAccounts(ctx, groupID)
 	if err != nil {
 		return nil, err
@@ -670,6 +693,8 @@ func (s *GatewayService) buildImageSelectionDiagnostic(
 		diagnostic.RejectionReason = "window_cost_limit"
 	case !diagnostic.RPMOK:
 		diagnostic.RejectionReason = "rpm_limit"
+	case !s.accountUserLimit.Allows(ctx, account):
+		diagnostic.RejectionReason = "max_users_reached"
 	default:
 		diagnostic.Eligible = true
 	}

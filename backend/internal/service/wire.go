@@ -984,6 +984,21 @@ func ProvidePlazaAccountSource(accountRepo AccountRepository) PlazaAccountSource
 }
 
 // ProviderSet is the Wire provider set for all services
+// ProvideAccountUserLimitService 创建账号最大用户数服务，并注入到 Gateway / OpenAI 调度。
+func ProvideAccountUserLimitService(
+	cache AccountUserBindingCache,
+	usageLogRepo UsageLogRepository,
+	gatewayService *GatewayService,
+	openAIGatewayService *OpenAIGatewayService,
+	geminiCompatService *GeminiMessagesCompatService,
+) *AccountUserLimitService {
+	svc := NewAccountUserLimitService(cache, usageLogRepo)
+	gatewayService.SetAccountUserLimitService(svc)
+	openAIGatewayService.SetAccountUserLimitService(svc)
+	geminiCompatService.SetAccountUserLimitService(svc)
+	return svc
+}
+
 var ProviderSet = wire.NewSet(
 	NewCostCenterService,
 	ProvideOrganizationService,
@@ -1015,6 +1030,7 @@ var ProviderSet = wire.NewSet(
 	NewGatewayService,
 	ProvideOpenAIGatewayService,
 	wire.Struct(new(OpenAIGatewayDependencies), "*"),
+	ProvideAccountUserLimitService,
 	ProvideCodexHarvestService,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,

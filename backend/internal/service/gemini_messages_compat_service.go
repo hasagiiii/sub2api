@@ -66,6 +66,14 @@ type GeminiMessagesCompatService struct {
 	antigravityGatewayService *AntigravityGatewayService
 	cfg                       *config.Config
 	responseHeaderFilter      *responseheaders.CompiledHeaderFilter
+	accountUserLimit          *AccountUserLimitService
+}
+
+// SetAccountUserLimitService 注入账号最大用户数服务（nil 表示不启用）。
+func (s *GeminiMessagesCompatService) SetAccountUserLimitService(limit *AccountUserLimitService) {
+	if s != nil {
+		s.accountUserLimit = limit
+	}
 }
 
 func (s *GeminiMessagesCompatService) readUpstreamErrorBody(resp *http.Response) []byte {
@@ -143,6 +151,12 @@ func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx co
 }
 
 func (s *GeminiMessagesCompatService) selectAccountForModelWithExclusionsSingle(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	return s.accountUserLimit.SelectWithAcquire(ctx, excludedIDs, func(excluded map[int64]struct{}) (*Account, error) {
+		return s.selectAccountForModelWithExclusionsCandidate(ctx, groupID, sessionHash, requestedModel, excluded)
+	})
+}
+
+func (s *GeminiMessagesCompatService) selectAccountForModelWithExclusionsCandidate(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
 	// 1. 确定目标平台和调度模式
 	// Determine target platform and scheduling mode
 	platform, useMixedScheduling, hasForcePlatform, err := s.resolvePlatformAndSchedulingMode(ctx, groupID)

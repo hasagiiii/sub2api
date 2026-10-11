@@ -386,6 +386,10 @@ func (s *GatewayService) selectAccountWithLoadAwarenessSingle(ctx context.Contex
 			if !s.isAccountSchedulableForQuota(account) {
 				continue
 			}
+			// 账号最大用户数检查
+			if !s.accountUserLimit.Allows(ctx, account) {
+				continue
+			}
 			// 窗口费用检查（非粘性会话路径）
 			if !s.isAccountSchedulableForWindowCost(ctx, account, false) {
 				filteredWindowCost++
@@ -749,6 +753,10 @@ func (s *GatewayService) selectAccountWithLoadAwarenessSingle(ctx context.Contex
 		}
 		// 配额检查
 		if !s.isAccountSchedulableForQuota(acc) {
+			continue
+		}
+		// 账号最大用户数检查
+		if !s.accountUserLimit.Allows(ctx, acc) {
 			continue
 		}
 		// 窗口费用检查（非粘性会话路径）
@@ -1513,6 +1521,10 @@ func (s *GatewayService) IncrementAccountRPM(ctx context.Context, accountID int6
 // sessionID: 会话标识符（使用粘性会话的 hash）
 // 返回 true 表示允许（在限制内或会话已存在），false 表示拒绝（超出限制且是新会话）
 func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *Account, sessionID string) bool {
+	// 账号最大用户数：所有平台生效，先于会话数限制占位，避免被拒用户占用会话槽。
+	if !s.accountUserLimit.Acquire(ctx, account) {
+		return false
+	}
 	// 只检查 Anthropic OAuth/SetupToken 账号
 	if !account.IsAnthropicOAuthOrSetupToken() {
 		return true

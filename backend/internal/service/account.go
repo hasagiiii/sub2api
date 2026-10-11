@@ -3635,6 +3635,21 @@ func (a *Account) GetSessionIdleTimeoutMinutes() int {
 	return 5
 }
 
+// GetMaxUsers 获取账号允许调度的最大用户数，返回 0 表示不限制（负数按 0 处理）。
+func (a *Account) GetMaxUsers() int {
+	if a == nil || a.Extra == nil {
+		return 0
+	}
+	v, ok := a.Extra[AccountMaxUsersExtraKey]
+	if !ok {
+		return 0
+	}
+	if n := parseExtraInt(v); n > 0 {
+		return n
+	}
+	return 0
+}
+
 // GetBaseRPM 获取基础 RPM 限制
 // 返回 0 表示未启用（负数视为无效配置，按 0 处理）
 func (a *Account) GetBaseRPM() int {

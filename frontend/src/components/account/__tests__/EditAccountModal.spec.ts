@@ -1693,6 +1693,38 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('upstream_request_id_header')
   })
 
+  it('writes and clears max_users in extra', async () => {
+    const account = buildAccount()
+    account.extra = { openai_compact_mode: 'force_on' }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const untouched = mountModal(account)
+    await untouched.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.max_users).toBeUndefined()
+
+    updateAccountMock.mockClear()
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="account-max-users"]').setValue('3')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      openai_compact_mode: 'force_on',
+      max_users: 3
+    })
+
+    updateAccountMock.mockClear()
+    const limited = buildAccount()
+    limited.extra = { max_users: 5 }
+    const clearing = mountModal(limited)
+    expect((clearing.get('[data-testid="account-max-users"]').element as HTMLInputElement).value).toBe('5')
+    await clearing.get('[data-testid="account-max-users"]').setValue('')
+    await clearing.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toBeDefined()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('max_users')
+  })
+
   it('writes images_url_to_b64_json into extra when toggled on', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()

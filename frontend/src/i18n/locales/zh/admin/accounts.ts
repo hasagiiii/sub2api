@@ -1311,6 +1311,9 @@ export default {
       billingRateMultiplierHint: '0 表示不计费，仅影响账号计费',
       groupBillingRateMultiplier: '分组计费倍率',
       groupBillingRateMultiplierHint: '参与用户/API Key 扣费；默认 1。分组 0.2x 时设置 5x 可恢复 1x 原价',
+      maxUsers: '最大用户数',
+      maxUsersPlaceholder: '不限制',
+      maxUsersHint: '只允许名额内的用户调度到该账号，留空不限制；可在「用户调度管理」中清理用户释放名额',
       groupModelLimits: {
         title: '各分组可用模型',
         hint: '账号属于多个分组时，可以限制它在某个分组里只服务部分模型；只能在账号本身支持的模型里收窄。默认不限制。',
@@ -1964,6 +1967,31 @@ export default {
         todayCost: '今日计费',
         usageTrend: '30天费用与请求趋势',
         noData: '该账号暂无使用数据'
+      },
+      scheduledUsers: {
+        menu: '用户调度管理',
+        title: '用户调度管理',
+        desc: '进入过该账号的用户及其产生的对话；清理后释放名额，新用户可调度进来',
+        slots: '用户名额',
+        unlimited: '不限制',
+        user: '用户',
+        status: '状态',
+        bound: '占用名额',
+        evicted: '已清理',
+        evictedUntil: '冷却至 {time}',
+        notBound: '未占用',
+        conversations: '对话数',
+        requests: '请求数',
+        lastActive: '最近活跃',
+        boundAt: '进入时间',
+        actions: '操作',
+        evict: '清理',
+        evictConfirm: '确认清理用户 {user}？名额将释放，该用户 {minutes} 分钟内不会再调度到此账号。',
+        evictSuccess: '已清理，名额已释放',
+        evictFailed: '清理失败',
+        loadFailed: '加载用户调度信息失败',
+        empty: '暂无用户进入过该账号',
+        unknownUser: '用户 #{id}'
       }
     },
 

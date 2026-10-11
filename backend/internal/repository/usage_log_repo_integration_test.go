@@ -1700,6 +1700,70 @@ func (s *UsageLogRepoSuite) TestGetAccountUsageStats_SessionsLifetimeAndPerUser(
 	s.Require().True(resp.UserSessions[1].LastActiveAt.Equal(base.Add(4 * time.Hour)))
 }
 
+func (s *UsageLogRepoSuite) TestGetAccountUserActivityStats_BoundUsersFirst() {
+	userA := mustCreateUser(s.T(), s.client, &service.User{Email: "activity-a@test.com"})
+	userB := mustCreateUser(s.T(), s.client, &service.User{Email: "activity-b@test.com"})
+	userC := mustCreateUser(s.T(), s.client, &service.User{Email: "activity-c@test.com"})
+	keyA := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: userA.ID, Key: "sk-activity-a", Name: "a"})
+	keyB := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: userB.ID, Key: "sk-activity-b", Name: "b"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-activity"})
+	other := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-activity-other"})
+
+	base := time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC)
+	str := func(v string) *string { return &v }
+	for _, item := range []struct {
+		user      *service.User
+		key       *service.APIKey
+		accountID int64
+		sessionID *string
+		at        time.Time
+	}{
+		{userA, keyA, account.ID, str("a-1"), base.Add(time.Hour)},
+		{userA, keyA, account.ID, str("a-1"), base.Add(2 * time.Hour)},
+		{userA, keyA, account.ID, str("a-2"), base.Add(3 * time.Hour)},
+		{userA, keyA, account.ID, nil, base.Add(4 * time.Hour)},
+		{userB, keyB, account.ID, str("b-1"), base.Add(10 * time.Hour)},
+		{userB, keyB, other.ID, str("b-other"), base.Add(20 * time.Hour)},
+	} {
+		_, err := s.repo.Create(s.ctx, &service.UsageLog{
+			UserID:       item.user.ID,
+			APIKeyID:     item.key.ID,
+			AccountID:    item.accountID,
+			Model:        "claude-3-opus",
+			InputTokens:  1,
+			OutputTokens: 1,
+			SessionID:    item.sessionID,
+			CreatedAt:    item.at,
+		})
+		s.Require().NoError(err)
+	}
+
+	// userC 已占用名额但从未产生请求，也要返回且排在最前；userA 已占用名额。
+	stats, err := s.repo.GetAccountUserActivityStats(s.ctx, account.ID, []int64{userC.ID, userA.ID}, 10)
+	s.Require().NoError(err)
+	s.Require().Len(stats, 3)
+
+	s.Require().Equal(userA.ID, stats[0].UserID, "bound users first, then by last active desc")
+	s.Require().Equal("activity-a@test.com", stats[0].Email)
+	s.Require().Equal(int64(2), stats[0].Sessions)
+	s.Require().Equal(int64(4), stats[0].Requests)
+	s.Require().True(stats[0].LastActiveAt.Equal(base.Add(4 * time.Hour)))
+
+	s.Require().Equal(userC.ID, stats[1].UserID)
+	s.Require().Equal("activity-c@test.com", stats[1].Email)
+	s.Require().Equal(int64(0), stats[1].Sessions)
+	s.Require().Nil(stats[1].LastActiveAt)
+
+	s.Require().Equal(userB.ID, stats[2].UserID)
+	s.Require().Equal(int64(1), stats[2].Sessions)
+	s.Require().Equal(int64(1), stats[2].Requests)
+
+	empty, err := s.repo.GetAccountUserActivityStats(s.ctx, account.ID+100000, nil, 10)
+	s.Require().NoError(err)
+	s.Require().NotNil(empty)
+	s.Require().Len(empty, 0)
+}
+
 func (s *UsageLogRepoSuite) TestGetAccountUsageStats_EmptyRange() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-emptystats"})
 

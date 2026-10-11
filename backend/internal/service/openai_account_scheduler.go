@@ -2062,6 +2062,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if vetoed, reason := openAIProfitControlVetoReason(ctx, account); vetoed {
 		return false, reason
 	}
+	if s != nil && s.service != nil && !s.service.accountUserLimit.Allows(ctx, account) {
+		return false, "max_users_reached"
+	}
 	return true, ""
 }
 
@@ -2505,7 +2508,41 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	}
 }
 
+// selectAccountWithSchedulerSingle 在单分组选号结果上补充账号最大用户数占位：
+// 名额被拒时释放槽位、排除该账号后重选。
 func (s *OpenAIGatewayService) selectAccountWithSchedulerSingle(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	sessionHash string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability,
+	requireCompact bool,
+	platform string,
+	previousResponseCanMove bool,
+	useUpstreamTokenCost bool,
+) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
+	excluded := excludedIDs
+	for attempt := 0; attempt < accountUserLimitMaxReselect; attempt++ {
+		selection, decision, err = s.selectAccountWithSchedulerSingleCandidate(ctx, groupID, previousResponseID, sessionHash, requestedModel, excluded, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+		if err != nil || selection == nil || selection.Account == nil {
+			return selection, decision, err
+		}
+		if s.accountUserLimit.Acquire(ctx, selection.Account) {
+			return selection, decision, nil
+		}
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+		excluded = withExcludedAccount(excluded, selection.Account.ID)
+	}
+	return nil, decision, ErrNoAvailableAccounts
+}
+
+func (s *OpenAIGatewayService) selectAccountWithSchedulerSingleCandidate(
 	ctx context.Context,
 	groupID *int64,
 	previousResponseID string,

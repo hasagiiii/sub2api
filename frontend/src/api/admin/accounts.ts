@@ -18,6 +18,7 @@ import type {
   WindowStats,
   ClaudeModel,
   AccountUsageStatsResponse,
+  AccountScheduledUsersResponse,
   TempUnschedulableStatus,
   AdminDataPayload,
   AdminDataImportResult,
@@ -360,6 +361,22 @@ export async function getStats(id: number, days: number = 30): Promise<AccountUs
   const { data } = await apiClient.get<AccountUsageStatsResponse>(`/admin/accounts/${id}/stats`, {
     params: { days }
   })
+  return data
+}
+
+/**
+ * Get users that have been scheduled onto the account, with slot usage and conversation stats
+ */
+export async function getScheduledUsers(id: number): Promise<AccountScheduledUsersResponse> {
+  const { data } = await apiClient.get<AccountScheduledUsersResponse>(`/admin/accounts/${id}/scheduled-users`)
+  return data
+}
+
+/**
+ * Clear a user from the account's user slots so a new user can be scheduled in
+ */
+export async function evictScheduledUser(id: number, userId: number): Promise<{ removed: boolean }> {
+  const { data } = await apiClient.delete<{ removed: boolean }>(`/admin/accounts/${id}/scheduled-users/${userId}`)
   return data
 }
 
@@ -1453,6 +1470,8 @@ export const accountsAPI = {
   refreshCredentials,
   applyOAuthCredentials,
   getStats,
+  getScheduledUsers,
+  evictScheduledUser,
   clearError,
   getUsage,
   getBatchUsage,

@@ -2637,6 +2637,26 @@ export interface AccountUserSessionStat {
   last_active_at: string | null
 }
 
+export interface AccountScheduledUser {
+  user_id: number
+  email: string
+  username: string
+  bound: boolean // Currently occupies one of the account's user slots
+  bound_at?: string
+  evicted_until?: string // Cleared by admin and still cooling down
+  sessions: number // Lifetime distinct sessions on this account
+  requests: number
+  last_active_at: string | null
+}
+
+export interface AccountScheduledUsersResponse {
+  account_id: number
+  max_users: number // 0 = unlimited
+  bound_count: number
+  evict_cooldown_seconds: number
+  users: AccountScheduledUser[]
+}
+
 export interface AccountUsageStatsResponse {
   history: AccountUsageHistory[]
   summary: AccountUsageSummary

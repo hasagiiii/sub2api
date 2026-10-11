@@ -569,6 +569,15 @@ type OpenAIGatewayService struct {
 	requireLatestTurnAdmission bool
 	codexHarvest               *CodexHarvestService
 	codexHarvestRoundActive    atomic.Bool
+
+	accountUserLimit *AccountUserLimitService
+}
+
+// SetAccountUserLimitService 注入账号最大用户数服务（nil 表示不启用）。
+func (s *OpenAIGatewayService) SetAccountUserLimitService(limit *AccountUserLimitService) {
+	if s != nil {
+		s.accountUserLimit = limit
+	}
 }
 
 func (s *OpenAIGatewayService) SetBillingContextResolver(resolver *BillingContextResolver) {

@@ -53,6 +53,8 @@ var observerAccountRoutes = map[string]struct{}{
 	"POST /api/v1/admin/accounts/:id/set-privacy":                    {},
 	"POST /api/v1/admin/accounts/:id/refresh-tier":                   {},
 	"GET /api/v1/admin/accounts/:id/stats":                           {},
+	"GET /api/v1/admin/accounts/:id/scheduled-users":                 {},
+	"DELETE /api/v1/admin/accounts/:id/scheduled-users/:user_id":     {},
 	"POST /api/v1/admin/accounts/:id/clear-error":                    {},
 	"POST /api/v1/admin/accounts/:id/revert-proxy-fallback":          {},
 	"GET /api/v1/admin/accounts/:id/usage":                           {},

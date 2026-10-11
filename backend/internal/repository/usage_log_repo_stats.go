@@ -1189,3 +1189,71 @@ func (r *usageLogRepository) getAccountUserSessionStats(ctx context.Context, acc
 	}
 	return result, nil
 }
+
+// GetAccountUserActivityStats 按用户聚合账号的累计对话（去重 session_id）数、请求数与最近活跃时间。
+// includeUserIDs 中的用户（如已占用账号名额的用户）排在最前，即使没有任何请求记录也会返回。
+func (r *usageLogRepository) GetAccountUserActivityStats(ctx context.Context, accountID int64, includeUserIDs []int64, limit int) (result []usagestats.AccountUserActivityStat, err error) {
+	if limit <= 0 {
+		limit = accountUserSessionStatsLimit
+	}
+	if includeUserIDs == nil {
+		includeUserIDs = []int64{}
+	}
+	query := `
+		WITH activity AS (
+			SELECT
+				user_id,
+				COUNT(DISTINCT NULLIF(session_id, '')) AS sessions,
+				COUNT(*) AS requests,
+				MAX(created_at) AS last_active_at
+			FROM usage_logs
+			WHERE account_id = $1
+			GROUP BY user_id
+		),
+		ids AS (
+			SELECT user_id FROM activity
+			UNION
+			SELECT UNNEST($2::bigint[]) AS user_id
+		)
+		SELECT
+			ids.user_id,
+			COALESCE(u.email, ''),
+			COALESCE(u.username, ''),
+			COALESCE(a.sessions, 0),
+			COALESCE(a.requests, 0),
+			a.last_active_at
+		FROM ids
+		LEFT JOIN activity a ON a.user_id = ids.user_id
+		LEFT JOIN users u ON u.id = ids.user_id
+		ORDER BY (ids.user_id = ANY($2::bigint[])) DESC, a.last_active_at DESC NULLS LAST, ids.user_id ASC
+		LIMIT $3
+	`
+	rows, err := r.sql.QueryContext(ctx, query, accountID, pq.Array(includeUserIDs), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+			result = nil
+		}
+	}()
+
+	result = make([]usagestats.AccountUserActivityStat, 0)
+	for rows.Next() {
+		var item usagestats.AccountUserActivityStat
+		var lastActive sql.NullTime
+		if err = rows.Scan(&item.UserID, &item.Email, &item.Username, &item.Sessions, &item.Requests, &lastActive); err != nil {
+			return nil, err
+		}
+		if lastActive.Valid {
+			t := lastActive.Time
+			item.LastActiveAt = &t
+		}
+		result = append(result, item)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}

@@ -92,7 +92,9 @@ func ProvideAdminHandlers(
 	codexHarvest *service.CodexHarvestService,
 	openAIGatewayService *service.OpenAIGatewayService,
 	claudeResetCredits *service.ClaudeResetCreditService,
+	accountUserLimit *service.AccountUserLimitService,
 ) *AdminHandlers {
+	accountHandler.SetAccountUserLimitService(accountUserLimit)
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetCodexTicketSettings(settingService)

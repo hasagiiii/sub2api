@@ -1980,6 +1980,20 @@
           />
           <p class="input-hint">{{ t('admin.accounts.groupBillingRateMultiplierHint') }}</p>
         </div>
+        <div>
+          <label class="input-label">{{ t('admin.accounts.maxUsers') }}</label>
+          <input
+            v-model.number="maxUsers"
+            type="number"
+            min="1"
+            step="1"
+            class="input"
+            data-testid="account-max-users"
+            :placeholder="t('admin.accounts.maxUsersPlaceholder')"
+            @change="normalizeMaxUsersInput"
+          />
+          <p class="input-hint">{{ t('admin.accounts.maxUsersHint') }}</p>
+        </div>
       </div>
       <!-- OpenAI OAuth RPM limit -->
       <div
@@ -4179,6 +4193,16 @@ const readUpstreamRequestIdHeader = (extra: unknown): string => {
   const value = (extra as Record<string, unknown> | undefined)?.upstream_request_id_header
   return typeof value === 'string' ? value : ''
 }
+// 最大用户数：只允许名额内的用户被调度到该账号，留空表示不限制。
+const maxUsers = ref<number | null>(null)
+const readAccountMaxUsers = (extra: unknown): number | null => {
+  const value = Number((extra as Record<string, unknown> | undefined)?.max_users)
+  return Number.isInteger(value) && value > 0 ? value : null
+}
+const normalizeMaxUsersInput = () => {
+  const value = Number(maxUsers.value)
+  maxUsers.value = Number.isFinite(value) && value >= 1 ? Math.floor(value) : null
+}
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const isVideoAccountPlatform = (platform?: string): boolean =>
   platform === 'fal' || platform === 'atlascloud' || platform === 'apiz' || platform === 'higgsfield'
@@ -4815,6 +4839,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 			? Number(kiroCreditUnitPrice) || 0
 			: 0
 	upstreamRequestIdHeader.value = readUpstreamRequestIdHeader(extra)
+	maxUsers.value = readAccountMaxUsers(extra)
 	openAIImagesUrlToB64JsonEnabled.value = extra?.images_url_to_b64_json === true
   autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
   autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
@@ -6825,6 +6850,19 @@ const handleSubmit = async () => {
         newExtra.upstream_request_id_header = nextUpstreamRequestIdHeader
       } else {
         delete newExtra.upstream_request_id_header
+      }
+      updatePayload.extra = newExtra
+    }
+
+    // 最大用户数只在改动时写回 extra。
+    normalizeMaxUsersInput()
+    if (maxUsers.value !== readAccountMaxUsers(props.account.extra)) {
+      const currentExtra = (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (maxUsers.value) {
+        newExtra.max_users = maxUsers.value
+      } else {
+        delete newExtra.max_users
       }
       updatePayload.extra = newExtra
     }
