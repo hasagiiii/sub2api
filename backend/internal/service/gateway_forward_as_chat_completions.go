@@ -50,7 +50,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 			"path":              c.Request.URL.Path,
 			"client_request_id": debugClientRequestID(c.Request.Context()),
 		}
-		debugLogGatewaySnapshot("CLIENT_ORIGINAL_AS_CHAT_COMPLETIONS", c.Request.Header, body, extra)
+		debugLogGatewaySnapshot(c.Request.Context(), "CLIENT_ORIGINAL_AS_CHAT_COMPLETIONS", c.Request.Header, body, extra)
 	}
 
 	// 1. Parse Chat Completions request

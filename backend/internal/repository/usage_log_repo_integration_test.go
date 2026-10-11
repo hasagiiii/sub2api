@@ -1590,7 +1590,114 @@ func (s *UsageLogRepoSuite) TestGetAccountUsageStats() {
 	s.Require().Len(resp.History, 2, "expected 2 days of history")
 	s.Require().Equal(int64(2), resp.Summary.TotalRequests)
 	s.Require().Equal(int64(450), resp.Summary.TotalTokens)
+	s.Require().Equal(int64(0), resp.Summary.TotalSessions)
 	s.Require().Len(resp.Models, 2)
+}
+
+func (s *UsageLogRepoSuite) TestGetAccountUsageStats_Sessions() {
+	user := mustCreateUser(s.T(), s.client, &service.User{Email: "accsessions@test.com"})
+	apiKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-accsessions", Name: "k"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-accsessions"})
+
+	base := time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)
+	sessionA, sessionB, empty := "session-a", "session-b", ""
+	for _, item := range []struct {
+		sessionID *string
+		offset    time.Duration
+	}{
+		{&sessionA, 10 * time.Hour},
+		{&sessionA, 11 * time.Hour},
+		{&sessionB, 12 * time.Hour},
+		{nil, 13 * time.Hour},
+		{&empty, 14 * time.Hour},
+		{&sessionA, 34 * time.Hour}, // next day, same session
+	} {
+		_, err := s.repo.Create(s.ctx, &service.UsageLog{
+			UserID:       user.ID,
+			APIKeyID:     apiKey.ID,
+			AccountID:    account.ID,
+			Model:        "claude-3-opus",
+			InputTokens:  1,
+			OutputTokens: 1,
+			SessionID:    item.sessionID,
+			CreatedAt:    base.Add(item.offset),
+		})
+		s.Require().NoError(err)
+	}
+
+	resp, err := s.repo.GetAccountUsageStats(s.ctx, account.ID, base, base.Add(72*time.Hour))
+	s.Require().NoError(err)
+	s.Require().Len(resp.History, 2)
+	s.Require().Equal(int64(2), resp.History[0].Sessions)
+	s.Require().Equal(int64(1), resp.History[1].Sessions)
+	s.Require().Equal(int64(6), resp.Summary.TotalRequests)
+	s.Require().Equal(int64(2), resp.Summary.TotalSessions, "cross-day session counted once")
+	s.Require().InDelta(1.5, resp.Summary.AvgDailySessions, 0.0001)
+	s.Require().Equal(int64(2), resp.Summary.LifetimeSessions)
+	s.Require().Len(resp.UserSessions, 1)
+	s.Require().Equal(user.ID, resp.UserSessions[0].UserID)
+	s.Require().Equal("accsessions@test.com", resp.UserSessions[0].Email)
+	s.Require().Equal(int64(2), resp.UserSessions[0].Sessions)
+	s.Require().Equal(int64(2), resp.UserSessions[0].LifetimeSessions)
+	s.Require().NotNil(resp.UserSessions[0].LastActiveAt)
+	s.Require().True(resp.UserSessions[0].LastActiveAt.Equal(base.Add(34 * time.Hour)))
+}
+
+func (s *UsageLogRepoSuite) TestGetAccountUsageStats_SessionsLifetimeAndPerUser() {
+	userA := mustCreateUser(s.T(), s.client, &service.User{Email: "sessuser-a@test.com"})
+	userB := mustCreateUser(s.T(), s.client, &service.User{Email: "sessuser-b@test.com"})
+	keyA := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: userA.ID, Key: "sk-sessuser-a", Name: "a"})
+	keyB := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: userB.ID, Key: "sk-sessuser-b", Name: "b"})
+	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-sessuser"})
+
+	base := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+	start := base
+	end := base.Add(72 * time.Hour)
+	str := func(v string) *string { return &v }
+	for _, item := range []struct {
+		user      *service.User
+		key       *service.APIKey
+		sessionID string
+		at        time.Time
+	}{
+		{userA, keyA, "old-a", base.Add(-60 * 24 * time.Hour)}, // before range: lifetime only
+		{userA, keyA, "a-1", base.Add(2 * time.Hour)},
+		{userA, keyA, "a-2", base.Add(3 * time.Hour)},
+		{userA, keyA, "a-2", base.Add(30 * time.Hour)},
+		{userB, keyB, "b-1", base.Add(4 * time.Hour)},
+		{userB, keyB, "old-b", base.Add(-90 * 24 * time.Hour)},
+		{userB, keyB, "old-b2", base.Add(-91 * 24 * time.Hour)},
+		{userB, keyB, "after", end.Add(time.Hour)}, // after range end: excluded
+	} {
+		_, err := s.repo.Create(s.ctx, &service.UsageLog{
+			UserID:       item.user.ID,
+			APIKeyID:     item.key.ID,
+			AccountID:    account.ID,
+			Model:        "claude-3-opus",
+			InputTokens:  1,
+			OutputTokens: 1,
+			SessionID:    str(item.sessionID),
+			CreatedAt:    item.at,
+		})
+		s.Require().NoError(err)
+	}
+
+	resp, err := s.repo.GetAccountUsageStats(s.ctx, account.ID, start, end)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(3), resp.Summary.TotalSessions)
+	s.Require().Equal(int64(6), resp.Summary.LifetimeSessions)
+	s.Require().Len(resp.UserSessions, 2)
+
+	s.Require().Equal(userA.ID, resp.UserSessions[0].UserID, "sorted by range sessions desc")
+	s.Require().Equal("sessuser-a@test.com", resp.UserSessions[0].Email)
+	s.Require().Equal(int64(2), resp.UserSessions[0].Sessions)
+	s.Require().Equal(int64(3), resp.UserSessions[0].LifetimeSessions)
+	s.Require().True(resp.UserSessions[0].LastActiveAt.Equal(base.Add(30 * time.Hour)))
+
+	s.Require().Equal(userB.ID, resp.UserSessions[1].UserID)
+	s.Require().Equal(int64(1), resp.UserSessions[1].Sessions)
+	s.Require().Equal(int64(3), resp.UserSessions[1].LifetimeSessions)
+	s.Require().True(resp.UserSessions[1].LastActiveAt.Equal(base.Add(4 * time.Hour)))
 }
 
 func (s *UsageLogRepoSuite) TestGetAccountUsageStats_EmptyRange() {
@@ -1605,6 +1712,9 @@ func (s *UsageLogRepoSuite) TestGetAccountUsageStats_EmptyRange() {
 
 	s.Require().Len(resp.History, 0)
 	s.Require().Equal(int64(0), resp.Summary.TotalRequests)
+	s.Require().Equal(int64(0), resp.Summary.LifetimeSessions)
+	s.Require().NotNil(resp.UserSessions)
+	s.Require().Empty(resp.UserSessions)
 }
 
 // --- GetUserUsageTrend ---

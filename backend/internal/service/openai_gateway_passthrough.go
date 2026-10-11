@@ -414,7 +414,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				"account_type": string(account.Type),
 			}
 			debugAddRequestIDs(passthroughForwardExtra, ctx)
-			debugLogGatewaySnapshot("UPSTREAM_FORWARD_OPENAI_PASSTHROUGH", upstreamReq.Header, body, passthroughForwardExtra)
+			debugLogGatewaySnapshot(ctx, "UPSTREAM_FORWARD_OPENAI_PASSTHROUGH", upstreamReq.Header, body, passthroughForwardExtra)
 		}
 
 		if err := s.applyOpenAICodexTicket(ctx, account, actualModel, upstreamReq.Header); err != nil {

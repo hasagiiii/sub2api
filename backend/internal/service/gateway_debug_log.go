@@ -82,7 +82,62 @@ var (
 	debugGatewayBodyPath atomic.Pointer[string]
 	// debugGatewayRespOn 回包打印开关（进程内运行时状态，可热切）。
 	debugGatewayRespOn atomic.Bool
+	// debugGatewayUserWhitelist 用户白名单（user_id 集合）。nil 表示不限制用户；
+	// 非 nil 时只有 context 中 ctxkey.UserID 命中集合的请求才会写入调试日志。
+	debugGatewayUserWhitelist atomic.Pointer[map[int64]struct{}]
 )
+
+// SetGatewayDebugLogUserWhitelist 运行时替换调试日志的用户白名单（热切生效）。
+// 传入空切片表示取消白名单（记录所有用户）。
+func SetGatewayDebugLogUserWhitelist(userIDs []int64) {
+	if len(userIDs) == 0 {
+		debugGatewayUserWhitelist.Store(nil)
+		return
+	}
+	set := make(map[int64]struct{}, len(userIDs))
+	for _, id := range userIDs {
+		if id > 0 {
+			set[id] = struct{}{}
+		}
+	}
+	if len(set) == 0 {
+		debugGatewayUserWhitelist.Store(nil)
+		return
+	}
+	debugGatewayUserWhitelist.Store(&set)
+}
+
+// GatewayDebugLogUserWhitelist 返回当前进程生效的白名单 user_id（升序），未设置时返回 nil。
+func GatewayDebugLogUserWhitelist() []int64 {
+	set := debugGatewayUserWhitelist.Load()
+	if set == nil {
+		return nil
+	}
+	ids := make([]int64, 0, len(*set))
+	for id := range *set {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+// gatewayDebugUserAllowed 判断该请求是否应写入调试日志：未设置白名单时全部放行；
+// 设置白名单后，只有 context 中带有命中的 user_id 的请求才放行（取不到用户一律不记录）。
+func gatewayDebugUserAllowed(ctx context.Context) bool {
+	set := debugGatewayUserWhitelist.Load()
+	if set == nil {
+		return true
+	}
+	if ctx == nil {
+		return false
+	}
+	userID, _ := ctx.Value(ctxkey.UserID).(int64)
+	if userID <= 0 {
+		return false
+	}
+	_, ok := (*set)[userID]
+	return ok
+}
 
 // initGatewayDebugLog 在进程启动时初始化网关调试日志（进程内至多一次）。
 //
@@ -269,6 +324,13 @@ func MaybeWrapGatewayDebugResponse(req *http.Request, resp *http.Response) {
 	if !debugGatewayRespLogEnabled() {
 		return
 	}
+	var reqCtx context.Context
+	if req != nil {
+		reqCtx = req.Context()
+	}
+	if !gatewayDebugUserAllowed(reqCtx) {
+		return
+	}
 	extra := make(map[string]string, 4)
 	if req != nil {
 		if req.Method != "" {
@@ -430,9 +492,14 @@ func truncateImageDataForLog(body []byte) []byte {
 //   - "UPSTREAM_FORWARD_KIRO"               Kiro 直连 AWS/KRS 上游转发请求
 //   - "CLIENT_ORIGINAL_AS_CHAT_COMPLETIONS" OpenAI Chat Completions → Anthropic/Kiro 上游 客户端原始请求
 //   - "CLIENT_ORIGINAL_AS_RESPONSES"        OpenAI Responses → Anthropic/Kiro 上游 客户端原始请求
-func debugLogGatewaySnapshot(tag string, headers http.Header, body []byte, extra map[string]string) {
+//
+// ctx 用于用户白名单过滤（读取 ctxkey.UserID）；设置白名单后，非白名单用户的请求不写入。
+func debugLogGatewaySnapshot(ctx context.Context, tag string, headers http.Header, body []byte, extra map[string]string) {
 	f := debugGatewayBodyFile.Load()
 	if f == nil {
+		return
+	}
+	if !gatewayDebugUserAllowed(ctx) {
 		return
 	}
 
@@ -498,5 +565,5 @@ func LogGatewayImagesClientOriginal(tag string, header http.Header, ctx context.
 		extra = make(map[string]string, 2)
 	}
 	debugAddRequestIDs(extra, ctx)
-	debugLogGatewaySnapshot(tag, header, body, extra)
+	debugLogGatewaySnapshot(ctx, tag, header, body, extra)
 }

@@ -323,6 +323,10 @@ func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
 	normalizeOpsAdvancedSettings(advanced)
 
 	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: monitoringEnabled, advanced: *advanced})
+	// 网关调试日志用户白名单随 30s 轮询收敛，作为 Redis 广播丢失时的兜底，保证多实例最终一致。
+	if _, ok := values[SettingKeyOpsAdvancedSettings]; ok {
+		SetGatewayDebugLogUserWhitelist(advanced.GatewayDebugLogUserIDs)
+	}
 	if s.systemLogSink != nil {
 		persistAccessLogs := false
 		if raw, ok := values[SettingKeyOpsRuntimeLogConfig]; ok {

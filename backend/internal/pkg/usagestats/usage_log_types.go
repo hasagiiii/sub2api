@@ -336,6 +336,7 @@ type AccountUsageHistory struct {
 	Date       string  `json:"date"`
 	Label      string  `json:"label"`
 	Requests   int64   `json:"requests"`
+	Sessions   int64   `json:"sessions"` // 当日去重会话数（usage_logs.session_id）
 	Tokens     int64   `json:"tokens"`
 	Cost       float64 `json:"cost"`        // 标准计费（total_cost）
 	ActualCost float64 `json:"actual_cost"` // 账号口径费用（total_cost * account_rate_multiplier）
@@ -351,16 +352,20 @@ type AccountUsageSummary struct {
 	TotalStandardCost float64 `json:"total_standard_cost"`
 	TotalRequests     int64   `json:"total_requests"`
 	TotalTokens       int64   `json:"total_tokens"`
-	AvgDailyCost      float64 `json:"avg_daily_cost"` // 账号口径日均
+	TotalSessions     int64   `json:"total_sessions"`    // 统计区间内去重会话数（跨天会话只计一次）
+	LifetimeSessions  int64   `json:"lifetime_sessions"` // 账号累计去重会话数（不限统计区间）
+	AvgDailyCost      float64 `json:"avg_daily_cost"`    // 账号口径日均
 	AvgDailyUserCost  float64 `json:"avg_daily_user_cost"`
 	AvgDailyRequests  float64 `json:"avg_daily_requests"`
 	AvgDailyTokens    float64 `json:"avg_daily_tokens"`
+	AvgDailySessions  float64 `json:"avg_daily_sessions"` // 每日去重会话数的平均值
 	AvgDurationMs     float64 `json:"avg_duration_ms"`
 	Today             *struct {
 		Date     string  `json:"date"`
 		Cost     float64 `json:"cost"`
 		UserCost float64 `json:"user_cost"`
 		Requests int64   `json:"requests"`
+		Sessions int64   `json:"sessions"`
 		Tokens   int64   `json:"tokens"`
 	} `json:"today"`
 	HighestCostDay *struct {
@@ -379,11 +384,22 @@ type AccountUsageSummary struct {
 	} `json:"highest_request_day"`
 }
 
+// AccountUserSessionStat 账号下按用户细分的会话数
+type AccountUserSessionStat struct {
+	UserID           int64      `json:"user_id"`
+	Email            string     `json:"email"`
+	Username         string     `json:"username"`
+	Sessions         int64      `json:"sessions"`          // 统计区间内去重会话数
+	LifetimeSessions int64      `json:"lifetime_sessions"` // 累计去重会话数
+	LastActiveAt     *time.Time `json:"last_active_at"`    // 最近一次带会话 ID 的请求时间
+}
+
 // AccountUsageStatsResponse represents the full usage statistics response for an account
 type AccountUsageStatsResponse struct {
-	History           []AccountUsageHistory `json:"history"`
-	Summary           AccountUsageSummary   `json:"summary"`
-	Models            []ModelStat           `json:"models"`
-	Endpoints         []EndpointStat        `json:"endpoints"`
-	UpstreamEndpoints []EndpointStat        `json:"upstream_endpoints"`
+	History           []AccountUsageHistory    `json:"history"`
+	Summary           AccountUsageSummary      `json:"summary"`
+	Models            []ModelStat              `json:"models"`
+	Endpoints         []EndpointStat           `json:"endpoints"`
+	UpstreamEndpoints []EndpointStat           `json:"upstream_endpoints"`
+	UserSessions      []AccountUserSessionStat `json:"user_sessions"`
 }

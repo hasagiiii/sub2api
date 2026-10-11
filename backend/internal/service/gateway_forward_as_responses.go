@@ -52,7 +52,7 @@ func (s *GatewayService) ForwardAsResponses(
 			"path":              c.Request.URL.Path,
 			"client_request_id": debugClientRequestID(c.Request.Context()),
 		}
-		debugLogGatewaySnapshot("CLIENT_ORIGINAL_AS_RESPONSES", c.Request.Header, body, extra)
+		debugLogGatewaySnapshot(c.Request.Context(), "CLIENT_ORIGINAL_AS_RESPONSES", c.Request.Header, body, extra)
 	}
 
 	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngress(body)

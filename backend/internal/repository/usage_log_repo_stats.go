@@ -840,6 +840,9 @@ type AccountUsageSummary = usagestats.AccountUsageSummary
 // AccountUsageStatsResponse represents the full usage statistics response for an account
 type AccountUsageStatsResponse = usagestats.AccountUsageStatsResponse
 
+// AccountUserSessionStat represents per-user session counts for an account
+type AccountUserSessionStat = usagestats.AccountUserSessionStat
+
 // EndpointStat represents endpoint usage statistics row.
 type EndpointStat = usagestats.EndpointStat
 
@@ -932,6 +935,7 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		SELECT
 			TO_CHAR(created_at, 'YYYY-MM-DD') as date,
 			COUNT(*) as requests,
+			COUNT(DISTINCT NULLIF(session_id, '')) as sessions,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
 			COALESCE(SUM(total_cost), 0) as cost,
 			COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost,
@@ -959,11 +963,12 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 	for rows.Next() {
 		var date string
 		var requests int64
+		var sessions int64
 		var tokens int64
 		var cost float64
 		var actualCost float64
 		var userCost float64
-		if err = rows.Scan(&date, &requests, &tokens, &cost, &actualCost, &userCost); err != nil {
+		if err = rows.Scan(&date, &requests, &sessions, &tokens, &cost, &actualCost, &userCost); err != nil {
 			return nil, err
 		}
 		t, _ := time.Parse("2006-01-02", date)
@@ -971,6 +976,7 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 			Date:       date,
 			Label:      t.Format("01/02"),
 			Requests:   requests,
+			Sessions:   sessions,
 			Tokens:     tokens,
 			Cost:       cost,
 			ActualCost: actualCost,
@@ -982,7 +988,7 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 	}
 
 	var totalAccountCost, totalUserCost, totalStandardCost float64
-	var totalRequests, totalTokens int64
+	var totalRequests, totalTokens, sumDailySessions int64
 	var highestCostDay, highestRequestDay *AccountUsageHistory
 
 	for i := range history {
@@ -992,6 +998,7 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		totalStandardCost += h.Cost
 		totalRequests += h.Requests
 		totalTokens += h.Tokens
+		sumDailySessions += h.Sessions
 
 		if highestCostDay == nil || h.ActualCost > highestCostDay.ActualCost {
 			highestCostDay = h
@@ -1006,9 +1013,19 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		actualDaysUsed = 1
 	}
 
-	avgQuery := "SELECT COALESCE(AVG(duration_ms), 0) as avg_duration_ms FROM usage_logs WHERE account_id = $1 AND created_at >= $2 AND created_at < $3"
+	// 会话数仅统计客户端显式传入的 session_id；跨天会话在区间总数中只计一次。
+	// 累计会话数不受统计区间起点限制。
+	avgQuery := `
+		SELECT
+			COALESCE(AVG(duration_ms) FILTER (WHERE created_at >= $2), 0) as avg_duration_ms,
+			COUNT(DISTINCT NULLIF(session_id, '')) FILTER (WHERE created_at >= $2) as total_sessions,
+			COUNT(DISTINCT NULLIF(session_id, '')) as lifetime_sessions
+		FROM usage_logs
+		WHERE account_id = $1 AND created_at < $3
+	`
 	var avgDuration float64
-	if err := scanSingleRow(ctx, r.sql, avgQuery, []any{accountID, startTime, endTime}, &avgDuration); err != nil {
+	var totalSessions, lifetimeSessions int64
+	if err := scanSingleRow(ctx, r.sql, avgQuery, []any{accountID, startTime, endTime}, &avgDuration, &totalSessions, &lifetimeSessions); err != nil {
 		return nil, err
 	}
 
@@ -1020,10 +1037,13 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		TotalStandardCost: totalStandardCost,
 		TotalRequests:     totalRequests,
 		TotalTokens:       totalTokens,
+		TotalSessions:     totalSessions,
+		LifetimeSessions:  lifetimeSessions,
 		AvgDailyCost:      totalAccountCost / float64(actualDaysUsed),
 		AvgDailyUserCost:  totalUserCost / float64(actualDaysUsed),
 		AvgDailyRequests:  float64(totalRequests) / float64(actualDaysUsed),
 		AvgDailyTokens:    float64(totalTokens) / float64(actualDaysUsed),
+		AvgDailySessions:  float64(sumDailySessions) / float64(actualDaysUsed),
 		AvgDurationMs:     avgDuration,
 	}
 
@@ -1035,12 +1055,14 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 				Cost     float64 `json:"cost"`
 				UserCost float64 `json:"user_cost"`
 				Requests int64   `json:"requests"`
+				Sessions int64   `json:"sessions"`
 				Tokens   int64   `json:"tokens"`
 			}{
 				Date:     history[i].Date,
 				Cost:     history[i].ActualCost,
 				UserCost: history[i].UserCost,
 				Requests: history[i].Requests,
+				Sessions: history[i].Sessions,
 				Tokens:   history[i].Tokens,
 			}
 			break
@@ -1093,6 +1115,11 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		logger.LegacyPrintf("repository.usage_log", "GetUpstreamEndpointStatsWithFilters failed in GetAccountUsageStats: %v", upstreamEndpointErr)
 		upstreamEndpoints = []EndpointStat{}
 	}
+	userSessions, userSessionsErr := r.getAccountUserSessionStats(ctx, accountID, startTime, endTime)
+	if userSessionsErr != nil {
+		logger.LegacyPrintf("repository.usage_log", "getAccountUserSessionStats failed in GetAccountUsageStats: %v", userSessionsErr)
+		userSessions = []AccountUserSessionStat{}
+	}
 
 	resp = &AccountUsageStatsResponse{
 		History:           history,
@@ -1100,6 +1127,65 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		Models:            models,
 		Endpoints:         endpoints,
 		UpstreamEndpoints: upstreamEndpoints,
+		UserSessions:      userSessions,
 	}
 	return resp, nil
+}
+
+// accountUserSessionStatsLimit 限制按用户细分的会话列表长度，避免大账号返回过多行。
+const accountUserSessionStatsLimit = 100
+
+// getAccountUserSessionStats 按用户统计账号的去重会话数（区间内与累计），只统计带 session_id 的请求。
+func (r *usageLogRepository) getAccountUserSessionStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (result []AccountUserSessionStat, err error) {
+	query := `
+		SELECT
+			s.user_id,
+			COALESCE(u.email, ''),
+			COALESCE(u.username, ''),
+			s.sessions,
+			s.lifetime_sessions,
+			s.last_active_at
+		FROM (
+			SELECT
+				user_id,
+				COUNT(DISTINCT session_id) FILTER (WHERE created_at >= $2) AS sessions,
+				COUNT(DISTINCT session_id) AS lifetime_sessions,
+				MAX(created_at) AS last_active_at
+			FROM usage_logs
+			WHERE account_id = $1 AND created_at < $3
+				AND session_id IS NOT NULL AND session_id <> ''
+			GROUP BY user_id
+		) s
+		LEFT JOIN users u ON u.id = s.user_id
+		ORDER BY s.sessions DESC, s.lifetime_sessions DESC, s.user_id ASC
+		LIMIT $4
+	`
+	rows, err := r.sql.QueryContext(ctx, query, accountID, startTime, endTime, accountUserSessionStatsLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+			result = nil
+		}
+	}()
+
+	result = make([]AccountUserSessionStat, 0)
+	for rows.Next() {
+		var item AccountUserSessionStat
+		var lastActive sql.NullTime
+		if err = rows.Scan(&item.UserID, &item.Email, &item.Username, &item.Sessions, &item.LifetimeSessions, &lastActive); err != nil {
+			return nil, err
+		}
+		if lastActive.Valid {
+			t := lastActive.Time
+			item.LastActiveAt = &t
+		}
+		result = append(result, item)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

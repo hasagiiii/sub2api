@@ -56,6 +56,10 @@ async function loadAllSettings() {
     if (advancedSettings.value && !advancedSettings.value.openai_account_quota_auto_pause) {
       advancedSettings.value.openai_account_quota_auto_pause = { default_threshold_5h: 0, default_threshold_7d: 0 }
     }
+    if (advancedSettings.value && !Array.isArray(advancedSettings.value.gateway_debug_log_user_emails)) {
+      advancedSettings.value.gateway_debug_log_user_emails = []
+    }
+    gatewayDebugUserInput.value = ''
     // 如果后端返回了阈值，使用后端的值；否则保持默认值
     if (thresholds && Object.keys(thresholds).length > 0) {
         metricThresholds.value = {
@@ -122,6 +126,41 @@ function addRecipient(target: 'alert' | 'report') {
 function removeRecipient(target: 'alert' | 'report', email: string) {
   if (!emailConfig.value) return
   const list = target === 'alert' ? emailConfig.value.alert.recipients : emailConfig.value.report.recipients
+  const idx = list.indexOf(email)
+  if (idx >= 0) list.splice(idx, 1)
+}
+
+// 网关调试日志用户白名单（邮箱）
+const GATEWAY_DEBUG_USER_WHITELIST_MAX = 100
+const gatewayDebugUserInput = ref('')
+
+function addGatewayDebugUser() {
+  if (!advancedSettings.value) return
+  const list = (advancedSettings.value.gateway_debug_log_user_emails ??= [])
+  const candidates = gatewayDebugUserInput.value
+    .split(/[\s,;，；]+/)
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean)
+  if (candidates.length === 0) return
+  const invalid = candidates.find((item) => !isValidEmailAddress(item))
+  if (invalid) {
+    appStore.showError(t('common.invalidEmail'))
+    return
+  }
+  for (const email of candidates) {
+    if (list.includes(email)) continue
+    if (list.length >= GATEWAY_DEBUG_USER_WHITELIST_MAX) {
+      appStore.showError(t('admin.ops.settings.gatewayDebugUserWhitelistMax', { max: GATEWAY_DEBUG_USER_WHITELIST_MAX }))
+      break
+    }
+    list.push(email)
+  }
+  gatewayDebugUserInput.value = ''
+}
+
+function removeGatewayDebugUser(email: string) {
+  const list = advancedSettings.value?.gateway_debug_log_user_emails
+  if (!list) return
   const idx = list.indexOf(email)
   if (idx >= 0) list.splice(idx, 1)
 }
@@ -201,6 +240,11 @@ const validation = computed(() => {
 // 保存所有配置
 async function saveAllSettings() {
   if (loading.value || !settingsLoaded.value || saving.value) return
+  // 输入框里还有未点"添加"的邮箱时，先尝试加入白名单；格式不合法则中止保存。
+  if (gatewayDebugUserInput.value.trim()) {
+    addGatewayDebugUser()
+    if (gatewayDebugUserInput.value.trim()) return
+  }
   if (!validation.value.valid) {
     appStore.showError(validation.value.errors[0])
     return
@@ -664,6 +708,49 @@ async function saveAllSettings() {
                 </p>
               </div>
               <Toggle v-model="advancedSettings.gateway_debug_resp_enabled" />
+            </div>
+
+            <div data-test="gateway-debug-user-whitelist">
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.ops.settings.gatewayDebugUserWhitelist') }}</label>
+              <p class="mt-1 text-xs text-gray-500">
+                {{ t('admin.ops.settings.gatewayDebugUserWhitelistHint') }}
+              </p>
+              <div class="mt-2 flex gap-2">
+                <input
+                  v-model="gatewayDebugUserInput"
+                  type="text"
+                  class="input"
+                  data-test="gateway-debug-user-input"
+                  :placeholder="t('admin.ops.settings.gatewayDebugUserWhitelistPlaceholder')"
+                  @keydown.enter.prevent="addGatewayDebugUser"
+                />
+                <button
+                  class="btn btn-secondary whitespace-nowrap"
+                  type="button"
+                  data-test="gateway-debug-user-add"
+                  @click="addGatewayDebugUser"
+                >
+                  {{ t('common.add') }}
+                </button>
+              </div>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <span
+                  v-for="email in advancedSettings.gateway_debug_log_user_emails || []"
+                  :key="email"
+                  data-test="gateway-debug-user-chip"
+                  class="inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                >
+                  {{ email }}
+                  <button type="button" class="text-blue-700/80 hover:text-blue-900" @click="removeGatewayDebugUser(email)">×</button>
+                </span>
+              </div>
+              <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                {{
+                  (advancedSettings.gateway_debug_log_user_emails || []).length > 0
+                    ? t('admin.ops.settings.gatewayDebugUserWhitelistActive', { count: (advancedSettings.gateway_debug_log_user_emails || []).length })
+                    : t('admin.ops.settings.gatewayDebugUserWhitelistEmpty')
+                }}
+              </p>
             </div>
           </div>
         </div>

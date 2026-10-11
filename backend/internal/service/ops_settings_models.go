@@ -117,6 +117,13 @@ type OpsAdvancedSettings struct {
 	// （status/headers/body）写入 gateway_debug.log。仅在 GatewayDebugLogEnabled 开启时生效。
 	// 读取时反映进程内真实状态；写入时立即生效（无需重启），重启后回退到环境变量默认态。
 	GatewayDebugRespEnabled bool `json:"gateway_debug_resp_enabled"`
+	// GatewayDebugLogUserEmails 网关调试日志用户白名单（邮箱）。为空表示记录所有用户；
+	// 非空时只有这些用户的请求会写入 gateway_debug.log。
+	// 旧客户端未携带该字段（nil）时保留已持久化的值。
+	GatewayDebugLogUserEmails []string `json:"gateway_debug_log_user_emails"`
+	// GatewayDebugLogUserIDs 由服务端在保存时根据邮箱解析得到，供各实例运行时按 user_id 过滤。
+	// 客户端传入的值会被忽略。
+	GatewayDebugLogUserIDs []int64 `json:"gateway_debug_log_user_ids"`
 }
 
 type OpsOpenAIAccountQuotaAutoPauseSettings struct {

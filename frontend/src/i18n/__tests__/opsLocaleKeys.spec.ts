@@ -28,6 +28,12 @@ describe('ops locale key completeness', () => {
     'admin.ops.errorDetail.payloads.upstream_message',
     'admin.ops.errorDetail.payloads.upstream_detail',
     'admin.ops.errorDetail.payloads.upstream_events',
+    'admin.ops.settings.gatewayDebugUserWhitelist',
+    'admin.ops.settings.gatewayDebugUserWhitelistHint',
+    'admin.ops.settings.gatewayDebugUserWhitelistPlaceholder',
+    'admin.ops.settings.gatewayDebugUserWhitelistActive',
+    'admin.ops.settings.gatewayDebugUserWhitelistEmpty',
+    'admin.ops.settings.gatewayDebugUserWhitelistMax',
   ]
 
   for (const key of requiredKeys) {

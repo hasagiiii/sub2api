@@ -811,6 +811,10 @@ export interface OpsAdvancedSettings {
   gateway_debug_log_enabled: boolean
   // 回包打印开关：开启后同时把上游响应写入 gateway_debug.log，仅在上面的开关开启时生效。
   gateway_debug_resp_enabled: boolean
+  // 调试日志用户白名单（邮箱）。为空表示记录所有用户；非空时只记录这些用户的请求。
+  gateway_debug_log_user_emails?: string[]
+  // 服务端根据邮箱解析出的 user_id，仅用于展示，提交时会被服务端忽略。
+  gateway_debug_log_user_ids?: number[]
 }
 
 export interface OpsDataRetentionSettings {

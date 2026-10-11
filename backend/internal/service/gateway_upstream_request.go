@@ -213,7 +213,7 @@ func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Contex
 		"enable_mpt":          strconv.FormatBool(enableMPT),
 	}
 	debugAddRequestIDs(upstreamForwardExtra, ctx)
-	debugLogGatewaySnapshot("UPSTREAM_FORWARD", req.Header, body, upstreamForwardExtra)
+	debugLogGatewaySnapshot(ctx, "UPSTREAM_FORWARD", req.Header, body, upstreamForwardExtra)
 
 	// Always capture a compact fingerprint line for later error diagnostics.
 	// We only print it when needed (or when the explicit debug flag is enabled).
@@ -349,7 +349,7 @@ func (s *GatewayService) buildUpstreamRequestAnthropicVertex(
 		"stream":     strconv.FormatBool(reqStream),
 	}
 	debugAddRequestIDs(vertexForwardExtra, ctx)
-	debugLogGatewaySnapshot("UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, vertexForwardExtra)
+	debugLogGatewaySnapshot(ctx, "UPSTREAM_FORWARD_VERTEX_ANTHROPIC", req.Header, vertexBody, vertexForwardExtra)
 
 	return req, nil
 }

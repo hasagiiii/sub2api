@@ -770,6 +770,12 @@ export default {
         gatewayDebugLogHint: 'When enabled, full snapshots of the original client request and the upstream forwarded request are written to gateway_debug.log for diagnosing forwarding issues. Takes effect immediately without a restart and is persisted (restored from this setting after a restart). Enable only for troubleshooting; the log file grows quickly with traffic.',
         gatewayDebugResp: 'Log upstream responses',
         gatewayDebugRespHint: 'When enabled, upstream response snapshots (status, headers, body) are also written to gateway_debug.log across all forwarding paths. Image-generation payloads are truncated to 100 bytes; everything else is logged in full. Only effective while the gateway debug log above is enabled. Takes effect immediately and grows the log file even faster.',
+        gatewayDebugUserWhitelist: 'Debug log user whitelist',
+        gatewayDebugUserWhitelistHint: 'Enter user emails. When set, only requests (including upstream responses) from these users are written to gateway_debug.log; leave empty to log all users. Applies to every node after saving.',
+        gatewayDebugUserWhitelistPlaceholder: 'User email; separate multiple with commas or spaces',
+        gatewayDebugUserWhitelistActive: 'Limited to {count} user(s)',
+        gatewayDebugUserWhitelistEmpty: 'No whitelist: requests from all users are logged',
+        gatewayDebugUserWhitelistMax: 'The whitelist supports at most {max} emails',
         autoRefreshCountdown: 'Auto refresh: {seconds}s',
         validation: {
           title: 'Please fix the following issues',

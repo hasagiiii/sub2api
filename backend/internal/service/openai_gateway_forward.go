@@ -228,7 +228,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	if c != nil && c.Request != nil && debugGatewayLogEnabled() {
-		debugLogGatewaySnapshot("CLIENT_ORIGINAL_OPENAI", c.Request.Header, body, map[string]string{
+		debugLogGatewaySnapshot(c.Request.Context(), "CLIENT_ORIGINAL_OPENAI", c.Request.Header, body, map[string]string{
 			"account":           fmt.Sprintf("%d(%s)", account.ID, account.Name),
 			"account_type":      string(account.Type),
 			"path":              c.Request.URL.Path,
@@ -1198,7 +1198,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				"stream":          fmt.Sprintf("%v", reqStream),
 			}
 			debugAddRequestIDs(openaiForwardExtra, ctx)
-			debugLogGatewaySnapshot("UPSTREAM_FORWARD_OPENAI", upstreamReq.Header, body, openaiForwardExtra)
+			debugLogGatewaySnapshot(ctx, "UPSTREAM_FORWARD_OPENAI", upstreamReq.Header, body, openaiForwardExtra)
 		}
 
 		// Get proxy URL

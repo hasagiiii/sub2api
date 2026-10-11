@@ -771,6 +771,12 @@ export default {
         gatewayDebugLogHint: '开启后将客户端原始请求与上游转发请求的完整快照写入 gateway_debug.log，用于排查转发问题。开关立即生效、无需重启，并会持久化保存（重启后按此处设置恢复）。仅排障时开启，日志文件会随请求快速增长。',
         gatewayDebugResp: '打印上游回包',
         gatewayDebugRespHint: '开启后同时把上游响应快照（status、headers、body）写入 gateway_debug.log，覆盖全部转发路径。生图类回包的图片内容会裁剪到 100 字节，其余内容正常打印。仅在上方网关调试日志开启时生效，立即生效、无需重启，会使日志文件增长更快。',
+        gatewayDebugUserWhitelist: '调试日志用户白名单',
+        gatewayDebugUserWhitelistHint: '填写用户邮箱。设置后只有白名单用户的请求（含上游回包）会写入 gateway_debug.log；留空则记录所有用户。保存后对所有节点生效。',
+        gatewayDebugUserWhitelistPlaceholder: '输入用户邮箱，多个可用逗号或空格分隔',
+        gatewayDebugUserWhitelistActive: '已限制为 {count} 个用户',
+        gatewayDebugUserWhitelistEmpty: '未设置白名单，记录所有用户的请求',
+        gatewayDebugUserWhitelistMax: '白名单最多 {max} 个邮箱',
         autoRefreshCountdown: '自动刷新：{seconds}s',
         validation: {
           title: '请先修正以下问题',

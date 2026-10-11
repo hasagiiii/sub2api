@@ -43,7 +43,7 @@
 
       <template v-else-if="stats">
         <!-- Row 1: Main Stats Cards -->
-        <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div class="grid grid-cols-2 gap-4 lg:grid-cols-5">
           <!-- 30-Day Total Cost -->
           <div
             class="card border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4 dark:border-emerald-800/30 dark:from-emerald-900/10 dark:to-dark-700"
@@ -87,6 +87,34 @@
             </p>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.stats.totalCalls') }}
+            </p>
+          </div>
+
+          <!-- 30-Day Total Sessions -->
+          <div
+            data-test="account-stats-sessions"
+            class="card border-sky-200 bg-gradient-to-br from-sky-50 to-white p-4 dark:border-sky-800/30 dark:from-sky-900/10 dark:to-dark-700"
+          >
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{
+                t('admin.accounts.stats.totalSessions')
+              }}</span>
+              <div class="rounded-lg bg-sky-100 p-1.5 dark:bg-sky-900/30">
+                <Icon name="chat" size="sm" class="text-sky-600 dark:text-sky-400" />
+              </div>
+            </div>
+            <p class="text-2xl font-bold text-gray-900 dark:text-white">
+              {{ formatNumber(stats.summary.total_sessions || 0) }}
+            </p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400" :title="t('admin.accounts.stats.sessionsHint')">
+              <span data-test="account-stats-lifetime-sessions">
+                {{ t('admin.accounts.stats.lifetimeSessions') }}:
+                {{ formatNumber(stats.summary.lifetime_sessions || 0) }}
+              </span>
+              <span class="text-gray-400 dark:text-gray-500">
+                · {{ t('admin.accounts.stats.avgDailySessions') }}:
+                {{ formatNumber(Math.round(stats.summary.avg_daily_sessions || 0)) }}
+              </span>
             </p>
           </div>
 
@@ -185,6 +213,14 @@
                 }}</span>
                 <span class="text-sm font-semibold text-gray-900 dark:text-white">{{
                   formatNumber(stats.summary.today?.requests || 0)
+                }}</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{
+                  t('admin.accounts.stats.sessions')
+                }}</span>
+                <span class="text-sm font-semibold text-gray-900 dark:text-white">{{
+                  formatNumber(stats.summary.today?.sessions || 0)
                 }}</span>
               </div>
               <div class="flex items-center justify-between">
@@ -392,6 +428,73 @@
           </div>
         </div>
 
+        <!-- Sessions by User -->
+        <div class="card p-4" data-test="account-stats-user-sessions">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <div class="rounded-lg bg-sky-100 p-1.5 dark:bg-sky-900/30">
+                <Icon name="users" size="sm" class="text-sky-600 dark:text-sky-400" />
+              </div>
+              <span class="text-sm font-semibold text-gray-900 dark:text-white">{{
+                t('admin.accounts.stats.userSessions')
+              }}</span>
+              <span class="text-xs text-gray-400 dark:text-gray-500">{{
+                t('admin.accounts.stats.userSessionsDesc')
+              }}</span>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+              <span>
+                {{ t('admin.accounts.stats.rangeSessions') }}:
+                <span class="font-semibold text-gray-900 dark:text-white">{{
+                  formatNumber(stats.summary.total_sessions || 0)
+                }}</span>
+              </span>
+              <span>
+                {{ t('admin.accounts.stats.lifetimeSessions') }}:
+                <span class="font-semibold text-gray-900 dark:text-white">{{
+                  formatNumber(stats.summary.lifetime_sessions || 0)
+                }}</span>
+              </span>
+            </div>
+          </div>
+          <div v-if="userSessions.length" class="max-h-72 overflow-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="sticky top-0 bg-white text-xs text-gray-500 dark:bg-dark-800 dark:text-gray-400">
+                <tr>
+                  <th class="py-2 pr-4 font-medium">{{ t('admin.accounts.stats.user') }}</th>
+                  <th class="py-2 pr-4 text-right font-medium">{{ t('admin.accounts.stats.rangeSessions') }}</th>
+                  <th class="py-2 pr-4 text-right font-medium">{{ t('admin.accounts.stats.lifetimeSessions') }}</th>
+                  <th class="py-2 text-right font-medium">{{ t('admin.accounts.stats.lastActive') }}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-100 dark:divide-dark-600">
+                <tr v-for="item in userSessions" :key="item.user_id" data-test="account-stats-user-session-row">
+                  <td class="py-2 pr-4">
+                    <div class="font-medium text-gray-900 dark:text-white">
+                      {{ item.username || item.email || `#${item.user_id}` }}
+                    </div>
+                    <div v-if="item.username && item.email" class="text-xs text-gray-500 dark:text-gray-400">
+                      {{ item.email }}
+                    </div>
+                  </td>
+                  <td class="py-2 pr-4 text-right font-semibold text-gray-900 dark:text-white">
+                    {{ formatNumber(item.sessions) }}
+                  </td>
+                  <td class="py-2 pr-4 text-right text-gray-700 dark:text-gray-300">
+                    {{ formatNumber(item.lifetime_sessions) }}
+                  </td>
+                  <td class="py-2 text-right text-xs text-gray-500 dark:text-gray-400">
+                    {{ item.last_active_at ? formatDateTimeToMinute(item.last_active_at) : '-' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-else class="py-4 text-center text-sm text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.stats.noUserSessions') }}
+          </p>
+        </div>
+
         <!-- Usage Trend Chart -->
         <div class="card p-4">
           <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
@@ -468,6 +571,7 @@ import ModelDistributionChart from '@/components/charts/ModelDistributionChart.v
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api/admin'
+import { formatDateTimeToMinute } from '@/utils/format'
 import type { Account, AccountUsageStatsResponse } from '@/types'
 
 ChartJS.register(
@@ -494,6 +598,7 @@ const emit = defineEmits<{
 
 const loading = ref(false)
 const stats = ref<AccountUsageStatsResponse | null>(null)
+const userSessions = computed(() => stats.value?.user_sessions ?? [])
 
 // Dark mode detection
 const isDarkMode = computed(() => {
@@ -539,6 +644,16 @@ const trendChartData = computed(() => {
         backgroundColor: 'rgba(249, 115, 22, 0.1)',
         fill: false,
         tension: 0.3,
+        yAxisID: 'y1'
+      },
+      {
+        label: t('admin.accounts.stats.sessions'),
+        data: stats.value.history.map((h) => h.sessions || 0),
+        borderColor: '#0ea5e9',
+        backgroundColor: 'rgba(14, 165, 233, 0.1)',
+        fill: false,
+        tension: 0.3,
+        borderDash: [3, 3],
         yAxisID: 'y1'
       }
     ]

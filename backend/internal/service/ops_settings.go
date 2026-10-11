@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/mail"
+	"sort"
 	"strings"
 	"time"
 
@@ -423,6 +426,84 @@ func normalizeOpsAdvancedSettings(cfg *OpsAdvancedSettings) {
 	if cfg.AutoRefreshIntervalSec <= 0 {
 		cfg.AutoRefreshIntervalSec = 30
 	}
+	if cfg.GatewayDebugLogUserEmails == nil {
+		cfg.GatewayDebugLogUserEmails = []string{}
+	}
+	if cfg.GatewayDebugLogUserIDs == nil {
+		cfg.GatewayDebugLogUserIDs = []int64{}
+	}
+}
+
+// opsGatewayDebugLogUserWhitelistMax 白名单最多可配置的邮箱数。
+const opsGatewayDebugLogUserWhitelistMax = 100
+
+// normalizeGatewayDebugLogUserEmails 去空格、转小写、去重并校验邮箱格式。
+func normalizeGatewayDebugLogUserEmails(emails []string) ([]string, error) {
+	out := make([]string, 0, len(emails))
+	seen := make(map[string]struct{}, len(emails))
+	for _, raw := range emails {
+		email := strings.ToLower(strings.TrimSpace(raw))
+		if email == "" {
+			continue
+		}
+		if addr, err := mail.ParseAddress(email); err != nil || addr.Address != email {
+			return nil, fmt.Errorf("invalid email in gateway debug log user whitelist: %s", raw)
+		}
+		if _, ok := seen[email]; ok {
+			continue
+		}
+		seen[email] = struct{}{}
+		out = append(out, email)
+	}
+	if len(out) > opsGatewayDebugLogUserWhitelistMax {
+		return nil, fmt.Errorf("gateway debug log user whitelist supports at most %d emails", opsGatewayDebugLogUserWhitelistMax)
+	}
+	return out, nil
+}
+
+// resolveGatewayDebugLogUserIDs 把白名单邮箱解析为 user_id；任一邮箱找不到用户即返回错误。
+func (s *OpsService) resolveGatewayDebugLogUserIDs(ctx context.Context, emails []string) ([]int64, error) {
+	ids := make([]int64, 0, len(emails))
+	if len(emails) == 0 {
+		return ids, nil
+	}
+	if s.userRepo == nil {
+		return nil, errors.New("user repository not initialized")
+	}
+	seen := make(map[int64]struct{}, len(emails))
+	for _, email := range emails {
+		user, err := s.userRepo.GetByEmail(ctx, email)
+		if err != nil {
+			if errors.Is(err, ErrUserNotFound) {
+				return nil, fmt.Errorf("user not found for gateway debug log whitelist email: %s", email)
+			}
+			return nil, fmt.Errorf("resolve gateway debug log whitelist email %s: %w", email, err)
+		}
+		if user == nil || user.ID <= 0 {
+			return nil, fmt.Errorf("user not found for gateway debug log whitelist email: %s", email)
+		}
+		if _, ok := seen[user.ID]; ok {
+			continue
+		}
+		seen[user.ID] = struct{}{}
+		ids = append(ids, user.ID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids, nil
+}
+
+// loadPersistedGatewayDebugLogWhitelist 读取 DB 中已保存的白名单（邮箱与 user_id），读取失败时返回空。
+func (s *OpsService) loadPersistedGatewayDebugLogWhitelist(ctx context.Context) ([]string, []int64) {
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeyOpsAdvancedSettings)
+	if err != nil {
+		return []string{}, []int64{}
+	}
+	persisted := &OpsAdvancedSettings{}
+	if err := json.Unmarshal([]byte(raw), persisted); err != nil {
+		return []string{}, []int64{}
+	}
+	normalizeOpsAdvancedSettings(persisted)
+	return persisted.GatewayDebugLogUserEmails, persisted.GatewayDebugLogUserIDs
 }
 
 func clampOpsQuotaAutoPauseThreshold(value float64) float64 {
@@ -491,6 +572,23 @@ func (s *OpsService) UpdateOpsAdvancedSettings(ctx context.Context, cfg *OpsAdva
 		return nil, err
 	}
 
+	// 网关调试日志用户白名单：旧客户端不带该字段时保留已保存的值；
+	// 否则规范化邮箱并解析为 user_id（客户端传入的 user_id 一律忽略）。
+	if cfg.GatewayDebugLogUserEmails == nil {
+		cfg.GatewayDebugLogUserEmails, cfg.GatewayDebugLogUserIDs = s.loadPersistedGatewayDebugLogWhitelist(ctx)
+	} else {
+		emails, err := normalizeGatewayDebugLogUserEmails(cfg.GatewayDebugLogUserEmails)
+		if err != nil {
+			return nil, err
+		}
+		ids, err := s.resolveGatewayDebugLogUserIDs(ctx, emails)
+		if err != nil {
+			return nil, err
+		}
+		cfg.GatewayDebugLogUserEmails = emails
+		cfg.GatewayDebugLogUserIDs = ids
+	}
+
 	normalizeOpsAdvancedSettings(cfg)
 
 	// 先持久化到 DB（source of truth）。多副本部署下，网关调试开关的运行时热切依赖
@@ -515,6 +613,8 @@ func (s *OpsService) UpdateOpsAdvancedSettings(ctx context.Context, cfg *OpsAdva
 	}
 	// 回包打印开关：纯 atomic 热切，不涉及文件系统，直接生效。
 	SetGatewayDebugRespEnabled(cfg.GatewayDebugRespEnabled)
+	// 用户白名单：纯 atomic 热切。
+	SetGatewayDebugLogUserWhitelist(cfg.GatewayDebugLogUserIDs)
 
 	// 广播给集群其它实例，让它们也从 DB 重新读取并应用一次热切，保证全节点开关一致。
 	// 单机部署或未配置 Redis 时为 no-op。
@@ -579,6 +679,8 @@ func (s *OpsService) applyGatewayDebugLogFromDB(ctx context.Context) {
 	}
 	// 回包打印开关同样以 DB 持久化值为准恢复。
 	SetGatewayDebugRespEnabled(cfg.GatewayDebugRespEnabled)
+	// 用户白名单以 DB 持久化的 user_id 为准，保证多实例一致。
+	SetGatewayDebugLogUserWhitelist(cfg.GatewayDebugLogUserIDs)
 }
 
 // =========================

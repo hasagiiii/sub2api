@@ -241,7 +241,7 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 		"is_stream":    fmt.Sprintf("%t", stream),
 	}
 	debugAddRequestIDs(ccForwardExtra, ctx)
-	debugLogGatewaySnapshot("UPSTREAM_FORWARD_OPENAI_CC", upstreamReq.Header, body, ccForwardExtra)
+	debugLogGatewaySnapshot(ctx, "UPSTREAM_FORWARD_OPENAI_CC", upstreamReq.Header, body, ccForwardExtra)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

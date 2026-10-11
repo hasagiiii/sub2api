@@ -92,7 +92,7 @@ func (s *GatewayService) forwardKiroMessages(ctx context.Context, c *gin.Context
 	// Kiro 直连在 forwardMessages 主路径的 CLIENT_ORIGINAL 之前就 return，
 	// 需在此单独补记，否则 gateway_debug.log 缺失 Kiro 渠道请求。
 	if c != nil && debugGatewayLogEnabled() {
-		debugLogGatewaySnapshot("CLIENT_ORIGINAL_KIRO", c.Request.Header, body, map[string]string{
+		debugLogGatewaySnapshot(c.Request.Context(), "CLIENT_ORIGINAL_KIRO", c.Request.Header, body, map[string]string{
 			"account":           fmt.Sprintf("%d(%s)", account.ID, account.Name),
 			"account_type":      string(account.Type),
 			"model":             originalModel,
@@ -421,7 +421,7 @@ func (s *GatewayService) executeKiroUpstreamWithParsed(ctx context.Context, acco
 					"attempt":       strconv.Itoa(attempt),
 				}
 				debugAddRequestIDs(kiroForwardExtra, ctx)
-				debugLogGatewaySnapshot("UPSTREAM_FORWARD_KIRO", req.Header, payload, kiroForwardExtra)
+				debugLogGatewaySnapshot(ctx, "UPSTREAM_FORWARD_KIRO", req.Header, payload, kiroForwardExtra)
 			}
 
 			resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)

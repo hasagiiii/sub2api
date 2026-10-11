@@ -2581,6 +2581,7 @@ export interface AccountUsageHistory {
   date: string
   label: string
   requests: number
+  sessions: number // Distinct client session IDs on that day
   tokens: number
   cost: number
   actual_cost: number // Account cost (account multiplier)
@@ -2595,16 +2596,20 @@ export interface AccountUsageSummary {
   total_standard_cost: number
   total_requests: number
   total_tokens: number
+  total_sessions: number // Distinct client session IDs in the range
+  lifetime_sessions: number // Distinct client session IDs over the account lifetime
   avg_daily_cost: number // Account cost
   avg_daily_user_cost: number
   avg_daily_requests: number
   avg_daily_tokens: number
+  avg_daily_sessions: number
   avg_duration_ms: number
   today: {
     date: string
     cost: number
     user_cost: number
     requests: number
+    sessions: number
     tokens: number
   } | null
   highest_cost_day: {
@@ -2623,12 +2628,22 @@ export interface AccountUsageSummary {
   } | null
 }
 
+export interface AccountUserSessionStat {
+  user_id: number
+  email: string
+  username: string
+  sessions: number // Distinct sessions in the range
+  lifetime_sessions: number
+  last_active_at: string | null
+}
+
 export interface AccountUsageStatsResponse {
   history: AccountUsageHistory[]
   summary: AccountUsageSummary
   models: ModelStat[]
   endpoints: EndpointStat[]
   upstream_endpoints: EndpointStat[]
+  user_sessions?: AccountUserSessionStat[]
 }
 
 // ==================== User Attribute Types ====================
