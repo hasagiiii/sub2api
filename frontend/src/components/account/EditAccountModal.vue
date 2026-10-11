@@ -2181,6 +2181,8 @@
         </div>
       </div>
 
+      <OpenAIRequestTimezoneField v-if="account?.platform === 'openai'" v-model="openAIRequestTimezone" />
+
       <!-- OpenAI Codex namespace 工具摊平（兼容开关，仅 OAuth） -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth'"
@@ -3601,6 +3603,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
+import OpenAIRequestTimezoneField from '@/components/account/OpenAIRequestTimezoneField.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import AccountRpmSettings from '@/components/account/AccountRpmSettings.vue'
 import { applyAccountRPMSettings } from '@/components/account/accountRpm'
@@ -3671,7 +3674,7 @@ import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
 import { isKiroRelayAccount } from '@/utils/kiroAccount'
 import { supportsUpstreamBillingProbe } from '@/utils/upstreamBillingProbe'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
-import { DEFAULT_EXCEL_BPS_MODELS, VERTEX_LOCATION_SELECT_OPTIONS } from '@/constants/account'
+import { DEFAULT_EXCEL_BPS_MODELS, VERTEX_LOCATION_SELECT_OPTIONS, DEFAULT_OPENAI_REQUEST_TIMEZONE } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -4314,6 +4317,7 @@ const excelBPS403GroupOptions = computed(() => [
 ])
 const copilotSDKEnabled = ref(false)
 const openaiPassthroughEnabled = ref(false)
+const openAIRequestTimezone = ref(DEFAULT_OPENAI_REQUEST_TIMEZONE)
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
@@ -4843,6 +4847,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   excelBPS403TargetGroupID.value = ''
   copilotSDKEnabled.value = false
   openaiPassthroughEnabled.value = false
+  openAIRequestTimezone.value = DEFAULT_OPENAI_REQUEST_TIMEZONE
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
   editPlanType.value = ''
@@ -4885,6 +4890,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     excelBPS403TargetGroupID.value = typeof targetGroupID === 'number' && Number.isSafeInteger(targetGroupID) && targetGroupID >= 0 ? targetGroupID : ''
     copilotSDKEnabled.value = newAccount.type === 'apikey' && extra?.openai_copilot_sdk === true
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
+    openAIRequestTimezone.value = typeof extra?.openai_request_timezone === 'string' ? extra.openai_request_timezone : DEFAULT_OPENAI_REQUEST_TIMEZONE
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
     const longContextBillingValue = extra?.openai_long_context_billing_enabled
@@ -6534,6 +6540,7 @@ const handleSubmit = async () => {
     if (props.account.platform === 'openai' && (props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'apikey')) {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
+      newExtra.openai_request_timezone = openAIRequestTimezone.value
       if (props.account.type === 'oauth') {
         applyAccountRPMSettings(newExtra, {
           enabled: rpmLimitEnabled.value,

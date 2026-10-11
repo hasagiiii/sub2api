@@ -703,6 +703,9 @@ export default {
       openai: {
         baseUrlHint: 'Leave default for official OpenAI API',
         apiKeyHint: 'Your OpenAI API Key',
+        requestTimezone: 'Request timezone',
+        requestTimezoneDesc: 'Timezone in environment context for this OpenAI account. Defaults to New York; preserves original client dates, times and language preferences.',
+        requestTimezoneLoadFailed: 'Timezone choices could not be loaded. The default New York timezone remains available.',
         oauthPassthrough: 'Auto passthrough (auth only)',
         excelBPS: 'Excel / BPS protocol',
         excelBPSOmitUnsupportedTools: 'Keep BPS and omit unsupported hosted tools',

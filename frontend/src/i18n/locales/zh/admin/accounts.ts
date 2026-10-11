@@ -783,6 +783,9 @@ export default {
       openai: {
         baseUrlHint: '留空使用官方 OpenAI API',
         apiKeyHint: '您的 OpenAI API Key',
+        requestTimezone: '请求时区',
+        requestTimezoneDesc: '此 OpenAI 账号环境上下文中的时区，默认纽约；保留客户端原始日期、时间和语言偏好。',
+        requestTimezoneLoadFailed: '时区列表加载失败，仍可使用默认的纽约时区。',
         oauthPassthrough: '自动透传（仅替换认证）',
         excelBPS: 'Excel / BPS 协议',
         excelBPSOmitUnsupportedTools: '保持 BPS，省略不支持的托管工具',

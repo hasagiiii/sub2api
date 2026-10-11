@@ -52,6 +52,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	account = latest
 	beginUpstreamResponseModelObservation(c)
+	body = normalizeOpenAIRequestLocale(ctx, account, body, "http")
 	ClearActualOpenAIUpstreamEndpoint(c)
 	// A failed account attempt must not leave a bypass reason on a later BPS response.
 	c.Writer.Header().Del("X-Codex2API-Basispoints-Bypass")

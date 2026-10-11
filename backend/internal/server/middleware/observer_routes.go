@@ -17,6 +17,7 @@ var observerAccountRoutes = map[string]struct{}{
 	"GET /api/v1/admin/scheduled-test-plans/:id/results/:resultID":   {},
 	"GET /api/v1/admin/accounts/management-capabilities":             {},
 	"GET /api/v1/admin/accounts":                                     {},
+	"GET /api/v1/admin/accounts/openai-request-timezones":            {},
 	"GET /api/v1/admin/accounts/upstream-billing-rates":              {},
 	"GET /api/v1/admin/accounts/upstream-billing-probe/settings":     {},
 	"POST /api/v1/admin/accounts/upstream-billing-probe/batch":       {},
