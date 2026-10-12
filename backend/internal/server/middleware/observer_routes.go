@@ -93,6 +93,8 @@ var observerAccountRoutes = map[string]struct{}{
 	"POST /api/v1/admin/openai/create-from-oauth":                    {},
 	"POST /api/v1/admin/openai/create-from-codex-pat":                {},
 	"GET /api/v1/admin/openai/accounts/:id/quota":                    {},
+	"GET /api/v1/admin/openai/accounts/:id/usage-data":               {},
+	"GET /api/v1/admin/openai/accounts/:id/usage-data/:metric":       {},
 	"POST /api/v1/admin/openai/accounts/:id/quota/refresh":           {},
 	"POST /api/v1/admin/openai/accounts/:id/reset-quota":             {},
 	"POST /api/v1/admin/openai/accounts/:id/referrals/refresh":       {},

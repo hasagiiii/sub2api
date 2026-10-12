@@ -1,6 +1,26 @@
 export default {
     accounts: {
       title: 'Account Management',
+      openaiData: {
+        title: 'OpenAI Data',
+        description: 'Fetches account usage and daily plugin, skill, token, and workspace usage on opening. Switch datasets to view each complete JSON response.',
+        datasets: 'Data type',
+        usage: 'Account usage',
+        plugins: 'Daily plugin usage',
+        skills: 'Daily skill usage',
+        tokens: 'Daily token usage breakdown',
+        workspace: 'Daily workspace usage',
+        startDate: 'Start date',
+        endDate: 'End date',
+        query: 'Query daily usage',
+        analyticsHint: 'Defaults to the last 7 days, grouped by day; plugin and skill data each include the top 10 items. Querying a date range updates all daily usage datasets.',
+        invalidDates: 'Select valid dates with the start date on or before the end date.',
+        resultRange: 'Query range: {range}',
+        fetchedAt: 'Fetched at: {time}',
+        response: 'OpenAI usage response',
+        copy: 'Copy JSON',
+        failed: 'Failed to fetch OpenAI data. Please try again.'
+      },
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',
       autoRefresh: 'Auto Refresh',

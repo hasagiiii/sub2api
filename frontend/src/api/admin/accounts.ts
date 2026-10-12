@@ -1035,6 +1035,28 @@ export async function refreshOpenAIQuota(id: number): Promise<OpenAIQuotaRefresh
   return data
 }
 
+/** Complete upstream usage payload, including fields not present in the quota card. */
+export type OpenAIUsageData = Record<string, unknown> | unknown[]
+
+export async function getOpenAIUsageData(id: number, signal?: AbortSignal): Promise<OpenAIUsageData> {
+  const { data } = await apiClient.get<OpenAIUsageData>(
+    `/admin/openai/accounts/${id}/usage-data`, { signal }
+  )
+  return data
+}
+
+export async function getOpenAIUsageAnalytics(
+  id: number,
+  metric: 'plugins' | 'skills' | 'tokens' | 'workspace',
+  dates: { start_date: string; end_date: string },
+  signal?: AbortSignal
+): Promise<OpenAIUsageData> {
+  const { data } = await apiClient.get<OpenAIUsageData>(
+    `/admin/openai/accounts/${id}/usage-data/${metric}`, { params: dates, signal }
+  )
+  return data
+}
+
 export async function refreshOpenAIReferrals(id: number): Promise<OpenAIReferralRefreshResult> {
   const { data } = await apiClient.post<OpenAIReferralRefreshResult>(
     `/admin/openai/accounts/${id}/referrals/refresh`

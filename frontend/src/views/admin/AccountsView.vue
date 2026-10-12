@@ -466,10 +466,11 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <OpenAIUsageDataModal :show="openaiDataAcc !== null" :account="openaiDataAcc" @close="openaiDataAcc = null" />
     <AccountScheduledUsersModal :show="showScheduledUsers" :account="scheduledUsersAcc" @close="closeScheduledUsersModal" />
     <IQTestModal :show="showIQTest" :account="iqTestingAcc" :accounts="accounts" @close="closeIQTestModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @scheduled-users="handleViewScheduledUsers" @schedule="handleSchedule" @iq-test="handleIQTest" @expense="handleAccountExpense" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @openai-data="handleOpenAIData" @scheduled-users="handleViewScheduledUsers" @schedule="handleSchedule" @iq-test="handleIQTest" @expense="handleAccountExpense" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal v-if="authStore.isAdmin" :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -538,6 +539,7 @@ import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
+import OpenAIUsageDataModal from '@/components/admin/account/OpenAIUsageDataModal.vue'
 import AccountScheduledUsersModal from '@/components/admin/account/AccountScheduledUsersModal.vue'
 import IQTestModal from '@/components/admin/account/IQTestModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
@@ -660,6 +662,7 @@ const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
+const openaiDataAcc = ref<{ id: number; name: string } | null>(null)
 const showScheduledUsers = ref(false)
 const scheduledUsersAcc = ref<Account | null>(null)
 const iqTestingAcc = ref<Account | null>(null)
@@ -1440,6 +1443,7 @@ const isAnyModalOpen = computed(() => {
     showReAuth.value ||
     showTest.value ||
     showStats.value ||
+    openaiDataAcc.value !== null ||
     showScheduledUsers.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
@@ -2426,6 +2430,9 @@ const handleExportData = async () => {
 const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
+const handleOpenAIData = (account: AccountListItem) => {
+  openaiDataAcc.value = { id: account.id, name: account.name }
+}
 const closeScheduledUsersModal = () => { showScheduledUsers.value = false; scheduledUsersAcc.value = null }
 const handleViewScheduledUsers = async (a: AccountListItem) => {
   const account = await loadAccountDetails(a)

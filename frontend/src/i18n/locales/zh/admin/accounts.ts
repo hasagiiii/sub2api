@@ -1,6 +1,26 @@
 export default {
     accounts: {
       title: '账号管理',
+      openaiData: {
+        title: 'OpenAI 数据',
+        description: '打开时分别查询账号用量，以及插件、技能、Token 和工作区每日用量，切换查看完整 JSON 回包。',
+        datasets: '数据类型',
+        usage: '账号用量',
+        plugins: '插件每日用量',
+        skills: '技能每日用量',
+        tokens: '每日 Token 用量明细',
+        workspace: '工作区每日用量',
+        startDate: '开始日期',
+        endDate: '结束日期',
+        query: '查询每日用量',
+        analyticsHint: '默认最近 7 天，按天分组；插件和技能数据各取前 10 项。日期查询会更新全部每日用量数据。',
+        invalidDates: '请选择有效日期，开始日期不能晚于结束日期。',
+        resultRange: '本次查询范围：{range}',
+        fetchedAt: '获取时间：{time}',
+        response: 'OpenAI 用量接口回包',
+        copy: '复制 JSON',
+        failed: '获取 OpenAI 数据失败，请稍后重试。'
+      },
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',
       autoRefresh: '自动刷新',
