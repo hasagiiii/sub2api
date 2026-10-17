@@ -1005,6 +1005,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useTimestamp } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
 import { organizationAPI } from '@/api'
 import type { OrganizationAuditEntry } from '@/api/organization'
@@ -1265,6 +1266,7 @@ const operationKey = ref('')
 const error = ref('')
 const modalError = ref('')
 const subscriptions = ref<OrganizationSubscription[]>([])
+const subscriptionNow = useTimestamp({ interval: 1000 })
 const planCards = ref<PlazaPlanCard[]>([])
 const plansLoading = ref(false)
 const showPurchase = ref(false)
@@ -1280,7 +1282,14 @@ type OrganizationSubscriptionDisplay = OrganizationSubscription & {
 const organizationSubscriptionRows = computed<OrganizationSubscriptionDisplay[]>(() => {
   const rows: OrganizationSubscriptionDisplay[] = []
   const shared = new Map<string, OrganizationSubscriptionDisplay>()
-  for (const item of subscriptions.value) {
+  for (const subscription of subscriptions.value) {
+    // 到期不会立即改写数据库状态，展示时按有效期判断；取消、暂停等状态仍优先保留。
+    const item: OrganizationSubscription = {
+      ...subscription,
+      status: subscription.status === 'active' && Date.parse(subscription.expires_at) <= subscriptionNow.value
+        ? 'expired'
+        : subscription.status,
+    }
     const hasPlanLimits = [item.plan_daily_limit_usd, item.plan_weekly_limit_usd, item.plan_monthly_limit_usd]
       .some((limit) => Number(limit ?? 0) > 0)
     if (item.plan_id == null || !hasPlanLimits) {
