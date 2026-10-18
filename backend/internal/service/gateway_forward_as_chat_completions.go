@@ -395,14 +395,15 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	}
 
 	return &ForwardResult{
-		RequestID:       requestID,
-		UpstreamHeaders: resp.Header,
-		Usage:           usage,
-		Model:           originalModel,
-		UpstreamModel:   mappedModel,
-		ReasoningEffort: reasoningEffort,
-		Stream:          false,
-		Duration:        time.Since(startTime),
+		RequestID:         requestID,
+		UpstreamHeaders:   resp.Header,
+		UpstreamSessionID: upstreamSessionIDFromResponse(resp),
+		Usage:             usage,
+		Model:             originalModel,
+		UpstreamModel:     mappedModel,
+		ReasoningEffort:   reasoningEffort,
+		Stream:            false,
+		Duration:          time.Since(startTime),
 	}, nil
 }
 
@@ -446,15 +447,16 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 	resultWithUsage := func() *ForwardResult {
 		return &ForwardResult{
-			RequestID:       requestID,
-			UpstreamHeaders: resp.Header,
-			Usage:           usage,
-			Model:           originalModel,
-			UpstreamModel:   mappedModel,
-			ReasoningEffort: reasoningEffort,
-			Stream:          true,
-			Duration:        time.Since(startTime),
-			FirstTokenMs:    firstTokenMs,
+			RequestID:         requestID,
+			UpstreamHeaders:   resp.Header,
+			UpstreamSessionID: upstreamSessionIDFromResponse(resp),
+			Usage:             usage,
+			Model:             originalModel,
+			UpstreamModel:     mappedModel,
+			ReasoningEffort:   reasoningEffort,
+			Stream:            true,
+			Duration:          time.Since(startTime),
+			FirstTokenMs:      firstTokenMs,
 		}
 	}
 

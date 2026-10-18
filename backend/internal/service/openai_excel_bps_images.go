@@ -361,6 +361,7 @@ func (s *OpenAIGatewayService) forwardExcelBPSImages(ctx context.Context, c *gin
 	return &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
+		UpstreamSessionID:             upstreamSessionIDFromResponse(resp),
 		Usage:                         usage,
 		Model:                         requestModel,
 		UpstreamModel:                 upstreamModel,

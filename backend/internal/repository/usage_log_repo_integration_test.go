@@ -77,7 +77,7 @@ func (s *UsageLogRepoSuite) TestCreateMergedRequestMetadata() {
 		UserID: user.ID, APIKeyID: apiKey.ID, AccountID: account.ID,
 		RequestID: uuid.NewString(), Model: "gpt-image-2",
 		OrganizationID: &organizationID, PayerUserID: &user.ID, BalanceSource: &source,
-		UpstreamRequestID: &upstreamID, SessionID: &sessionID, ImageQuality: &quality,
+		UpstreamRequestID: &upstreamID, SessionID: &sessionID, UpstreamSessionID: &upstreamID, ImageQuality: &quality,
 		ImageURLs: []string{"https://example.test/image.png"}, CosURLs: []string{"https://example.test/copy.png"},
 		RequestParameters:  map[string]any{"prompt": "merged metadata"},
 		NativeCompactionV2: true, CreatedAt: time.Now().UTC(),
@@ -92,6 +92,7 @@ func (s *UsageLogRepoSuite) TestCreateMergedRequestMetadata() {
 	s.Require().Equal(entry.BalanceSource, stored.BalanceSource)
 	s.Require().Equal(entry.UpstreamRequestID, stored.UpstreamRequestID)
 	s.Require().Equal(entry.SessionID, stored.SessionID)
+	s.Require().Equal(entry.UpstreamSessionID, stored.UpstreamSessionID)
 	s.Require().Equal(entry.ImageQuality, stored.ImageQuality)
 	s.Require().Equal(entry.ImageURLs, stored.ImageURLs)
 	s.Require().Equal(entry.CosURLs, stored.CosURLs)
@@ -1712,28 +1713,31 @@ func (s *UsageLogRepoSuite) TestGetAccountUserActivityStats_BoundUsersFirst() {
 	base := time.Date(2025, 4, 1, 0, 0, 0, 0, time.UTC)
 	str := func(v string) *string { return &v }
 	for _, item := range []struct {
-		user      *service.User
-		key       *service.APIKey
-		accountID int64
-		sessionID *string
-		at        time.Time
+		user              *service.User
+		key               *service.APIKey
+		accountID         int64
+		sessionID         *string
+		upstreamSessionID *string
+		at                time.Time
 	}{
-		{userA, keyA, account.ID, str("a-1"), base.Add(time.Hour)},
-		{userA, keyA, account.ID, str("a-1"), base.Add(2 * time.Hour)},
-		{userA, keyA, account.ID, str("a-2"), base.Add(3 * time.Hour)},
-		{userA, keyA, account.ID, nil, base.Add(4 * time.Hour)},
-		{userB, keyB, account.ID, str("b-1"), base.Add(10 * time.Hour)},
-		{userB, keyB, other.ID, str("b-other"), base.Add(20 * time.Hour)},
+		{userA, keyA, account.ID, str("a-1"), str("upstream-a"), base.Add(time.Hour)},
+		{userA, keyA, account.ID, str("a-1"), str("upstream-a"), base.Add(2 * time.Hour)},
+		{userA, keyA, account.ID, str("a-2"), str("upstream-a"), base.Add(3 * time.Hour)},
+		{userA, keyA, account.ID, nil, str("upstream-b"), base.Add(4 * time.Hour)},
+		{userB, keyB, account.ID, nil, str("upstream-clientless"), base.Add(10 * time.Hour)},
+		{userB, keyB, account.ID, nil, str("upstream-clientless"), base.Add(11 * time.Hour)},
+		{userB, keyB, other.ID, str("b-other"), str("other-account-session"), base.Add(20 * time.Hour)},
 	} {
 		_, err := s.repo.Create(s.ctx, &service.UsageLog{
-			UserID:       item.user.ID,
-			APIKeyID:     item.key.ID,
-			AccountID:    item.accountID,
-			Model:        "claude-3-opus",
-			InputTokens:  1,
-			OutputTokens: 1,
-			SessionID:    item.sessionID,
-			CreatedAt:    item.at,
+			UserID:            item.user.ID,
+			APIKeyID:          item.key.ID,
+			AccountID:         item.accountID,
+			Model:             "claude-3-opus",
+			InputTokens:       1,
+			OutputTokens:      1,
+			SessionID:         item.sessionID,
+			UpstreamSessionID: item.upstreamSessionID,
+			CreatedAt:         item.at,
 		})
 		s.Require().NoError(err)
 	}
@@ -1746,6 +1750,7 @@ func (s *UsageLogRepoSuite) TestGetAccountUserActivityStats_BoundUsersFirst() {
 	s.Require().Equal(userA.ID, stats[0].UserID, "bound users first, then by last active desc")
 	s.Require().Equal("activity-a@test.com", stats[0].Email)
 	s.Require().Equal(int64(2), stats[0].Sessions)
+	s.Require().Equal(int64(2), stats[0].UpstreamSessions)
 	s.Require().Equal(int64(4), stats[0].Requests)
 	s.Require().True(stats[0].LastActiveAt.Equal(base.Add(4 * time.Hour)))
 
@@ -1755,8 +1760,9 @@ func (s *UsageLogRepoSuite) TestGetAccountUserActivityStats_BoundUsersFirst() {
 	s.Require().Nil(stats[1].LastActiveAt)
 
 	s.Require().Equal(userB.ID, stats[2].UserID)
-	s.Require().Equal(int64(1), stats[2].Sessions)
-	s.Require().Equal(int64(1), stats[2].Requests)
+	s.Require().Zero(stats[2].Sessions)
+	s.Require().Equal(int64(1), stats[2].UpstreamSessions)
+	s.Require().Equal(int64(2), stats[2].Requests)
 
 	empty, err := s.repo.GetAccountUserActivityStats(s.ctx, account.ID+100000, nil, 10)
 	s.Require().NoError(err)

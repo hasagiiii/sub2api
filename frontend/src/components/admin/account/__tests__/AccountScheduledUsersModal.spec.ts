@@ -34,9 +34,9 @@ const response = (overrides: Partial<AccountScheduledUsersResponse> = {}): Accou
   bound_count: 2,
   evict_cooldown_seconds: 3600,
   users: [
-    { user_id: 11, email: 'alice@example.com', username: 'alice', bound: true, bound_at: '2026-10-01T08:00:00Z', sessions: 5, requests: 20, last_active_at: '2026-10-11T08:00:00Z' },
-    { user_id: 12, email: '', username: '', bound: true, bound_at: '2026-10-02T08:00:00Z', sessions: 0, requests: 0, last_active_at: null },
-    { user_id: 13, email: 'carol@example.com', username: '', bound: false, evicted_until: '2026-10-11T09:00:00Z', sessions: 2, requests: 3, last_active_at: '2026-10-10T08:00:00Z' }
+    { user_id: 11, email: 'alice@example.com', username: 'alice', bound: true, bound_at: '2026-10-01T08:00:00Z', sessions: 5, upstream_sessions: 8, requests: 20, last_active_at: '2026-10-11T08:00:00Z' },
+    { user_id: 12, email: '', username: '', bound: true, bound_at: '2026-10-02T08:00:00Z', sessions: 0, upstream_sessions: 0, requests: 0, last_active_at: null },
+    { user_id: 13, email: 'carol@example.com', username: '', bound: false, evicted_until: '2026-10-11T09:00:00Z', sessions: 2, upstream_sessions: 4, requests: 3, last_active_at: '2026-10-10T08:00:00Z' }
   ],
   ...overrides
 })
@@ -79,10 +79,20 @@ describe('AccountScheduledUsersModal', () => {
     expect(rows).toHaveLength(3)
     expect(rows[0].text()).toContain('alice@example.com')
     expect(rows[0].text()).toContain('5')
+    expect(rows[0].get('[data-test="upstream-conversations"]').text()).toBe('8')
     expect(rows[0].text()).toContain('admin.accounts.scheduledUsers.bound')
     expect(rows[1].text()).toContain('admin.accounts.scheduledUsers.unknownUser:{"id":12}')
     expect(rows[2].text()).toContain('admin.accounts.scheduledUsers.evicted')
     expect(wrapper.findAll('[data-test="scheduled-user-evict"]')).toHaveLength(2)
+  })
+
+  it('counts outbound conversations independently of missing client session IDs', async () => {
+    const data = response()
+    data.users[0].sessions = 0
+    data.users[0].upstream_sessions = 12
+    getScheduledUsers.mockResolvedValue(data)
+    const wrapper = await mountOpened()
+    expect(wrapper.findAll('[data-test="upstream-conversations"]')[0].text()).toBe('12')
   })
 
   it('shows unlimited when max users is not configured and empty state', async () => {
@@ -98,8 +108,8 @@ describe('AccountScheduledUsersModal', () => {
     getScheduledUsers.mockResolvedValueOnce(response({
       bound_count: 1,
       users: [
-        { user_id: 11, email: 'alice@example.com', username: 'alice', bound: false, evicted_until: '2026-10-11T09:00:00Z', sessions: 5, requests: 20, last_active_at: null },
-        { user_id: 12, email: '', username: '', bound: true, sessions: 0, requests: 0, last_active_at: null }
+        { user_id: 11, email: 'alice@example.com', username: 'alice', bound: false, evicted_until: '2026-10-11T09:00:00Z', sessions: 5, upstream_sessions: 8, requests: 20, last_active_at: null },
+        { user_id: 12, email: '', username: '', bound: true, sessions: 0, upstream_sessions: 0, requests: 0, last_active_at: null }
       ]
     }))
     evictScheduledUser.mockResolvedValue({ removed: true })

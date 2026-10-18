@@ -1969,6 +1969,8 @@ export default {
         evictedUntil: 'Cooldown until {time}',
         notBound: 'No slot',
         conversations: 'Conversations',
+        upstreamConversations: 'Upstream conversations',
+        upstreamConversationsHint: 'Distinct conversation identities actually sent to this upstream account. Only newly recorded requests with an identity are counted.',
         requests: 'Requests',
         lastActive: 'Last Active',
         boundAt: 'Joined',

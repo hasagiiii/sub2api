@@ -69,6 +69,12 @@ func TestGatewayRoutesModelAPIDoesNotApplyVideoFeatureGateBeforeAuth(t *testing.
 	router.ServeHTTP(recorder, request)
 	require.Equal(t, http.StatusTeapot, recorder.Code)
 	require.True(t, authCalled)
+	authCalled = false
+	plural := httptest.NewRecorder()
+	router.ServeHTTP(plural, httptest.NewRequest(http.MethodPost, "/api/v1/models/openai/gpt-image-2", strings.NewReader(`{}`)))
+	require.Equal(t, http.StatusTeapot, plural.Code)
+	require.True(t, authCalled)
+
 }
 
 func TestGatewayRoutesEstimatePricingBypassesVideoFeatureGate(t *testing.T) {

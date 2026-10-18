@@ -401,8 +401,8 @@ func (s *GatewayService) SelectImageAccountMixed(
 }
 
 // SelectAsyncImageAccountInGroup selects an account for the asynchronous
-// /api/v1/model image facade. Only queue-style image providers are eligible;
-// synchronous OpenAI image accounts cannot serve this protocol.
+// /api/v1/model image facade. OpenAI images use the inline task adapter;
+// queue-style providers retain their native submission protocol.
 func (s *GatewayService) SelectAsyncImageAccountInGroup(
 	ctx context.Context,
 	groupID *int64,
@@ -412,6 +412,7 @@ func (s *GatewayService) SelectAsyncImageAccountInGroup(
 	falAPI string,
 ) (*Account, error) {
 	allowedPlatforms := map[string]struct{}{
+		PlatformOpenAI:    {},
 		PlatformFal:       {},
 		PlatformLeonardo:  {},
 		PlatformBytedance: {},
@@ -493,6 +494,10 @@ func (s *GatewayService) selectImageAccountMixedCandidate(
 	eligibleByPlatform := make(map[string]int, 2)
 	for i := range accounts {
 		diagnostic := s.buildImageSelectionDiagnostic(ctx, &accounts[i], requestedModel, imageCapability, falAPI, groupID, excludedIDs)
+		if len(allowedPlatforms) > 0 && accounts[i].Platform == PlatformOpenAI && !isOpenAIImageGenerationModel(accounts[i].GetMappedModel(modelAPIImageAccountModel(&accounts[i], requestedModel))) {
+			diagnostic.Eligible = false
+			diagnostic.RejectionReason = "model_or_api_unsupported"
+		}
 		if len(allowedPlatforms) > 0 {
 			if _, allowed := allowedPlatforms[accounts[i].Platform]; !allowed {
 				diagnostic.Eligible = false
@@ -641,6 +646,7 @@ func (s *GatewayService) buildImageSelectionDiagnostic(
 		diagnostic.RejectionReason = "nil_account"
 		return diagnostic
 	}
+	requestedModel = modelAPIImageAccountModel(account, requestedModel)
 	_, diagnostic.Excluded = excludedIDs[account.ID]
 	diagnostic.Schedulable = s.isAccountSchedulableForSelection(account)
 	switch account.Platform {

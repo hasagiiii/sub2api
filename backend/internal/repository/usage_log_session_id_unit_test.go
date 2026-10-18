@@ -32,7 +32,7 @@ func newSessionIDUsageLog(sessionID *string) *service.UsageLog {
 // arg slice / arg-type table so the five INSERT column lists stay in sync. session_id
 // is followed by request_parameters and native_compaction_v2, with created_at always last.
 func TestPrepareUsageLogInsert_SessionIDArgWiring(t *testing.T) {
-	require.Len(t, usageLogInsertArgTypes, 71, "arg-type table must include image quality, enterprise fields, upstream response model, upstream request ID, session_id, request parameters and native compaction")
+	require.Len(t, usageLogInsertArgTypes, 72, "arg-type table must include image quality, enterprise fields, upstream response model, upstream request ID, session_id, request parameters and native compaction")
 
 	sessionID := "sess-persisted-123"
 	prepared := prepareUsageLogInsert(newSessionIDUsageLog(&sessionID))
@@ -124,4 +124,19 @@ func TestUsageLogInsertQueries_IncludeSessionID(t *testing.T) {
 	bestEffortQuery, bestEffortArgs := buildUsageLogBestEffortInsertQuery([]usageLogInsertPrepared{prepared})
 	require.Contains(t, bestEffortQuery, "session_id")
 	require.Len(t, bestEffortArgs, len(prepared.args))
+}
+
+func TestPrepareUsageLogInsert_UpstreamSessionIDIndependentOfClient(t *testing.T) {
+	upstreamID := "outbound-session"
+	log := newSessionIDUsageLog(nil)
+	log.UpstreamSessionID = &upstreamID
+	prepared := prepareUsageLogInsert(log)
+	require.Equal(t, sql.NullString{String: upstreamID, Valid: true}, prepared.args[len(prepared.args)-5])
+	require.Equal(t, sql.NullString{}, prepared.args[len(prepared.args)-4])
+	require.Contains(t, usageLogSelectColumns, "upstream_session_id")
+	key := usageLogBatchKey(log.RequestID, log.APIKeyID)
+	query, _ := buildUsageLogBatchInsertQuery([]string{key}, map[string]usageLogInsertPrepared{key: prepared})
+	require.GreaterOrEqual(t, strings.Count(query, "upstream_session_id"), 3)
+	query, _ = buildUsageLogBestEffortInsertQuery([]usageLogInsertPrepared{prepared})
+	require.Contains(t, query, "upstream_session_id")
 }

@@ -893,6 +893,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	return &ForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
+		UpstreamSessionID:             upstreamSessionIDFromResponse(resp),
 		Usage:                         *usage,
 		Model:                         originalModel, // 使用原始模型用于计费和日志
 		UpstreamModel:                 mappedModel,

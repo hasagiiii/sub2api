@@ -527,7 +527,7 @@ export default {
       title: '使用记录',
       description: '查看和管理所有用户的使用记录',
       userFilter: '用户',
-      searchUserPlaceholder: '按邮箱搜索用户...',
+      searchUserPlaceholder: '按邮箱或登录账号模糊搜索...',
       searchApiKeyPlaceholder: '按名称搜索 API 密钥...',
       searchAccountPlaceholder: '按名称搜索账号...',
       selectedUser: '已选择',

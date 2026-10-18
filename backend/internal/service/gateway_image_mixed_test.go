@@ -310,8 +310,8 @@ func TestGatewayService_SelectAsyncImageAccountInGroup(t *testing.T) {
 	account, err := svc.SelectAsyncImageAccountInGroup(ctx, &groupID, "", requestedModel, nil, "")
 	require.NoError(t, err)
 	require.NotNil(t, account)
-	require.Equal(t, int64(3), account.ID)
-	require.Equal(t, PlatformLeonardo, account.Platform)
+	require.Equal(t, int64(1), account.ID)
+	require.Equal(t, PlatformOpenAI, account.Platform)
 }
 
 func TestGatewayService_SelectAsyncImageAccountInGroupAllowsLeonardoEditMapping(t *testing.T) {
@@ -372,4 +372,24 @@ func TestGatewayService_SelectAsyncImageAccountUsesGroupModelPricing(t *testing.
 	require.NoError(t, err)
 	require.NotNil(t, account)
 	require.Equal(t, PlatformLeonardo, account.Platform)
+}
+
+func TestAsyncOpenAIImageAliasesMatchCanonicalAccountModels(t *testing.T) {
+	for _, model := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"} {
+		for _, suffix := range []string{"", "/edit"} {
+			t.Run(model+suffix, func(t *testing.T) {
+				groupID := int64(8899)
+				account := openaiImageAccount(1, 1)
+				account.Credentials = map[string]any{"model_mapping": map[string]any{model: model}}
+				svc := &GatewayService{accountRepo: newImageMixedRepo([]Account{account}), cfg: testConfig()}
+				api := ""
+				if suffix != "" {
+					api = FalAPIEdit
+				}
+				selected, err := svc.SelectAsyncImageAccountInGroup(withTestGroup(context.Background(), groupID), &groupID, "", "openai/"+model+suffix, nil, api)
+				require.NoError(t, err)
+				require.Equal(t, account.ID, selected.ID)
+			})
+		}
+	}
 }

@@ -6,9 +6,6 @@ import { getProviderProfile } from '@/constants/platformCatalog'
 
 // OpenAI
 const openaiModels = [
-  // GPT-5.2 系列
-  'gpt-5.2', 'gpt-5.2-2025-12-11', 'gpt-5.2-chat-latest',
-  'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
 	// GPT-5.6 系列
   'gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
   // GPT-6 系列
@@ -21,7 +18,11 @@ const openaiModels = [
   'gpt-5.3-codex-spark', 'codex-auto-review',
   'gpt-4o-audio-preview', 'gpt-4o-realtime-preview',
   // GPT Image 系列
-  'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'
+  'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst',
+  // 统一模型接口的生图与编辑别名
+  'openai/gpt-image-2', 'openai/gpt-image-2/edit',
+  'openai/gpt-image-2.5-sunburst', 'openai/gpt-image-2.5-sunburst/edit',
+  'openai/gpt-image-2.5-flare', 'openai/gpt-image-2.5-flare/edit'
 ]
 
 // Leonardo task proxy currently exposes GPT Image 2 for text-to-image.

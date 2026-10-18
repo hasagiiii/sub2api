@@ -2019,6 +2019,8 @@ export default {
         evictedUntil: '冷却至 {time}',
         notBound: '未占用',
         conversations: '对话数',
+        upstreamConversations: '上游对话数',
+        upstreamConversationsHint: '按实际发往该上游账号的会话标识去重；仅统计开始记录后的请求，无标识的请求不计入',
         requests: '请求数',
         lastActive: '最近活跃',
         boundAt: '进入时间',

@@ -170,7 +170,7 @@ func TestAccountUserLimit_ListScheduledUsers(t *testing.T) {
 	repo := &accountUserActivityRepoStub{stats: []usagestats.AccountUserActivityStat{
 		{UserID: 21, Email: "a@test.com", Sessions: 3, Requests: 9, LastActiveAt: &lastActive},
 		{UserID: 22, Email: "b@test.com", Sessions: 1, Requests: 1},
-		{UserID: 23, Email: "c@test.com", Sessions: 2, Requests: 4},
+		{UserID: 23, Email: "c@test.com", Sessions: 2, UpstreamSessions: 7, Requests: 4},
 	}}
 	svc := NewAccountUserLimitService(cache, repo)
 	account := limitedAccount(7, 3)
@@ -199,6 +199,7 @@ func TestAccountUserLimit_ListScheduledUsers(t *testing.T) {
 	require.True(t, byID[23].Bound)
 	require.NotNil(t, byID[23].BoundAt)
 	require.Equal(t, int64(2), byID[23].Sessions)
+	require.Equal(t, int64(7), byID[23].UpstreamSessions)
 	require.True(t, byID[24].Bound)
 	require.False(t, byID[21].Bound)
 	require.Equal(t, int64(3), byID[21].Sessions)

@@ -56,15 +56,16 @@ type AccountUserBindingCache interface {
 
 // AccountScheduledUser 用户调度管理中的单个用户。
 type AccountScheduledUser struct {
-	UserID       int64      `json:"user_id"`
-	Email        string     `json:"email"`
-	Username     string     `json:"username"`
-	Bound        bool       `json:"bound"`
-	BoundAt      *time.Time `json:"bound_at,omitempty"`
-	EvictedUntil *time.Time `json:"evicted_until,omitempty"`
-	Sessions     int64      `json:"sessions"`
-	Requests     int64      `json:"requests"`
-	LastActiveAt *time.Time `json:"last_active_at"`
+	UserID           int64      `json:"user_id"`
+	Email            string     `json:"email"`
+	Username         string     `json:"username"`
+	Bound            bool       `json:"bound"`
+	BoundAt          *time.Time `json:"bound_at,omitempty"`
+	EvictedUntil     *time.Time `json:"evicted_until,omitempty"`
+	Sessions         int64      `json:"sessions"`
+	UpstreamSessions int64      `json:"upstream_sessions"`
+	Requests         int64      `json:"requests"`
+	LastActiveAt     *time.Time `json:"last_active_at"`
 }
 
 // AccountScheduledUsersResult 用户调度管理弹窗数据。
@@ -287,12 +288,13 @@ func (s *AccountUserLimitService) ListScheduledUsers(ctx context.Context, accoun
 
 func (s *AccountUserLimitService) buildScheduledUser(st usagestats.AccountUserActivityStat, boundAt map[int64]time.Time, evicted map[int64]time.Time, now time.Time) AccountScheduledUser {
 	item := AccountScheduledUser{
-		UserID:       st.UserID,
-		Email:        st.Email,
-		Username:     st.Username,
-		Sessions:     st.Sessions,
-		Requests:     st.Requests,
-		LastActiveAt: st.LastActiveAt,
+		UserID:           st.UserID,
+		Email:            st.Email,
+		Username:         st.Username,
+		Sessions:         st.Sessions,
+		UpstreamSessions: st.UpstreamSessions,
+		Requests:         st.Requests,
+		LastActiveAt:     st.LastActiveAt,
 	}
 	if at, ok := boundAt[st.UserID]; ok {
 		item.Bound = true

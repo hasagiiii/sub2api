@@ -388,10 +388,10 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	response.Success(c, stats)
 }
 
-// SearchUsers handles searching users by email keyword
+// SearchUsers searches users by email, login account, and other user keywords.
 // GET /api/v1/admin/usage/search-users
 func (h *UsageHandler) SearchUsers(c *gin.Context) {
-	keyword := c.Query("q")
+	keyword := strings.TrimSpace(c.Query("q"))
 	if keyword == "" {
 		response.Success(c, []any{})
 		return
@@ -404,19 +404,23 @@ func (h *UsageHandler) SearchUsers(c *gin.Context) {
 		return
 	}
 
-	// Return simplified user list (only id, email and deleted flag)
+	// Include the login account so IAM matches can be identified in the dropdown.
 	type SimpleUser struct {
-		ID      int64  `json:"id"`
-		Email   string `json:"email"`
-		Deleted bool   `json:"deleted"`
+		ID           int64  `json:"id"`
+		Email        string `json:"email"`
+		LoginName    string `json:"login_name,omitempty"`
+		IAMPrincipal string `json:"iam_principal,omitempty"`
+		Deleted      bool   `json:"deleted"`
 	}
 
 	result := make([]SimpleUser, len(users))
 	for i, u := range users {
 		result[i] = SimpleUser{
-			ID:      u.ID,
-			Email:   u.Email,
-			Deleted: u.DeletedAt != nil,
+			ID:           u.ID,
+			Email:        u.Email,
+			LoginName:    u.LoginName,
+			IAMPrincipal: u.IAMPrincipal(),
+			Deleted:      u.DeletedAt != nil,
 		}
 	}
 

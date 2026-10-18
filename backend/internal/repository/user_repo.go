@@ -694,6 +694,8 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 		orPreds := []predicate.User{
 			dbuser.EmailContainsFold(filters.Search),
 			dbuser.UsernameContainsFold(filters.Search),
+			dbuser.LoginNameContainsFold(filters.Search),
+			userIAMPrincipalContainsFold(filters.Search),
 			dbuser.NotesContainsFold(filters.Search),
 			dbuser.HasAPIKeysWith(apikey.KeyContainsFold(filters.Search)),
 		}
@@ -818,6 +820,27 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 	}
 
 	return outUsers, paginationResultFromTotal(int64(total), params), nil
+}
+
+// userIAMPrincipalContainsFold matches the displayed IAM login account in SQL,
+// so pagination and totals use the same matches as the result list. Memberships
+// are intentionally retained for historical/deleted-user usage searches, just
+// as they are in loadEnterpriseIdentities.
+func userIAMPrincipalContainsFold(keyword string) predicate.User {
+	return func(s *entsql.Selector) {
+		s.Where(entsql.And(
+			entsql.EQ(s.C(dbuser.FieldIdentityType), "iam"),
+			entsql.NEQ(s.C(dbuser.FieldLoginName), ""),
+			entsql.P(func(b *entsql.Builder) {
+				b.WriteString("EXISTS (SELECT 1 FROM organization_memberships m JOIN organizations o ON o.id = m.organization_id WHERE m.user_id = ")
+				b.Ident(s.C(dbuser.FieldID))
+				b.WriteString(" AND NULLIF(TRIM(o.company_id), '') IS NOT NULL AND POSITION(LOWER(").Arg(keyword)
+				b.WriteString(") IN LOWER(TRIM(").Ident(s.C(dbuser.FieldLoginName))
+				b.WriteString(") || '@' || TRIM(o.company_id) || ").Arg("." + service.IAMPrincipalDomain)
+				b.WriteString(")) > 0)")
+			}),
+		))
+	}
 }
 
 // userEnterpriseIdentityPredicate keeps the enterprise identity filter in the

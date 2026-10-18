@@ -512,6 +512,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	}
 	resultWithUsage := func() *OpenAIForwardResult {
 		return &OpenAIForwardResult{
+			UpstreamSessionID:             upstreamSessionID(wsHeaders, nil),
 			RequestID:                     responseID,
 			ResponseID:                    responseID,
 			Usage:                         *usage,
@@ -950,6 +951,7 @@ readLoop:
 	)
 
 	return &OpenAIForwardResult{
+		UpstreamSessionID:             upstreamSessionID(wsHeaders, nil),
 		RequestID:                     responseID,
 		Usage:                         *usage,
 		Model:                         originalModel,

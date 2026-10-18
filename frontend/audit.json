@@ -48,14 +48,14 @@
   "metadata": {
     "vulnerabilities": {
       "info": 0,
-      "low": 5,
-      "moderate": 25,
+      "low": 4,
+      "moderate": 13,
       "high": 2,
       "critical": 0
     },
     "dependencies": 679,
     "devDependencies": 0,
-    "optionalDependencies": 1,
-    "totalDependencies": 680
+    "optionalDependencies": 3,
+    "totalDependencies": 682
   }
 }

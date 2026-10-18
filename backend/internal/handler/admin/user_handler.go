@@ -121,7 +121,7 @@ type BindUserAuthIdentityChannelRequest struct {
 // Query params:
 //   - status: filter by user status
 //   - role: filter by user role
-//   - search: search in email, username
+//   - search: search in email, username, login account, notes, API key, or user ID
 //   - enterprise_identity: filter by enterprise identity (enterprise, personal, owner, member)
 //   - attr[{id}]: filter by custom attribute value, e.g. attr[1]=company
 //   - group_name: fuzzy filter by allowed group name

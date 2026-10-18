@@ -1,6 +1,6 @@
 export default {
   organization: {
-    console: '企业管理', accountId: '账号 ID', accountType: { label: '账号类型', personal: '个人账号', company: '企业账号' }, accountIdentity: { label: '账号身份', root: '主账号', iam: '子账号' }, iamUserId: 'IAM 成员 ID', principal: '登录主体', companyName: '企业名称', companyId: '公司 ID', companySize: '公司规模', role: '管理权限', policies: '权限策略', reviewReason: '审批意见',
+    console: '企业管理', accountId: '账号 ID', accountType: { label: '账号类型', personal: '个人账号', company: '企业账号' }, accountIdentity: { label: '账号身份', root: '主账号', iam: '子账号' }, iamUserId: 'IAM 成员 ID', principal: '登录主体', companyName: '企业名称', companyId: '企业 ID', companySize: '公司规模', role: '管理权限', policies: '权限策略', reviewReason: '审批意见',
     roleValue: { owner: '组织管理员', member: 'IAM 成员' },
     status: { pending: '待审批', approved: '已通过', rejected: '已拒绝', withdrawn: '已撤回', active: '正常', disabled: '已禁用', archived: '已归档', suspended: '已暂停' },
     tabs: { members: '成员', allocation: '资金划拨', finance: '财务管理', limits: '限额配置', dashboard: '仪表盘', subscriptions: '订阅套餐', usage: '使用记录', audit: '操作记录', settings: '功能设置' },

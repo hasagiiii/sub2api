@@ -1204,6 +1204,7 @@ func (r *usageLogRepository) GetAccountUserActivityStats(ctx context.Context, ac
 			SELECT
 				user_id,
 				COUNT(DISTINCT NULLIF(session_id, '')) AS sessions,
+				COUNT(DISTINCT NULLIF(upstream_session_id, '')) AS upstream_sessions,
 				COUNT(*) AS requests,
 				MAX(created_at) AS last_active_at
 			FROM usage_logs
@@ -1220,6 +1221,7 @@ func (r *usageLogRepository) GetAccountUserActivityStats(ctx context.Context, ac
 			COALESCE(u.email, ''),
 			COALESCE(u.username, ''),
 			COALESCE(a.sessions, 0),
+			COALESCE(a.upstream_sessions, 0),
 			COALESCE(a.requests, 0),
 			a.last_active_at
 		FROM ids
@@ -1243,7 +1245,7 @@ func (r *usageLogRepository) GetAccountUserActivityStats(ctx context.Context, ac
 	for rows.Next() {
 		var item usagestats.AccountUserActivityStat
 		var lastActive sql.NullTime
-		if err = rows.Scan(&item.UserID, &item.Email, &item.Username, &item.Sessions, &item.Requests, &lastActive); err != nil {
+		if err = rows.Scan(&item.UserID, &item.Email, &item.Username, &item.Sessions, &item.UpstreamSessions, &item.Requests, &lastActive); err != nil {
 			return nil, err
 		}
 		if lastActive.Valid {

@@ -463,7 +463,7 @@ const loadRouteUserFilterLabel = async () => {
   try {
     const user = await adminAPI.users.getById(requestedUserId, true)
     if (!routeUserFilterIsCurrent()) return
-    usageFiltersRef.value?.setUserKeyword?.(user.email || String(requestedUserId))
+    usageFiltersRef.value?.setUserKeyword?.(user.iam_principal || user.login_name || user.email || String(requestedUserId))
   } catch {
     if (!routeUserFilterIsCurrent()) return
     usageFiltersRef.value?.setUserKeyword?.(String(requestedUserId))

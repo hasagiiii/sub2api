@@ -2095,6 +2095,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 				res := &OpenAIForwardResult{
 					RequestID:                     resp.Header.Get("x-request-id"),
 					UpstreamHeaders:               resp.Header,
+					UpstreamSessionID:             upstreamSessionIDFromResponse(resp),
 					Usage:                         usage,
 					Model:                         requestModel,
 					UpstreamModel:                 upstreamModel,
@@ -2153,6 +2154,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	res := &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
+		UpstreamSessionID:             upstreamSessionIDFromResponse(resp),
 		Usage:                         usage,
 		Model:                         requestModel,
 		UpstreamModel:                 upstreamModel,

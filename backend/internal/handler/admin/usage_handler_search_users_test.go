@@ -25,7 +25,8 @@ func (s *searchUsersAdminStub) ListUsers(ctx context.Context, page, pageSize int
 	return []service.User{
 		{ID: 1, Email: "active@test.com"},
 		{ID: 2, Email: "deleted@test.com", DeletedAt: &ts},
-	}, 2, nil
+		{ID: 3, Email: "internal@test.com", IdentityType: "iam", LoginName: "finance", CompanyID: "c123456789012345"},
+	}, 3, nil
 }
 
 func TestAdminUsageSearchUsers_IncludesDeletedAndFlags(t *testing.T) {
@@ -35,22 +36,27 @@ func TestAdminUsageSearchUsers_IncludesDeletedAndFlags(t *testing.T) {
 	router := gin.New()
 	router.GET("/admin/usage/search-users", handler.SearchUsers)
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/usage/search-users?q=test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/search-users?q=%20finance%20", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "finance", stub.gotFilters.Search)
 	require.True(t, stub.gotFilters.IncludeDeleted, "SearchUsers 必须请求 IncludeDeleted")
 
 	var resp struct {
 		Data []struct {
-			ID      int64  `json:"id"`
-			Email   string `json:"email"`
-			Deleted bool   `json:"deleted"`
+			ID           int64  `json:"id"`
+			Email        string `json:"email"`
+			LoginName    string `json:"login_name"`
+			IAMPrincipal string `json:"iam_principal"`
+			Deleted      bool   `json:"deleted"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Len(t, resp.Data, 2)
+	require.Len(t, resp.Data, 3)
+	require.Equal(t, "finance", resp.Data[2].LoginName)
+	require.Equal(t, "finance@c123456789012345.opentk.ai", resp.Data[2].IAMPrincipal)
 	require.False(t, resp.Data[0].Deleted)
 	require.True(t, resp.Data[1].Deleted, "已删用户必须标记 deleted=true")
 }

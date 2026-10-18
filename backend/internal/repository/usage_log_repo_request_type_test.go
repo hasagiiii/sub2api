@@ -108,6 +108,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // balance_source
 			sqlmock.AnyArg(), // authz_generation
 			sqlmock.AnyArg(), // upstream_request_id
+			sqlmock.AnyArg(), // upstream_session_id
 			sqlmock.AnyArg(), // session_id
 			sqlmock.AnyArg(), // request_parameters
 			log.NativeCompactionV2,
@@ -212,6 +213,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // balance_source
 			sqlmock.AnyArg(), // authz_generation
 			sqlmock.AnyArg(), // upstream_request_id
+			sqlmock.AnyArg(), // upstream_session_id
 			sqlmock.AnyArg(), // session_id
 			sqlmock.AnyArg(), // request_parameters
 			log.NativeCompactionV2,
@@ -989,6 +991,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},
 			sql.NullInt64{},
 			sql.NullString{}, // upstream_request_id
+			sql.NullString{}, // upstream_session_id
 			sql.NullString{}, // session_id
 			[]byte(nil),      // request_parameters
 			false,            // native_compaction_v2
@@ -1082,6 +1085,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // balance_source
 			sql.NullInt64{},   // authz_generation
 			sql.NullString{},  // upstream_request_id
+			sql.NullString{},  // upstream_session_id
 			sql.NullString{},  // session_id
 			[]byte(nil),       // request_parameters
 			false,             // native_compaction_v2
@@ -1156,6 +1160,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // balance_source
 			sql.NullInt64{},   // authz_generation
 			sql.NullString{},  // upstream_request_id
+			sql.NullString{},  // upstream_session_id
 			sql.NullString{},  // session_id
 			[]byte(nil),       // request_parameters
 			true,              // native_compaction_v2
@@ -1231,6 +1236,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // balance_source
 			sql.NullInt64{},   // authz_generation
 			sql.NullString{},  // upstream_request_id
+			sql.NullString{},  // upstream_session_id
 			sql.NullString{},  // session_id
 			[]byte(nil),       // request_parameters
 			false,             // native_compaction_v2

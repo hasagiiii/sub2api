@@ -457,6 +457,7 @@ handleSuccess:
 	return &ForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
+		UpstreamSessionID:             upstreamSessionIDFromResponse(resp),
 		Usage:                         *usage,
 		Model:                         originalModel,
 		UpstreamModel:                 forwardedModel,

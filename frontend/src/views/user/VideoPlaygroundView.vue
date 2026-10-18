@@ -99,7 +99,7 @@
         </div>
       </div>
 
-      <!-- 价格表弹窗：只读展示当前模型的 pricing[*]（resolution × price_per_second × enabled）
+      <!-- 价格表弹窗：展示当前模型的配置价格及对应计价单位
            不改动配置，仅供用户对照参考。 -->
       <BaseDialog
         :show="showPricingDialog"
@@ -127,10 +127,10 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
-                <tr v-for="p in model.pricing" :key="p.resolution">
-                  <td class="px-3 py-2 font-mono text-gray-800 dark:text-gray-200">{{ p.resolution }}</td>
+                <tr v-for="p in model.pricing" :key="mediaPricingKey(p)">
+                  <td class="px-3 py-2 font-mono text-gray-800 dark:text-gray-200">{{ mediaPricingLabel(p) }}</td>
                   <td class="px-3 py-2 text-right font-mono text-blue-600 dark:text-blue-400">
-                    ${{ p.price_per_second.toFixed(4) }} / {{ t('videoModels.playground.pricingUnitSecond') }}
+                    {{ formatMediaPricing(p) }} / {{ t(mediaPricingUnitKey(p)) }}
                   </td>
                   <td class="px-3 py-2 text-right">
                     <span
@@ -974,6 +974,7 @@ import VideoPlaygroundHistory from '@/components/video/VideoPlaygroundHistory.vu
 import OutputSchemaValueTree, {
   type SchemaNode,
 } from '@/components/video/OutputSchemaValueTree.vue'
+import { formatMediaPricing, mediaPricingKey, mediaPricingLabel, mediaPricingUnitKey } from '@/utils/mediaModelPricing'
 import videoModelsAPI, {
   type OutputFieldSpec,
   type VideoModelItem,

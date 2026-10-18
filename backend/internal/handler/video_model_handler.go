@@ -19,7 +19,7 @@ import (
 //
 // 数据来源：
 //  1. 从 JWT 上下文取当前用户 ID → APIKeyService.GetAvailableGroups 拿到用户可访问的 group 集合；
-//  2. 拉取视频平台账号以及 Gemini / Antigravity 图片账号；
+//  2. 拉取视频平台账号以及 OpenAI / Gemini / Antigravity 图片账号；
 //  3. 过滤条件：账号状态 = active、GroupIDs 与用户 group 集合有交集；视频平台
 //     还要求 Extra["video_models_enabled"] == true，Gemini 图片平台不受该开关影响；
 //  4. 从 account.GetModelMapping() 的 value 中提取 fal endpoint，
@@ -66,10 +66,14 @@ func NewVideoModelHandler(
 //   - Currency       固定 "USD"
 //   - Enabled        当前档位是否可用（>0 视为可用）
 type videoModelPricingItem struct {
-	Resolution     string  `json:"resolution"`
-	PricePerSecond float64 `json:"price_per_second"`
-	Currency       string  `json:"currency"`
-	Enabled        bool    `json:"enabled"`
+	// UnitPrice/BillingMode carry image and per-request prices; video keeps its legacy field.
+	UnitPrice      *float64            `json:"unit_price,omitempty"`
+	BillingMode    service.BillingMode `json:"billing_mode,omitempty"`
+	Quality        string              `json:"quality,omitempty"`
+	Resolution     string              `json:"resolution"`
+	PricePerSecond float64             `json:"price_per_second"`
+	Currency       string              `json:"currency"`
+	Enabled        bool                `json:"enabled"`
 }
 
 // videoModelIntroDTO 是管理员在“模型介绍”菜单里为该 model_key 配置的
@@ -149,6 +153,7 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 		domain.PlatformBytedance,
 		domain.PlatformGemini,
 		domain.PlatformAntigravity,
+		domain.PlatformOpenAI,
 	} {
 		platformAccounts, listErr := h.accountRepo.ListByPlatform(ctx, platform)
 		if listErr != nil {
@@ -171,7 +176,8 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 		if !accountBelongsToAny(a, groupSet) {
 			continue
 		}
-		if a.Platform != domain.PlatformBytedance &&
+		if a.Platform != domain.PlatformOpenAI &&
+			a.Platform != domain.PlatformBytedance &&
 			a.Platform != domain.PlatformGemini &&
 			a.Platform != domain.PlatformAntigravity &&
 			!domain.IsVideoModelsEnabled(a.Extra) {
@@ -212,6 +218,9 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 func videoModelSlugsForAccount(account *service.Account) []string {
 	if account == nil {
 		return nil
+	}
+	if account.Platform == domain.PlatformOpenAI {
+		return service.ModelAPIOpenAIImageSlugs(account)
 	}
 	if account.Platform == domain.PlatformBytedance {
 		models := make([]string, 0, len(account.GetModelMapping()))
@@ -265,7 +274,7 @@ func accountBelongsToAny(a *service.Account, groupSet map[int64]struct{}) bool {
 //
 // 定价解析（Q-C: 配什么展示什么）：
 //   - 遍历用户 groupID 列表，逐个 Resolve(model, groupID)；
-//   - 只接受 Mode == BillingModeVideo 的解析结果；
+//   - 接受视频、图片和按次定价，并保留对应的计价单位；
 //   - 首个命中的分组作为该 model 的定价来源（多分组不合并、不去重档位）；
 //   - 把 RequestTiers[].TierLabel/PerRequestPrice 原样拍平；
 //   - DefaultPerRequestPrice > 0 时追加一档 resolution="default"，作为未命中档位的兜底提示。
@@ -329,6 +338,9 @@ func (h *VideoModelHandler) resolveModelIntro(ctx context.Context, slug string) 
 	if service.IsGeminiImageGenerationModel(slug) {
 		return defaultGeminiImageIntro(slug)
 	}
+	if _, ok := service.ModelAPIOpenAIImageModel(slug); ok {
+		return defaultOpenAIImageIntro(slug)
+	}
 	return nil
 }
 
@@ -377,50 +389,38 @@ func defaultGeminiImageIntro(slug string) *videoModelIntroDTO {
 	}
 }
 
-// resolveVideoPricing 用 ModelPricingResolver 从用户所有 group 中查找该模型的视频定价。
-//
-// 保证返回值非 nil（空列表 = 尚未配置定价）。
+// resolveVideoPricing returns configured media prices for the playground.
+// Public names take precedence, with the OpenAI canonical model as a fallback.
 func (h *VideoModelHandler) resolveVideoPricing(ctx context.Context, slug string, groups []service.Group) []videoModelPricingItem {
-	if h.pricingResolver == nil {
-		return []videoModelPricingItem{}
+	candidates := []string{slug}
+	if canonical, ok := service.ModelAPIOpenAIImageModel(slug); ok && canonical != slug {
+		candidates = append(candidates, canonical)
 	}
 	for i := range groups {
 		group := &groups[i]
-		groupID := group.ID
-		resolved := h.pricingResolver.Resolve(ctx, service.PricingInput{
-			Model:   slug,
-			GroupID: &groupID,
-			Group:   group,
-		})
-		if resolved == nil || resolved.Mode != service.BillingModeVideo {
-			continue
-		}
-		out := make([]videoModelPricingItem, 0, len(resolved.RequestTiers)+1)
-		for _, tier := range resolved.RequestTiers {
-			if tier.PerRequestPrice == nil {
-				continue
+		var channelPrices []videoModelPricingItem
+		if h.pricingResolver != nil {
+			for _, model := range candidates {
+				resolved := h.pricingResolver.Resolve(ctx, service.PricingInput{Model: model, GroupID: &group.ID, Group: group})
+				prices := playgroundResolvedPrices(resolved)
+				if len(prices) == 0 {
+					continue
+				}
+				if resolved.Source == service.PricingSourceGroup {
+					return prices
+				}
+				if resolved.Source == service.PricingSourceChannel && len(channelPrices) == 0 {
+					channelPrices = prices
+				}
 			}
-			label := strings.TrimSpace(tier.TierLabel)
-			if label == "" {
-				continue
+		}
+		if len(channelPrices) > 0 {
+			return channelPrices
+		}
+		if isImagePlaygroundModel(slug) {
+			if prices := playgroundGroupImagePrices(group); len(prices) > 0 {
+				return prices
 			}
-			out = append(out, videoModelPricingItem{
-				Resolution:     label,
-				PricePerSecond: *tier.PerRequestPrice,
-				Currency:       "USD",
-				Enabled:        *tier.PerRequestPrice > 0,
-			})
-		}
-		if resolved.DefaultPerRequestPrice > 0 {
-			out = append(out, videoModelPricingItem{
-				Resolution:     "default",
-				PricePerSecond: resolved.DefaultPerRequestPrice,
-				Currency:       "USD",
-				Enabled:        true,
-			})
-		}
-		if len(out) > 0 {
-			return out
 		}
 	}
 	return []videoModelPricingItem{}

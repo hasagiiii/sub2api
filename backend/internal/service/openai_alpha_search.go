@@ -128,12 +128,13 @@ func (s *OpenAIGatewayService) ForwardAlphaSearch(ctx context.Context, c *gin.Co
 		return nil, nil
 	}
 	return &OpenAIForwardResult{
-		RequestID:       strings.TrimSpace(resp.Header.Get("x-request-id")),
-		UpstreamHeaders: resp.Header,
-		Model:           requestedModel,
-		UpstreamModel:   upstreamModel,
-		Duration:        time.Since(upstreamStart),
-		WebSearchCalls:  1,
+		RequestID:         strings.TrimSpace(resp.Header.Get("x-request-id")),
+		UpstreamHeaders:   resp.Header,
+		UpstreamSessionID: upstreamSessionIDFromResponse(resp),
+		Model:             requestedModel,
+		UpstreamModel:     upstreamModel,
+		Duration:          time.Since(upstreamStart),
+		WebSearchCalls:    1,
 	}, nil
 }
 
@@ -212,14 +213,15 @@ func (s *OpenAIGatewayService) forwardAlphaSearchViaResponsesWebSearch(
 	}
 	c.Data(http.StatusOK, "application/json", alphaRespBody)
 	return &OpenAIForwardResult{
-		RequestID:        strings.TrimSpace(resp.Header.Get("x-request-id")),
-		UpstreamHeaders:  resp.Header,
-		Model:            requestedModel,
-		UpstreamModel:    upstreamModel,
-		UpstreamEndpoint: "/v1/responses",
-		ResponseHeaders:  resp.Header.Clone(),
-		Duration:         time.Since(upstreamStart),
-		WebSearchCalls:   1,
+		RequestID:         strings.TrimSpace(resp.Header.Get("x-request-id")),
+		UpstreamHeaders:   resp.Header,
+		UpstreamSessionID: upstreamSessionIDFromResponse(resp),
+		Model:             requestedModel,
+		UpstreamModel:     upstreamModel,
+		UpstreamEndpoint:  "/v1/responses",
+		ResponseHeaders:   resp.Header.Clone(),
+		Duration:          time.Since(upstreamStart),
+		WebSearchCalls:    1,
 	}, nil
 }
 

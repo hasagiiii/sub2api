@@ -44,10 +44,37 @@
 
 	<div v-else class="overflow-x-auto rounded-md border border-gray-200 dark:border-dark-700">
 		<table class="w-full text-sm">
-			<thead class="bg-gray-50 text-left dark:bg-dark-800"><tr><th class="p-3">{{ t('organization.companyName') }}</th><th class="p-3">{{ t('organization.companyId') }}</th><th class="p-3">{{ t('organization.admin.members') }}</th><th class="p-3">{{ t('common.status') }}</th><th class="p-3">{{ t('common.actions') }}</th></tr></thead>
+			<thead class="bg-gray-50 text-left dark:bg-dark-800"><tr><th class="p-3">id</th><th class="p-3">{{ t('organization.companyName') }}</th><th class="p-3">{{ t('organization.companyId') }}</th><th class="p-3">{{ t('organization.admin.members') }}</th><th class="p-3">{{ t('common.status') }}</th><th class="p-3">{{ t('common.actions') }}</th></tr></thead>
 			<tbody><tr v-for="organization in organizations" :key="organization.id" class="cursor-pointer border-t border-gray-100 hover:bg-gray-50 dark:border-dark-700 dark:hover:bg-dark-800" @click="openOrganization(organization)">
+				<td class="p-3 font-mono text-xs">
+					<div class="flex items-center gap-1.5">
+						<span>{{ organization.id }}</span>
+						<button
+							type="button"
+							class="icon-btn"
+							:title="t('common.copy') + ' id'"
+							:aria-label="t('common.copy') + ' id'"
+							@click.stop="copyToClipboard(String(organization.id))"
+						>
+							<Icon name="copy" size="sm" />
+						</button>
+					</div>
+				</td>
 				<td class="p-3"><div class="font-medium">{{ organization.name }}</div><div class="text-xs text-gray-500">{{ organization.owner_email || organization.owner_user_id }}</div></td>
-				<td class="p-3 font-mono text-xs">{{ organization.company_id }}</td>
+				<td class="p-3 font-mono text-xs">
+					<div class="flex items-center gap-1.5">
+						<span>{{ organization.company_id }}</span>
+						<button
+							type="button"
+							class="icon-btn"
+							:title="t('common.copy') + ' ' + t('organization.companyId')"
+							:aria-label="t('common.copy') + ' ' + t('organization.companyId')"
+							@click.stop="copyToClipboard(organization.company_id)"
+						>
+							<Icon name="copy" size="sm" />
+						</button>
+					</div>
+				</td>
 				<td class="p-3">{{ organization.member_count }}/{{ organization.member_limit }}</td>
 				<td class="p-3">{{ t(`organization.status.${organization.status}`) }}</td>
 				<td class="p-3" @click.stop><button v-if="organization.status === 'active'" class="btn btn-ghost btn-sm text-red-600" @click="setOrganizationStatus(organization, 'suspended')">{{ t('organization.admin.suspend') }}</button><button v-else class="btn btn-primary btn-sm" @click="setOrganizationStatus(organization, 'active')">{{ t('organization.admin.reactivate') }}</button></td>
@@ -84,11 +111,13 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { organizationAPI } from '@/api'
 import Select from '@/components/common/Select.vue'
+import { useClipboard } from '@/composables/useClipboard'
 import { Icon } from '@/components/icons'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import type { AdminOrganization, AdminOrganizationDetail, CompanyApplication, CompanyApplicationDetail, OrganizationNameChangeRequest } from '@/types'
 
 const { t } = useI18n()
+const { copyToClipboard } = useClipboard()
 const selectedClass = 'bg-white font-medium shadow-sm dark:bg-dark-700'
 const mutedClass = 'text-gray-600 dark:text-dark-300'
 const queue = ref<'applications' | 'names' | 'organizations'>('applications')

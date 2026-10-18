@@ -6,6 +6,9 @@ export type { OutputFieldSpec, ResultMediaType } from './admin/modelIntros'
 export interface VideoModelPricingItem {
   resolution: string
   price_per_second: number
+  unit_price?: number
+  billing_mode?: 'video' | 'image' | 'per_request'
+  quality?: string
   currency: string
   enabled: boolean
 }

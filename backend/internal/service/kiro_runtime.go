@@ -160,14 +160,15 @@ func (s *GatewayService) forwardKiroMessages(ctx context.Context, c *gin.Context
 		}
 		requestID := buildKiroRequestID(resp)
 		return &ForwardResult{
-			RequestID:        requestID,
-			Usage:            *streamResult.usage,
-			Model:            originalModel,
-			UpstreamModel:    upstreamModel,
-			Stream:           true,
-			Duration:         time.Since(startTime),
-			FirstTokenMs:     streamResult.firstTokenMs,
-			ClientDisconnect: streamResult.clientDisconnect,
+			RequestID:         requestID,
+			UpstreamSessionID: upstreamSessionIDFromResponse(resp),
+			Usage:             *streamResult.usage,
+			Model:             originalModel,
+			UpstreamModel:     upstreamModel,
+			Stream:            true,
+			Duration:          time.Since(startTime),
+			FirstTokenMs:      streamResult.firstTokenMs,
+			ClientDisconnect:  streamResult.clientDisconnect,
 		}, nil
 	}
 
@@ -280,12 +281,13 @@ func (s *GatewayService) forwardKiroMessages(ctx context.Context, c *gin.Context
 	upstreamModel := resolveKiroUpstreamModel(mappedModel)
 
 	return &ForwardResult{
-		RequestID:     requestID,
-		Usage:         kiroUsageToClaude(parseResult.Usage, inputTokens),
-		Model:         originalModel,
-		UpstreamModel: upstreamModel,
-		Stream:        false,
-		Duration:      time.Since(startTime),
+		RequestID:         requestID,
+		UpstreamSessionID: upstreamSessionIDFromResponse(resp),
+		Usage:             kiroUsageToClaude(parseResult.Usage, inputTokens),
+		Model:             originalModel,
+		UpstreamModel:     upstreamModel,
+		Stream:            false,
+		Duration:          time.Since(startTime),
 	}, nil
 }
 
@@ -356,6 +358,7 @@ func (s *GatewayService) openKiroAnthropicStreamResponse(ctx context.Context, ac
 	return &http.Response{
 		StatusCode: resp.StatusCode,
 		Header:     wrappedHeaders,
+		Request:    resp.Request,
 		Body:       pr,
 	}, inputTokens, nil
 }

@@ -163,15 +163,16 @@ func (s *GatewayService) forwardBedrock(
 	}
 
 	return &ForwardResult{
-		RequestID:        resp.Header.Get("x-amzn-requestid"),
-		UpstreamHeaders:  resp.Header,
-		Usage:            *usage,
-		Model:            reqModel,
-		UpstreamModel:    mappedModel,
-		Stream:           reqStream,
-		Duration:         time.Since(startTime),
-		FirstTokenMs:     firstTokenMs,
-		ClientDisconnect: clientDisconnect,
+		RequestID:         resp.Header.Get("x-amzn-requestid"),
+		UpstreamHeaders:   resp.Header,
+		UpstreamSessionID: upstreamSessionIDFromResponse(resp),
+		Usage:             *usage,
+		Model:             reqModel,
+		UpstreamModel:     mappedModel,
+		Stream:            reqStream,
+		Duration:          time.Since(startTime),
+		FirstTokenMs:      firstTokenMs,
+		ClientDisconnect:  clientDisconnect,
 	}, nil
 }
 

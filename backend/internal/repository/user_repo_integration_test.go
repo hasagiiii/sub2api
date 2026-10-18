@@ -423,6 +423,39 @@ func (s *UserRepoSuite) TestListWithFilters_LoadsIAMCompanyID() {
 	s.Require().Equal("c123456789012345", users[0].CompanyID)
 	s.Require().Equal("IAM Test Company", users[0].CompanyName)
 	s.Require().Equal("owner", users[0].OrganizationRole)
+
+	for _, keyword := range []string{"NAN", "FINANCE", "finance@c123456789012345.opentk.ai", "NANCE@C123456", "c123456789012345.OPENTK.AI"} {
+		s.Run("login account "+keyword, func() {
+			matches, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 1}, service.UserListFilters{Search: keyword})
+			s.Require().NoError(err)
+			s.Require().EqualValues(1, page.Total)
+			s.Require().Len(matches, 1)
+			s.Equal(member.ID, matches[0].ID)
+			s.Equal("finance@c123456789012345.opentk.ai", matches[0].IAMPrincipal())
+		})
+	}
+	for _, keyword := range []string{"finance@c999", "finance%", "finance_", "finance' OR 1=1 --"} {
+		matches, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.UserListFilters{Search: keyword})
+		s.Require().NoError(err)
+		s.Empty(matches)
+		s.Zero(page.Total)
+	}
+	s.Require().NoError(s.client.User.DeleteOneID(member.ID).Exec(s.ctx))
+	for _, includeDeleted := range []bool{false, true} {
+		matches, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.UserListFilters{
+			Search: "NANCE@C123456", IncludeDeleted: includeDeleted,
+		})
+		s.Require().NoError(err)
+		if includeDeleted {
+			s.Require().Len(matches, 1)
+			s.EqualValues(1, page.Total)
+			s.Equal(member.ID, matches[0].ID)
+			s.NotNil(matches[0].DeletedAt)
+		} else {
+			s.Empty(matches)
+			s.Zero(page.Total)
+		}
+	}
 }
 
 // TestListWithFilters_SearchByID 覆盖 "#123" 和纯数字两种 ID 精确匹配路径，

@@ -983,3 +983,25 @@ func TestAsyncMediaNativeFalSubmitsRawRequestBody(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, string(in.RawRequestBody), string(fs.submitBody))
 }
+
+func TestAsyncMediaInlineOpenAIUsesCanonicalPricingAndEditEndpoint(t *testing.T) {
+	const model = "gpt-image-2.5-flare"
+	groupID := int64(41)
+	users := &fakeUserRepo{balance: 1}
+	tasks := newFakeTaskRepo()
+	svc := NewAsyncMediaService(tasks, users, nil, newTestBillingService(), newImageBillingResolver(t, groupID, model, 0.08), nil)
+	account := &Account{ID: 9, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive}
+	in := newSubmitInput(account, groupID, 1)
+	in.RequestedModel = "openai/" + model + "/edit"
+	in.Input = fal.ImageGenInput{Prompt: "edit", Size: "1K", N: 1, IsEdit: true, ImageURLs: []string{"https://example.test/input.png"}}
+	task, err := svc.SubmitInline(context.Background(), in, func(context.Context) (*AsyncMediaInlineResult, error) {
+		return &AsyncMediaInlineResult{RequestID: "openai-image-1", ImageURLs: []string{"https://example.test/output.png"}, ImageOutputSizes: []string{"1024x1024"}}, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, model, *task.UpstreamModel)
+	require.Equal(t, "/v1/images/edits", *task.UpstreamEndpoint)
+	require.Equal(t, in.RequestedModel, task.RequestedModel)
+	require.Equal(t, AsyncMediaStatusSucceeded, task.Status)
+	require.InDelta(t, 0.08, task.FinalCost, 1e-9)
+	require.Equal(t, 1, tasks.usageLogCount())
+}

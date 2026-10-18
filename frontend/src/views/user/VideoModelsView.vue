@@ -193,18 +193,18 @@
               <thead>
                 <tr class="text-left text-[11px] text-gray-500 dark:text-gray-400">
                   <th class="pb-1 font-normal">{{ t('videoModels.resolution') }}</th>
-                  <th class="pb-1 font-normal">{{ t('videoModels.pricePerSecond') }}</th>
+                  <th class="pb-1 font-normal">{{ t('videoModels.playground.pricingColUnit') }}</th>
                   <th class="pb-1 font-normal">{{ t('videoModels.status') }}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr
                   v-for="p in sortedPricing(model.pricing)"
-                  :key="p.resolution"
+                  :key="mediaPricingKey(p)"
                   class="border-t border-gray-100 text-gray-700 dark:border-dark-700 dark:text-gray-300"
                 >
-                  <td class="py-1 font-medium">{{ p.resolution }}</td>
-                  <td class="py-1">{{ formatPrice(p.price_per_second) }}</td>
+                  <td class="py-1 font-medium">{{ mediaPricingLabel(p) }}</td>
+                  <td class="py-1">{{ formatMediaPricing(p) }} / {{ t(mediaPricingUnitKey(p)) }}</td>
                   <td class="py-1">
                     <span :class="p.enabled ? 'text-green-600 dark:text-green-400' : 'text-gray-400'">
                       {{ p.enabled ? t('videoModels.enabled') : t('videoModels.disabled') }}
@@ -255,6 +255,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { formatMediaPricing, mediaPricingKey, mediaPricingLabel, mediaPricingUnitKey } from '@/utils/mediaModelPricing'
 import videoModelsAPI, {
   type VideoModelItem,
   type VideoModelPricingItem
@@ -369,11 +370,6 @@ function sortedPricing(list: VideoModelPricingItem[]): VideoModelPricingItem[] {
     const ob = RES_ORDER[b.resolution] ?? 99
     return oa - ob
   })
-}
-
-function formatPrice(price: number): string {
-  if (!Number.isFinite(price) || price <= 0) return '-'
-  return `$${price.toFixed(4)}/s`
 }
 
 async function copy(text: string) {

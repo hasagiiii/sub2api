@@ -276,7 +276,7 @@ func (s *AsyncMediaService) SubmitInline(
 		in.RateMultiplier = 1
 	}
 
-	upstreamModel := strings.TrimSpace(in.Account.GetMappedModel(in.RequestedModel))
+	upstreamModel := strings.TrimSpace(in.Account.GetMappedModel(modelAPIImageAccountModel(in.Account, in.RequestedModel)))
 	if upstreamModel == "" {
 		upstreamModel = strings.TrimSpace(in.RequestedModel)
 	}
@@ -374,6 +374,13 @@ func (s *AsyncMediaService) prepareTask(ctx context.Context, in *AsyncMediaSubmi
 		UserAgent:         amStrPtr(in.UserAgent),
 		InboundEndpoint:   amStrPtr(in.InboundEndpoint),
 		UpstreamEndpoint:  amStrPtr(asyncImageUpstreamEndpoint(in.Account, upstreamModel)),
+	}
+	if in.Account.Platform == PlatformOpenAI {
+		endpoint := "/v1/images/generations"
+		if in.Input.IsEdit {
+			endpoint = "/v1/images/edits"
+		}
+		task.UpstreamEndpoint = amStrPtr(endpoint)
 	}
 	if err := s.taskRepo.Create(ctx, task); err != nil {
 		// 落库失败：回滚预扣费，避免漏退。

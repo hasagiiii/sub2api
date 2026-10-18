@@ -134,6 +134,29 @@ describe('UsageFilters — user search dropdown', () => {
     vi.useRealTimers()
   })
 
+  it('shows and selects an IAM login account returned by a partial search', async () => {
+    mockSearchUsers.mockResolvedValue([
+      { id: 3, email: 'internal@test.com', login_name: 'finance', iam_principal: 'finance@c123456789012345.opentk.ai', deleted: false },
+    ])
+    const filters = defaultFilters()
+    const wrapper = mountFilters(filters)
+    const input = wrapper.find('input[type="text"]')
+    await input.trigger('focus')
+    await input.setValue(' NANCE@C123 ')
+    vi.advanceTimersByTime(300)
+    await flushPromises()
+
+    expect(mockSearchUsers).toHaveBeenCalledWith('NANCE@C123')
+    const option = wrapper.findAll('.usage-filter-dropdown button').find(button => button.text().includes('finance@c123456789012345.opentk.ai'))
+    expect(option).toBeDefined()
+    await option!.trigger('click')
+    await flushPromises()
+    expect(filters.user_id).toBe(3)
+    expect((input.element as HTMLInputElement).value).toBe('finance@c123456789012345.opentk.ai')
+    expect(mockSearchApiKeys).toHaveBeenCalledWith(3, '')
+    wrapper.unmount()
+  })
+
   it('(a) labels deleted users with the i18n badge and (b) sorts active users before deleted ones, (c) selection sets user_id', async () => {
     // Arrange: mock returns deleted FIRST (proves sorting re-orders to active-first)
     mockSearchUsers.mockResolvedValue([

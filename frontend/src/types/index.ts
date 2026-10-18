@@ -2665,7 +2665,8 @@ export interface AccountScheduledUser {
   bound: boolean // Currently occupies one of the account's user slots
   bound_at?: string
   evicted_until?: string // Cleared by admin and still cooling down
-  sessions: number // Lifetime distinct sessions on this account
+  sessions: number // Lifetime distinct client sessions on this account
+  upstream_sessions: number // Lifetime distinct outbound conversation identities
   requests: number
   last_active_at: string | null
 }

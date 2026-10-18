@@ -580,19 +580,21 @@ func RegisterGatewayRoutes(
 	// 面板路由走 JWT，这里走 API Key 鉴权。gin 基数树中
 	// /api/v1/model/*path 与 /api/v1/model-plaza 等静态路由分属不同分支，不冲突。
 	//
-	// handler 先判断任务类型，再分别从 fal/leonardo 图片池或
+	// handler 先判断任务类型，再分别从 openai/fal/leonardo/bytedance 图片池或
 	// fal/atlascloud/apiz/higgsfield 视频池中选号。视频功能开关仅在视频分支校验。
-	tasksGroup := r.Group("/api/v1/model")
-	tasksGroup.Use(bodyLimit)
-	tasksGroup.Use(clientRequestID)
-	tasksGroup.Use(opsErrorLogger)
-	tasksGroup.Use(endpointNorm)
-	tasksGroup.Use(gin.HandlerFunc(apiKeyAuth))
-	tasksGroup.Use(requireGroupAnthropic)
-	{
-		tasksGroup.POST("/*path", h.ModelAPIGateway.Native)
-		tasksGroup.GET("/*path", h.ModelAPIGateway.Native)
-		tasksGroup.PUT("/*path", h.ModelAPIGateway.Native)
+	for _, prefix := range []string{"/api/v1/model", "/api/v1/models"} {
+		tasksGroup := r.Group(prefix)
+		tasksGroup.Use(bodyLimit)
+		tasksGroup.Use(clientRequestID)
+		tasksGroup.Use(opsErrorLogger)
+		tasksGroup.Use(endpointNorm)
+		tasksGroup.Use(gin.HandlerFunc(apiKeyAuth))
+		tasksGroup.Use(requireGroupAnthropic)
+		{
+			tasksGroup.POST("/*path", h.ModelAPIGateway.Native)
+			tasksGroup.GET("/*path", h.ModelAPIGateway.Native)
+			tasksGroup.PUT("/*path", h.ModelAPIGateway.Native)
+		}
 	}
 
 }

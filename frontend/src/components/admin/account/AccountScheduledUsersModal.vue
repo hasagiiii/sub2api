@@ -54,6 +54,7 @@
               <th class="px-3 py-2 text-left font-medium">{{ t('admin.accounts.scheduledUsers.user') }}</th>
               <th class="px-3 py-2 text-left font-medium">{{ t('admin.accounts.scheduledUsers.status') }}</th>
               <th class="px-3 py-2 text-right font-medium">{{ t('admin.accounts.scheduledUsers.conversations') }}</th>
+              <th class="px-3 py-2 text-right font-medium" :title="t('admin.accounts.scheduledUsers.upstreamConversationsHint')">{{ t('admin.accounts.scheduledUsers.upstreamConversations') }}</th>
               <th class="px-3 py-2 text-right font-medium">{{ t('admin.accounts.scheduledUsers.requests') }}</th>
               <th class="px-3 py-2 text-left font-medium">{{ t('admin.accounts.scheduledUsers.boundAt') }}</th>
               <th class="px-3 py-2 text-left font-medium">{{ t('admin.accounts.scheduledUsers.lastActive') }}</th>
@@ -82,6 +83,7 @@
                 </span>
               </td>
               <td class="px-3 py-2 text-right font-semibold text-gray-900 dark:text-gray-100">{{ user.sessions.toLocaleString() }}</td>
+              <td class="px-3 py-2 text-right text-gray-700 dark:text-gray-300" data-test="upstream-conversations">{{ (user.upstream_sessions ?? 0).toLocaleString() }}</td>
               <td class="px-3 py-2 text-right text-gray-700 dark:text-gray-300">{{ user.requests.toLocaleString() }}</td>
               <td class="px-3 py-2 text-gray-600 dark:text-gray-400">{{ user.bound_at ? formatDateTimeToMinute(user.bound_at) : '-' }}</td>
               <td class="px-3 py-2 text-gray-600 dark:text-gray-400">{{ user.last_active_at ? formatDateTimeToMinute(user.last_active_at) : '-' }}</td>

@@ -20,7 +20,7 @@ import (
 
 // ModelAPIGatewayHandler handles the protocol-neutral asynchronous model API.
 // It selects an eligible provider before applying media-specific validation:
-// image tasks use FAL/Leonardo, while video tasks use FAL/AtlasCloud/APIZ.
+// image tasks use OpenAI/FAL/Leonardo/Bytedance, while video tasks use FAL/AtlasCloud/APIZ.
 //
 // 路径形态：
 //
@@ -110,7 +110,7 @@ func (h *ModelAPIGatewayHandler) jsonError(c *gin.Context, status int, errType, 
 	c.JSON(status, response)
 }
 
-// Native is the /api/v1/model/*path entry point.
+// Native serves both /api/v1/model/*path and /api/v1/models/*path.
 func (h *ModelAPIGatewayHandler) Native(c *gin.Context) {
 	path := strings.Trim(c.Param("path"), "/")
 	method := c.Request.Method
@@ -199,7 +199,11 @@ func (h *ModelAPIGatewayHandler) nativeSubmit(c *gin.Context, model string) {
 	falAPI := modelAPIImageAPI(model)
 	imageAccount, imageErr := h.gatewayService.SelectAsyncImageAccountInGroup(c.Request.Context(), apiKey.GroupID, "", model, nil, falAPI)
 	if imageErr == nil && imageAccount != nil {
-		h.nativeImageSubmit(c, apiKey, subject, reqLog, model, body, imageAccount)
+		if imageAccount.Platform == service.PlatformOpenAI {
+			h.nativeOpenAIImageSubmit(c, apiKey, subject, reqLog, model, payload, imageAccount)
+		} else {
+			h.nativeImageSubmit(c, apiKey, subject, reqLog, model, body, imageAccount)
+		}
 		return
 	}
 	if knownImageModel {
@@ -709,11 +713,15 @@ func (h *ModelAPIGatewayHandler) callbackBase(c *gin.Context, model, reqID strin
 	if c.Request.TLS == nil && c.GetHeader("X-Forwarded-Proto") != "https" {
 		scheme = "http"
 	}
+	prefix := "/api/v1/model"
+	if strings.HasPrefix(c.Request.URL.Path, "/api/v1/models/") {
+		prefix = "/api/v1/models"
+	}
 	model = strings.Trim(model, "/")
 	if model == "" {
-		return scheme + "://" + c.Request.Host + "/api/v1/model/requests/" + reqID
+		return scheme + "://" + c.Request.Host + prefix + "/requests/" + reqID
 	}
-	return scheme + "://" + c.Request.Host + "/api/v1/model/" + model + "/requests/" + reqID
+	return scheme + "://" + c.Request.Host + prefix + "/" + model + "/requests/" + reqID
 }
 
 // ----- helpers -----

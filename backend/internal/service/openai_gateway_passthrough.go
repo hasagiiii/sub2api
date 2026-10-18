@@ -543,7 +543,8 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 						Usage: *result.usage, Model: reqModel, UpstreamModel: upstreamPassthroughModel,
 						Stream: true, Duration: time.Since(startTime), FirstTokenMs: result.firstTokenMs,
 						ReasoningEffort: reasoningEffort, ImageCount: result.imageCount,
-						UpstreamHeaders: resp.Header, ResponseHeaders: resp.Header,
+						UpstreamHeaders:   resp.Header,
+						UpstreamSessionID: upstreamSessionIDFromResponse(resp), ResponseHeaders: resp.Header,
 						UpstreamResponseModel:         observedUpstreamResponseModel(c),
 						UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 						UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
@@ -615,6 +616,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	forwardResult := &OpenAIForwardResult{
 		RequestID:                     resp.Header.Get("x-request-id"),
 		UpstreamHeaders:               resp.Header,
+		UpstreamSessionID:             upstreamSessionIDFromResponse(resp),
 		ResponseID:                    responseID,
 		Usage:                         *usage,
 		Model:                         reqModel,

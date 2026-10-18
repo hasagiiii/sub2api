@@ -160,10 +160,10 @@ const iconData: Record<string, IconData> = {
 const fallbackText = computed(() => props.model.charAt(0).toUpperCase())
 
 const iconKey = computed(() => {
-  const modelLower = props.model.toLowerCase()
+  const modelLower = props.model.trim().toLowerCase()
 
   // OpenAI models
-  if (modelLower.startsWith('gpt') || modelLower.startsWith('o1') ||
+  if (modelLower.startsWith('openai/') || modelLower.startsWith('gpt') || modelLower.startsWith('o1') ||
       modelLower.startsWith('o3') || modelLower.startsWith('o4') ||
       modelLower.includes('chatgpt') || modelLower.includes('dall-e') ||
       modelLower.includes('whisper') || modelLower.includes('tts-1') ||

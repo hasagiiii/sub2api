@@ -89,6 +89,7 @@ func (s *GatewayService) ForwardSystemOne(ctx context.Context, c *gin.Context, a
 		ForwardResult: ForwardResult{
 			RequestID:             resp.Header.Get("x-request-id"),
 			UpstreamHeaders:       resp.Header.Clone(),
+			UpstreamSessionID:     upstreamSessionIDFromResponse(resp),
 			Usage:                 ClaudeUsage{InputTokens: decoded.Usage.InputTokens, OutputTokens: decoded.Usage.OutputTokens},
 			Model:                 typesafe.JevLatestModel,
 			UpstreamResponseModel: decoded.Model,

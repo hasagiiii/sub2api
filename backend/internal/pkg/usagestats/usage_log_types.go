@@ -396,12 +396,13 @@ type AccountUserSessionStat struct {
 
 // AccountUserActivityStat 用户在账号上的累计活动（对话数、请求数、最近活跃）
 type AccountUserActivityStat struct {
-	UserID       int64      `json:"user_id"`
-	Email        string     `json:"email"`
-	Username     string     `json:"username"`
-	Sessions     int64      `json:"sessions"`       // 累计去重会话（对话）数
-	Requests     int64      `json:"requests"`       // 累计请求数
-	LastActiveAt *time.Time `json:"last_active_at"` // 最近一次请求时间
+	UserID           int64      `json:"user_id"`
+	Email            string     `json:"email"`
+	Username         string     `json:"username"`
+	Sessions         int64      `json:"sessions"` // 累计去重会话（对话）数
+	UpstreamSessions int64      `json:"upstream_sessions"`
+	Requests         int64      `json:"requests"`       // 累计请求数
+	LastActiveAt     *time.Time `json:"last_active_at"` // 最近一次请求时间
 }
 
 // AccountUsageStatsResponse represents the full usage statistics response for an account
