@@ -52,7 +52,14 @@ func (openAIPlaygroundAccountRepo) ListByPlatform(_ context.Context, platform st
 func TestVideoModelsListIncludesAccessibleOpenAIImagesWithoutVideoFlag(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	keys := service.NewAPIKeyService(nil, openAIPlaygroundUserRepo{}, openAIPlaygroundGroupRepo{}, openAIPlaygroundSubscriptionRepo{}, nil, nil, &config.Config{})
-	h := NewVideoModelHandler(keys, openAIPlaygroundAccountRepo{}, nil, nil, nil, nil)
+	introService, mock := newPlaygroundIntroService(t)
+	for _, slug := range []string{"gpt-image-2", "openai/gpt-image-2", "openai/gpt-image-2/edit"} {
+		expectPlaygroundIntro(t, mock, slug, &service.ModelIntro{
+			ModelKey: slug, SchedulingEnabled: true, ResultType: "image", ResultField: "images[0].url",
+			DefaultParams: map[string]any{"prompt": map[string]any{"value": "", "required": true}},
+		})
+	}
+	h := NewVideoModelHandler(keys, openAIPlaygroundAccountRepo{}, nil, introService, nil, nil)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/user/video-models", nil)
@@ -78,36 +85,5 @@ func TestVideoModelsListIncludesAccessibleOpenAIImagesWithoutVideoFlag(t *testin
 		require.NotNil(t, item.Intro)
 		require.Equal(t, "image", item.Intro.ResultType)
 		require.Contains(t, item.Intro.DefaultParams, "prompt")
-	}
-}
-
-func TestOpenAIPlaygroundDefaultFormPreservesEditOperation(t *testing.T) {
-	h := &VideoModelHandler{}
-	for _, model := range []string{"gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"} {
-		for _, suffix := range []string{"", "/edit"} {
-			slug := "openai/" + model + suffix
-			intro := h.resolveModelIntro(context.Background(), slug)
-			require.NotNil(t, intro)
-			require.Equal(t, "images[0].url", intro.ResultField)
-			payload := map[string]any{}
-			for name, value := range intro.DefaultParams {
-				payload[name] = value.(map[string]any)["value"]
-			}
-			payload["prompt"] = "draw a lighthouse"
-			payload["image_size"] = "square_hd"
-			if suffix != "" {
-				require.Equal(t, true, intro.DefaultParams["image_urls"].(map[string]any)["required"])
-				payload["image_urls"] = []any{"https://example.test/reference.png"}
-			} else {
-				require.NotContains(t, intro.DefaultParams, "image_urls")
-			}
-			c, _ := gin.CreateTestContext(httptest.NewRecorder())
-			c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/model/"+slug, nil)
-			_, _, parsed, err := buildModelAPIOpenAIImageRequest(c, slug, payload)
-			require.NoError(t, err)
-			require.Equal(t, model, parsed.Model)
-			require.Equal(t, "1024x1024", parsed.Size)
-			require.Equal(t, suffix != "", parsed.IsEdits())
-		}
 	}
 }

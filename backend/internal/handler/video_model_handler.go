@@ -21,13 +21,11 @@ import (
 //  1. 从 JWT 上下文取当前用户 ID → APIKeyService.GetAvailableGroups 拿到用户可访问的 group 集合；
 //  2. 拉取视频平台账号以及 OpenAI / Gemini / Antigravity 图片账号；
 //  3. 过滤条件：账号状态 = active、GroupIDs 与用户 group 集合有交集；视频平台
-//     还要求 Extra["video_models_enabled"] == true，Gemini 图片平台不受该开关影响；
+//     还要求 Extra["video_models_enabled"] == true，图片平台不受该开关影响；
 //  4. 从 account.GetModelMapping() 的 value 中提取 fal endpoint，
 //     经 NormalizeFalVideoModelEndpoint（剥掉 "fal-ai/"、要求 ≥2 段）后作为对外模型名；
-//  5. 对每个模型，遍历用户可访问的 group，用 ModelPricingResolver.Resolve 拿视频定价
-//     （BillingMode=video），把 Intervals[].TierLabel/PerRequestPrice 拍平为
-//     [{resolution, price_per_second}]；同一 model 首次解析到的定价胜出，
-//     实现 Q-C: "配什么展示什么"。
+//  5. 仅展示 model_intros 中精确匹配且 scheduling_enabled=true 的模型；
+//  6. 用已配置的模型介绍构建卡片，附带用户可访问分组的媒体定价。
 type VideoModelHandler struct {
 	apiKeyService     *service.APIKeyService
 	accountRepo       service.AccountRepository
@@ -40,7 +38,7 @@ type VideoModelHandler struct {
 // NewVideoModelHandler 构造视频模型只读 handler。
 //
 // 依赖均为已在 wire 中就位的现成组件；本 handler 无独立状态。
-// modelIntroService 可选：为 nil 时 List 不携带 intro 信息，保持向下兼容。
+// modelIntroService 是 List 的必要依赖；未初始化时不放行未配置的模型。
 // videoService 用于查询演练台历史任务（Q3-1 B 方案：按 slug 过滤当前用户历史）。
 func NewVideoModelHandler(
 	apiKeyService *service.APIKeyService,
@@ -77,8 +75,7 @@ type videoModelPricingItem struct {
 }
 
 // videoModelIntroDTO 是管理员在“模型介绍”菜单里为该 model_key 配置的
-// 展示信息（封面图/描述/默认参数/输出字段声明）。未配置模型介绍时，
-// 前端拿到 nil 后退化为一个普通卡片。
+// 展示信息（封面图/描述/默认参数/输出字段声明）。只有已配置且开启展示的模型才进入列表。
 //
 // OutputFields 供演练台在任务完成后按声明的字段提取并渲染（string / number / boolean / object / array，遵循 JSON Schema 标准）。
 // ResultField / ResultType 指示"主结果字段"：ResultField 为空时前端取第一个
@@ -126,6 +123,11 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 		return
 	}
 
+	if h.modelIntroService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "model introductions unavailable")
+		return
+	}
+
 	ctx := c.Request.Context()
 
 	// 1. 当前用户可访问的 group 集合。
@@ -166,6 +168,7 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 	// 3+4. 过滤并聚合：模型名去重（大小写不敏感），首次出现的原始大小写胜出。
 	type seenValue struct{}
 	seen := make(map[string]seenValue, 16)
+	checkedIntros := make(map[string]struct{}, 16)
 	items := make([]videoModelItem, 0, 16)
 
 	for ai := range accounts {
@@ -188,16 +191,24 @@ func (h *VideoModelHandler) List(c *gin.Context) {
 			if _, dup := seen[low]; dup {
 				continue
 			}
-			if h.modelIntroService != nil {
-				intro, introErr := h.modelIntroService.Get(ctx, slug)
-				if introErr == nil && intro != nil && !intro.SchedulingEnabled {
-					// Scheduling is a presentation switch for the playground only.
-					// Direct API calls remain available to the normal request path.
-					continue
-				}
+			// Repeated accounts must not repeatedly query missing/disabled
+			// introductions. Keep this cache case-sensitive for exact keys.
+			if _, checked := checkedIntros[slug]; checked {
+				continue
+			}
+			checkedIntros[slug] = struct{}{}
+			intro, introErr := h.modelIntroService.Get(ctx, slug)
+			if introErr != nil {
+				response.Error(c, http.StatusInternalServerError, "load model introductions failed")
+				return
+			}
+			// Account support alone does not authorize a catalog entry. Each
+			// public alias needs its own enabled model introduction.
+			if intro == nil || !intro.SchedulingEnabled {
+				continue
 			}
 			seen[low] = seenValue{}
-			items = append(items, h.buildVideoModelItem(ctx, slug, userGroups))
+			items = append(items, h.buildVideoModelItem(ctx, slug, userGroups, intro))
 		}
 	}
 
@@ -278,7 +289,7 @@ func accountBelongsToAny(a *service.Account, groupSet map[int64]struct{}) bool {
 //   - 首个命中的分组作为该 model 的定价来源（多分组不合并、不去重档位）；
 //   - 把 RequestTiers[].TierLabel/PerRequestPrice 原样拍平；
 //   - DefaultPerRequestPrice > 0 时追加一档 resolution="default"，作为未命中档位的兜底提示。
-func (h *VideoModelHandler) buildVideoModelItem(ctx context.Context, slug string, groups []service.Group) videoModelItem {
+func (h *VideoModelHandler) buildVideoModelItem(ctx context.Context, slug string, groups []service.Group, configuredIntro *service.ModelIntro) videoModelItem {
 	parts := strings.Split(slug, "/")
 	family := ""
 	variant := ""
@@ -292,7 +303,7 @@ func (h *VideoModelHandler) buildVideoModelItem(ctx context.Context, slug string
 	}
 
 	pricing := h.resolveVideoPricing(ctx, slug, groups)
-	intro := h.resolveModelIntro(ctx, slug)
+	intro := videoModelIntroFromConfig(configuredIntro)
 
 	return videoModelItem{
 		Slug:        slug,
@@ -309,83 +320,22 @@ func (h *VideoModelHandler) buildVideoModelItem(ctx context.Context, slug string
 	}
 }
 
-// resolveModelIntro 以 slug 作为 model_key 去 model_intros 表中查展示信息。
-//
-// 返回 nil 的情况：
-//   - service 未注入（兼容历史部署）
-//   - 未配置该 model_key 的介绍
-//   - 读取报错（降级为无 intro，不阻断整个列表接口）
-func (h *VideoModelHandler) resolveModelIntro(ctx context.Context, slug string) *videoModelIntroDTO {
-	if h.modelIntroService != nil {
-		intro, err := h.modelIntroService.Get(ctx, slug)
-		if err == nil && intro != nil {
-			fields := intro.OutputFields
-			if fields == nil {
-				fields = []service.OutputFieldSpec{}
-			}
-			return &videoModelIntroDTO{
-				Title:         intro.Title,
-				Description:   intro.Description,
-				DescriptionEn: intro.DescriptionEn,
-				CoverURL:      intro.CoverURL,
-				DefaultParams: intro.DefaultParams,
-				OutputFields:  fields,
-				ResultField:   intro.ResultField,
-				ResultType:    intro.ResultType,
-			}
-		}
-	}
-	if service.IsGeminiImageGenerationModel(slug) {
-		return defaultGeminiImageIntro(slug)
-	}
-	if _, ok := service.ModelAPIOpenAIImageModel(slug); ok {
-		return defaultOpenAIImageIntro(slug)
-	}
-	return nil
-}
-
-func defaultGeminiImageIntro(slug string) *videoModelIntroDTO {
-	params := map[string]any{
-		"prompt": map[string]any{
-			"value": "", "required": true, "widget": "PromptTextArea", "rows": 6,
-			"description": "描述要生成或编辑的图片。", "description_en": "Describe the image to generate or edit.",
-			"extra": map[string]any{"x-order": 1},
-		},
-		"image_urls": map[string]any{
-			"items": map[string]any{"value": "", "widget": "image"}, "value": []any{},
-			"widget": "ImageUrls", "maxItems": geminiMaxReferenceImages(slug),
-			"description": "可选参考图片。", "description_en": "Optional reference images.",
-			"extra": map[string]any{"x-order": 2},
-		},
-		"aspect_ratio": map[string]any{
-			"value": "1:1", "enum": true,
-			"options":     geminiAspectRatioOptions(slug),
-			"description": "输出宽高比。", "description_en": "Output aspect ratio.",
-			"extra": map[string]any{"x-order": 3},
-		},
-	}
-	if geminiModelSupportsImageSize(slug) {
-		params["image_size"] = map[string]any{
-			"value": "1K", "enum": true, "options": geminiImageSizeOptions(slug),
-			"description": "输出图片尺寸档位。", "description_en": "Output image size tier.",
-			"extra": map[string]any{"x-order": 4},
-		}
+// videoModelIntroFromConfig uses the same configured record that passed the
+// visibility check, avoiding a second query and any generated defaults.
+func videoModelIntroFromConfig(intro *service.ModelIntro) *videoModelIntroDTO {
+	fields := intro.OutputFields
+	if fields == nil {
+		fields = []service.OutputFieldSpec{}
 	}
 	return &videoModelIntroDTO{
-		Title:         slug,
-		Description:   "Gemini 原生图片生成与图片编辑模型。",
-		DescriptionEn: "Gemini native image generation and editing model.",
-		DefaultParams: params,
-		OutputFields: []service.OutputFieldSpec{{
-			Key: "images", Type: "array", Description: "生成的图片。",
-			Items: map[string]any{
-				"properties": map[string]any{
-					"url": map[string]any{"value": "", "description": "图片 URL"},
-				},
-			},
-		}},
-		ResultField: "images[0].url",
-		ResultType:  "image",
+		Title:         intro.Title,
+		Description:   intro.Description,
+		DescriptionEn: intro.DescriptionEn,
+		CoverURL:      intro.CoverURL,
+		DefaultParams: intro.DefaultParams,
+		OutputFields:  fields,
+		ResultField:   intro.ResultField,
+		ResultType:    intro.ResultType,
 	}
 }
 

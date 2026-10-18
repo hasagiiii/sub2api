@@ -183,19 +183,11 @@ func TestGenerateGeminiImagesUsesNativeForwarderAndNormalizesResult(t *testing.T
 	require.JSONEq(t, string(body), string(upstream.request))
 }
 
-func TestGeminiImageModelsUseImageRoutingAndDefaultIntro(t *testing.T) {
+func TestGeminiImageModelsUseImageRouting(t *testing.T) {
 	for _, model := range []string{"gemini-2.5-flash-image", "models/gemini-3.1-flash-image-preview"} {
 		require.True(t, modelAPIIsKnownImageModel(model))
 		require.True(t, isImagePlaygroundModel(model))
 	}
-	intro := defaultGeminiImageIntro("gemini-3.1-flash-image")
-	require.Equal(t, "image", intro.ResultType)
-	require.Equal(t, "images[0].url", intro.ResultField)
-	require.Contains(t, intro.DefaultParams, "prompt")
-	require.Contains(t, intro.DefaultParams, "image_urls")
-	require.Contains(t, intro.DefaultParams, "image_size")
-	require.NotContains(t, defaultGeminiImageIntro("gemini-2.5-flash-image").DefaultParams, "image_size")
-	require.Equal(t, []string{"512", "1K", "2K"}, defaultGeminiImageIntro("gemini-3.1-flash-lite-image").DefaultParams["image_size"].(map[string]any)["options"])
 
 	item := toMediaTaskItem(&service.AsyncMediaTask{RequestParameters: map[string]any{"prompt": "again"}})
 	require.Equal(t, map[string]any{"prompt": "again"}, item.RequestPayload)
