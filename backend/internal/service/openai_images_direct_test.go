@@ -122,10 +122,10 @@ func TestCodexDirectImagesStreamRejectsPlainJSON(t *testing.T) {
 	require.Nil(t, result)
 }
 
-func TestCodexDirectImagesMultipleOutputs(t *testing.T) {
+func TestCodexDirectImagesSingleRequestMultipleOutputs(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprint(stream), func(t *testing.T) {
-			body := []byte(fmt.Sprintf(`{"model":"gpt-image-2.5-flare","prompt":"draw","n":2,"stream":%t}`, stream))
+			body := []byte(fmt.Sprintf(`{"model":"gpt-image-2.5-flare","prompt":"draw","stream":%t}`, stream))
 			c, _ := newOpenAIImagesTestContext(t, body)
 			response := `{"data":[{"b64_json":"AA=="},{"b64_json":"AQ=="}],"usage":{"input_tokens":10,"output_tokens":40}}`
 			if stream {
@@ -153,15 +153,11 @@ func TestCodexDirectImagesStreaming(t *testing.T) {
 		{"duplicate", "complete,complete", 1, false, false},
 		{"disconnect", "partial,complete", 1, false, true},
 		{"truncated", "partial", 0, true, false},
-		{"partial_requested_multiple", "complete", 1, false, false},
 		{"error", "error", 0, true, false},
 		{"partial_success", "complete,error", 1, true, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body := []byte(`{"model":"gpt-image-2","prompt":"edit","images":[{"image_url":"data:image/png;base64,AA=="}],"stream":true,"response_format":"url"}`)
-			if test.name == "partial_requested_multiple" {
-				body = []byte(`{"model":"gpt-image-2","prompt":"edit","n":2,"images":[{"image_url":"data:image/png;base64,AA=="}],"stream":true,"response_format":"url"}`)
-			}
 			c, rec := newOpenAIImagesTestContext(t, body)
 			c.Request.URL.Path = "/v1/images/edits"
 			if test.disconnect {

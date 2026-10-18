@@ -139,7 +139,12 @@ func (h *ModelAPIGatewayHandler) generateModelAPIOpenAIImages(ctx context.Contex
 	if recorder.Code < 200 || recorder.Code >= 300 {
 		return nil, fmt.Errorf("OpenAI images returned HTTP %d", recorder.Code)
 	}
-	var response fal.OpenAIImagesResponse
+	var response struct {
+		fal.OpenAIImagesResponse
+		RequestedImages *int            `json:"requested_images"`
+		GeneratedImages *int            `json:"generated_images"`
+		Errors          json.RawMessage `json:"errors"`
+	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		return nil, fmt.Errorf("decode OpenAI images: %w", err)
 	}
@@ -190,12 +195,21 @@ func (h *ModelAPIGatewayHandler) generateModelAPIOpenAIImages(ctx context.Contex
 	if len(result.COSURLs) != len(result.ImageURLs) {
 		result.COSURLs = nil
 	}
-	encoded, err := json.Marshal(fal.OpenAIResponseToFal(&response))
+	encoded, err := json.Marshal(fal.OpenAIResponseToFal(&response.OpenAIImagesResponse))
 	if err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal(encoded, &result.ResultPayload); err != nil {
 		return nil, err
+	}
+	if response.RequestedImages != nil {
+		result.ResultPayload["requested_images"] = *response.RequestedImages
+	}
+	if response.GeneratedImages != nil {
+		result.ResultPayload["generated_images"] = *response.GeneratedImages
+	}
+	if len(response.Errors) > 0 {
+		result.ResultPayload["errors"] = response.Errors
 	}
 	return result, nil
 }

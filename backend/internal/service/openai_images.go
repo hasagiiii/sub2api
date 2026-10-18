@@ -330,14 +330,21 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 		req.Stream = streamResult.Bool()
 	}
 
-	if nResult := gjson.GetBytes(body, "n"); nResult.Exists() {
-		if nResult.Type != gjson.Number {
-			return fmt.Errorf("invalid n field type")
+	countField := "n"
+	count := gjson.GetBytes(body, countField)
+	if !count.Exists() {
+		countField = "num_images"
+		count = gjson.GetBytes(body, countField)
+	}
+	if count.Exists() {
+		if count.Type != gjson.Number {
+			return fmt.Errorf("invalid %s field type", countField)
 		}
-		req.N = int(nResult.Int())
-		if req.N <= 0 {
-			return fmt.Errorf("n must be greater than 0")
+		n, ok := boundedJSONNonNegativeInt(count)
+		if !ok || n <= 0 || count.Float() != float64(n) {
+			return fmt.Errorf("%s must be a positive integer", countField)
 		}
+		req.N = n
 	}
 
 	if sizeResult := gjson.GetBytes(body, "size"); sizeResult.Exists() {
@@ -410,6 +417,7 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 	}
 
 	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	explicitN := false
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
@@ -478,7 +486,16 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 				return fmt.Errorf("invalid stream field value")
 			}
 			req.Stream = parsed
+		case "num_images":
+			if !explicitN {
+				n, err := strconv.Atoi(value)
+				if err != nil || n <= 0 {
+					return fmt.Errorf("num_images must be a positive integer")
+				}
+				req.N = n
+			}
 		case "n":
+			explicitN = true
 			n, err := strconv.Atoi(value)
 			if err != nil || n <= 0 {
 				return fmt.Errorf("n must be a positive integer")
@@ -707,7 +724,7 @@ func normalizeOpenAIImagesEndpointPath(path string) string {
 	switch {
 	case strings.Contains(trimmed, "/images/generations"):
 		return openAIImagesGenerationsEndpoint
-	case strings.Contains(trimmed, "/images/edits"):
+	case strings.Contains(trimmed, "/images/edits") || strings.HasSuffix(trimmed, "/images/edit"):
 		return openAIImagesEditsEndpoint
 	default:
 		return ""
@@ -812,6 +829,9 @@ func (s *OpenAIGatewayService) ForwardImages(
 	case AccountTypeAPIKey:
 		return s.forwardOpenAIImagesAPIKey(ctx, c, account, body, parsed, channelMappedModel)
 	case AccountTypeOAuth, AccountTypeSetupToken:
+		if account.Platform == PlatformOpenAI && parsed.N > 1 {
+			return s.forwardOpenAIImagesOAuthBatch(ctx, c, account, parsed, channelMappedModel)
+		}
 		return s.forwardOpenAIImagesOAuth(ctx, c, account, parsed, channelMappedModel)
 	default:
 		return nil, fmt.Errorf("unsupported account type: %s", account.Type)

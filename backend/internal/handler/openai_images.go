@@ -445,7 +445,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardImages(rpmAdmission.forwardContext(requestCtx, account), c, account, body, parsed, channelMapping.MappedModel)
+			forwardCtx := rpmAdmission.forwardContext(requestCtx, account)
+			if accountReleaseFunc != nil {
+				forwardCtx = service.WithOpenAIImagesAccountSlot(forwardCtx, account.ID)
+			}
+			return h.gatewayService.ForwardImages(forwardCtx, c, account, body, parsed, channelMapping.MappedModel)
 		}()
 
 		// DEBUG: 打印 ForwardImages 返回结果（截断 base64 内容）

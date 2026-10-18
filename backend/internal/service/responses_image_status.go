@@ -90,6 +90,9 @@ func (s *OpenAIGatewayService) MarkResponsesImageStatusRunning(ctx context.Conte
 }
 
 func (s *OpenAIGatewayService) MarkResponsesImageStatusUpstreamDone(ctx context.Context, result *OpenAIForwardResult) {
+	if isOpenAIImagesBatchChild(ctx) {
+		return
+	}
 	requestID := responsesImageStatusRequestIDFromResult(ctx, result)
 	if requestID == "" {
 		return

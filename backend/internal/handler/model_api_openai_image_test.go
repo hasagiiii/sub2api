@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -126,4 +127,53 @@ func TestModelAPIOpenAIForwardCanonicalImages(t *testing.T) {
 			})
 		}
 	}
+}
+
+type modelAPIOpenAIBatchHTTP struct {
+	calls        atomic.Int32
+	invalidCount atomic.Bool
+}
+
+func (u *modelAPIOpenAIBatchHTTP) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	count := u.calls.Add(1)
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	if gjson.GetBytes(body, "n").Int() > 1 {
+		u.invalidCount.Store(true)
+	}
+	status := http.StatusOK
+	response := `{"data":[{"b64_json":"` + geminiPlaygroundTestPNG + `"}]}`
+	if count == 2 {
+		status = http.StatusBadRequest
+		response = `{"error":{"type":"invalid_request_error","message":"image rejected"}}`
+	}
+	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}, "X-Request-Id": {"batch-generated"}}, Request: req, Body: io.NopCloser(bytes.NewBufferString(response))}, nil
+}
+func (u *modelAPIOpenAIBatchHTTP) DoWithTLS(req *http.Request, p string, id int64, n int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return u.Do(req, p, id, n)
+}
+
+func TestModelAPIOpenAIBatchPreservesPartialFailureMetadata(t *testing.T) {
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	account := service.Account{ID: 901, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"access_token": "test", "chatgpt_account_id": "test-account"}}
+	repo := &openAIWSFailoverHandlerAccountRepoStub{accounts: []service.Account{account}}
+	upstream := &modelAPIOpenAIBatchHTTP{}
+	images := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	h := &ModelAPIGatewayHandler{imagesService: images}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/models/openai/gpt-image-2", nil)
+	internal, body, parsed, err := buildModelAPIOpenAIImageRequest(c, "openai/gpt-image-2", map[string]any{"prompt": "draw", "num_images": 3})
+	require.NoError(t, err)
+	result, err := h.generateModelAPIOpenAIImages(context.Background(), internal, &account, body, parsed)
+	require.NoError(t, err)
+	require.Equal(t, int32(3), upstream.calls.Load())
+	require.False(t, upstream.invalidCount.Load())
+	require.Len(t, result.ImageURLs, 2)
+	require.Equal(t, 3, result.ResultPayload["requested_images"])
+	require.Equal(t, 2, result.ResultPayload["generated_images"])
+	raw, err := json.Marshal(result.ResultPayload)
+	require.NoError(t, err)
+	require.Len(t, gjson.GetBytes(raw, "errors").Array(), 1)
 }

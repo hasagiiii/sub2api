@@ -131,7 +131,7 @@ func TestExcelBPSImagesUnsupportedReason(t *testing.T) {
 }
 
 func TestExcelBPSImagesForwardContract(t *testing.T) {
-	body := []byte(`{"model":"gpt-image-2","prompt":"  draw  ","size":"1024x1024","quality":"low","n":2,"background":"opaque","output_format":"png","moderation":"auto","response_format":"url"}`)
+	body := []byte(`{"model":"gpt-image-2","prompt":"  draw  ","size":"1024x1024","quality":"low","background":"opaque","output_format":"png","moderation":"auto","response_format":"url"}`)
 	c, rec := newOpenAIImagesTestContext(t, body)
 	upstream := &httpUpstreamRecorder{resp: openAIImagesJSONResponse()}
 	svc := newOpenAIImagesTestService(upstream)
@@ -173,7 +173,7 @@ func TestExcelBPSImagesForwardContract(t *testing.T) {
 	require.Equal(t, "  draw  ", gjson.GetBytes(sent, "prompt").String())
 	require.Equal(t, "low", gjson.GetBytes(sent, "quality").String())
 	require.Equal(t, "1024x1024", gjson.GetBytes(sent, "size").String())
-	require.Equal(t, int64(2), gjson.GetBytes(sent, "n").Int())
+	require.False(t, gjson.GetBytes(sent, "n").Exists())
 	for _, key := range []string{"moderation", "response_format", "stream", "user", "style", "input_fidelity"} {
 		require.False(t, gjson.GetBytes(sent, key).Exists(), key)
 	}
@@ -442,4 +442,26 @@ func TestExcelBPSImagesAccountTestReportsRateLimit(t *testing.T) {
 	require.EqualError(t, err, excelBPSRateLimitedClientMessage)
 	require.Len(t, upstream.requests, 1)
 	require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")
+}
+
+func TestExcelBPSImagesBatchForwardContract(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2","prompt":"  draw  ","n":3,"response_format":"url"}`)
+	c, rec := newOpenAIImagesTestContext(t, body)
+	upstream := &batchImageUpstream{}
+	svc := newOpenAIImagesTestService(upstream)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	result, err := svc.ForwardImages(context.Background(), c, excelBPSImagesAccount(), body, parsed, "")
+	require.NoError(t, err)
+	require.Equal(t, int32(3), upstream.calls.Load())
+	require.Equal(t, 3, result.ImageCount)
+	require.Equal(t, 60, result.Usage.ImageOutputTokens)
+	require.Equal(t, excelBPSImagesEndpoint, result.UpstreamEndpoint)
+	require.Equal(t, excelBPSImagesEndpoint, GetActualOpenAIUpstreamEndpoint(c))
+	require.Len(t, gjson.GetBytes(rec.Body.Bytes(), "data").Array(), 3)
+	for i, sent := range upstream.bodies {
+		require.Equal(t, excelBPSImagesEndpoint, upstream.paths[i])
+		require.Equal(t, "  draw  ", gjson.GetBytes(sent, "prompt").String())
+		require.LessOrEqual(t, gjson.GetBytes(sent, "n").Int(), int64(1))
+	}
 }

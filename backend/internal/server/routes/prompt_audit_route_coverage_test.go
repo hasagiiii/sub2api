@@ -39,6 +39,7 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 		"/realtime/calls":           {"openai_live.go"},
 		"/images/generations":       {"openai_images.go", "grok_media.go"},
 		"/images/edits":             {"openai_images.go", "grok_media.go"},
+		"/images/edit":              {"openai_images.go", "grok_media.go"},
 		"/images/generations/async": {"image_task_handler.go"},
 		"/images/edits/async":       {"image_task_handler.go"},
 		"/images/batches":           {"batch_image_handler.go"},

@@ -35,6 +35,9 @@ const openAIImageCosUploadTimeout = 10 * time.Second
 //   - base64 和 URL 切片均为空时直接返回
 //   - 单张图片解码或上传失败不影响其他图片，对应 slot 保留为空字符串
 func (s *OpenAIGatewayService) scheduleOpenAIImageCosUpload(ctx context.Context, result *OpenAIForwardResult) {
+	if isOpenAIImagesBatchChild(ctx) {
+		return
+	}
 	if result == nil || s == nil {
 		return
 	}

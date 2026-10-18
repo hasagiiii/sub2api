@@ -101,7 +101,7 @@ func NormalizeInboundEndpoint(path string) string {
 		return EndpointSystemOne
 	case strings.Contains(path, EndpointImagesGenerations) || strings.Contains(path, "/images/generations"):
 		return EndpointImagesGenerations
-	case strings.Contains(path, EndpointImagesEdits) || strings.Contains(path, "/images/edits"):
+	case strings.Contains(path, EndpointImagesEdits) || strings.Contains(path, "/images/edits") || strings.HasSuffix(path, "/images/edit"):
 		return EndpointImagesEdits
 	case strings.Contains(path, EndpointImageTasks) || strings.Contains(path, "/images/tasks/"):
 		return EndpointImageTasks

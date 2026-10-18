@@ -1005,3 +1005,30 @@ func TestAsyncMediaInlineOpenAIUsesCanonicalPricingAndEditEndpoint(t *testing.T)
 	require.InDelta(t, 0.08, task.FinalCost, 1e-9)
 	require.Equal(t, 1, tasks.usageLogCount())
 }
+
+func TestAsyncMediaInlineImageBatchRefundsOnlyMissingImages(t *testing.T) {
+	const model = "gpt-image-2"
+	groupID := int64(41)
+	users := &fakeUserRepo{balance: 1}
+	tasks := newFakeTaskRepo()
+	svc := NewAsyncMediaService(tasks, users, nil, newTestBillingService(), newImageBillingResolver(t, groupID, model, 0.08), nil)
+	account := &Account{ID: 9, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive}
+	in := newSubmitInput(account, groupID, 3)
+	in.RequestedModel = "openai/" + model
+	in.Input = fal.ImageGenInput{Prompt: "draw", Size: "1K", N: 3}
+	task, err := svc.SubmitInline(context.Background(), in, func(context.Context) (*AsyncMediaInlineResult, error) {
+		return &AsyncMediaInlineResult{
+			RequestID:        "partial-image-batch",
+			ImageURLs:        []string{"https://example.test/1.png", "https://example.test/2.png"},
+			ImageOutputSizes: []string{"1024x1024", "1024x1024"},
+			ResultPayload:    map[string]any{"requested_images": 3, "generated_images": 2, "errors": []any{map[string]any{"image_index": 1}}},
+		}, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, AsyncMediaStatusSucceeded, task.Status)
+	require.InDelta(t, 0.24, task.HeldCost, 1e-9)
+	require.InDelta(t, 0.16, task.FinalCost, 1e-9)
+	require.InDelta(t, 0.84, users.balance, 1e-9)
+	require.Equal(t, 1, tasks.usageLogCount())
+	require.Contains(t, task.ResultPayload, "errors")
+}

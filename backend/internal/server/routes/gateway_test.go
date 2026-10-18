@@ -777,3 +777,14 @@ func TestGatewayRoutesOpenAICountTokensPathIsRegistered(t *testing.T) {
 	router.ServeHTTP(w, req)
 	require.NotEqual(t, http.StatusNotFound, w.Code)
 }
+
+func TestGatewayRoutesImagesEditAliasRequiresAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	RegisterGatewayRoutes(router, &handler.Handlers{}, servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) { c.AbortWithStatus(http.StatusTeapot) }), nil, nil, nil, nil, nil, &config.Config{Gateway: config.GatewayConfig{MaxBodySize: 1024}})
+	for _, path := range []string{"/v1/images/edit", "/images/edit"} {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`)))
+		require.Equal(t, http.StatusTeapot, rec.Code, path)
+	}
+}
