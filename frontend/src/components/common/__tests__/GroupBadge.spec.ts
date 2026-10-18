@@ -1,3 +1,4 @@
+import { createPinia } from 'pinia'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 import GroupBadge from '../GroupBadge.vue'
@@ -15,6 +16,7 @@ vi.mock('vue-i18n', async () => {
 describe('GroupBadge', () => {
   it('Kiro 分组徽章使用 Kiro 紫色主题', () => {
     const wrapper = mount(GroupBadge, {
+      global: { plugins: [createPinia()] },
       props: {
         name: 'kiro free',
         platform: 'kiro',

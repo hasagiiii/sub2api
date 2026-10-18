@@ -472,7 +472,7 @@ func (h *OidcProviderHandler) ListAPIKeys(c *gin.Context) {
 
 	out := make([]dto.APIKey, 0, len(keys))
 	for i := range keys {
-		out = append(out, *dto.APIKeyFromService(&keys[i]))
+		out = append(out, *dto.APIKeyFromService(&keys[i]).Localized(c.GetHeader("Accept-Language")))
 	}
 	logOidcAPIKeysResponse(c, out, result.Total, page, pageSize, resolved.UserID)
 	response.Paginated(c, out, result.Total, page, pageSize)

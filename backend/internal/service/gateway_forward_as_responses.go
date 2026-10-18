@@ -55,7 +55,7 @@ func (s *GatewayService) ForwardAsResponses(
 		debugLogGatewaySnapshot(c.Request.Context(), "CLIENT_ORIGINAL_AS_RESPONSES", c.Request.Header, body, extra)
 	}
 
-	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngress(body)
+	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngressWithConfig(s.cfg, body)
 	if err != nil {
 		return nil, err
 	}

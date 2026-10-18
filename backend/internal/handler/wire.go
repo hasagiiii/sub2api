@@ -182,6 +182,7 @@ func ProvideGatewayHandler(
 	coordinator *securityaudit.Coordinator,
 	billingContextResolver *service.BillingContextResolver,
 	costCenter *service.CostCenterService,
+	geminiCachedContentService *service.GeminiCachedContentService,
 ) *GatewayHandler {
 	gatewayService.SetBillingContextResolver(billingContextResolver)
 	openAIGatewayService.SetBillingContextResolver(billingContextResolver)
@@ -192,6 +193,7 @@ func ProvideGatewayHandler(
 		userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool,
 		errorPassthroughService, contentModerationService, userMsgQueueService, cfg, settingService)
 	h.securityAuditCoordinator = coordinator
+	h.geminiCachedContentService = geminiCachedContentService
 	return h
 }
 

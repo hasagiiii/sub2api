@@ -92,8 +92,10 @@ func TestOAuthModelMappingScopeAndImportedRules(t *testing.T) {
 			account := &Account{Platform: input.Platform, Type: input.Type, Credentials: input.Credentials}
 			if tc.apply {
 				require.Equal(t, "gpt-5.5", account.GetMappedModel("gpt-5.4"))
-				require.True(t, account.IsModelSupported("gpt-5.4"))
-				require.True(t, account.IsModelSupported("gpt-5.5"))
+				require.True(t, account.isModelMappingSupported("gpt-5.4"))
+				require.True(t, account.isModelMappingSupported("gpt-5.5"))
+				require.False(t, account.IsModelSupported("gpt-5.4"), "preserved mappings must still respect upstream target retirement")
+				require.False(t, account.IsModelSupported("gpt-5.5"))
 				require.False(t, account.IsModelSupported("gpt-other"), "retain existing allowlist semantics")
 				require.Equal(t, c.Revision, input.Extra["auto_config_initial_revision"])
 				require.Equal(t, c.Priority, input.Priority)

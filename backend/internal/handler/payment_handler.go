@@ -83,8 +83,8 @@ func (h *PaymentHandler) GetPlans(c *gin.Context) {
 		gi := groupInfo[primaryID]
 		result = append(result, planWithPlatform{
 			ID: int64(p.ID), GroupID: primaryID,
-			GroupIDs: groupIDs, Groups: planGroupSummaries(groupIDs, groupInfo),
-			GroupPlatform: gi.Platform, GroupName: gi.Name,
+			GroupIDs: groupIDs, Groups: planGroupSummaries(groupIDs, groupInfo, c.GetHeader("Accept-Language")),
+			GroupPlatform: gi.Platform, GroupName: gi.I18n.LocalizeName(c.GetHeader("Accept-Language"), gi.Name),
 			RateMultiplier: gi.RateMultiplier, PeakRateEnabled: gi.PeakRateEnabled,
 			PeakStart: gi.PeakStart, PeakEnd: gi.PeakEnd, PeakRateMultiplier: gi.PeakRateMultiplier,
 			Name: p.Name, Description: p.Description, Price: p.Price, OriginalPrice: p.OriginalPrice,
@@ -134,8 +134,8 @@ func (h *PaymentHandler) GetCheckoutInfo(c *gin.Context) {
 		gi := groupInfo[primaryID]
 		planList = append(planList, checkoutPlan{
 			ID: int64(p.ID), GroupID: primaryID,
-			GroupIDs: groupIDs, Groups: planGroupSummaries(groupIDs, groupInfo),
-			GroupPlatform: gi.Platform, GroupName: gi.Name,
+			GroupIDs: groupIDs, Groups: planGroupSummaries(groupIDs, groupInfo, c.GetHeader("Accept-Language")),
+			GroupPlatform: gi.Platform, GroupName: gi.I18n.LocalizeName(c.GetHeader("Accept-Language"), gi.Name),
 			RateMultiplier:  gi.RateMultiplier,
 			PeakRateEnabled: gi.PeakRateEnabled, PeakStart: gi.PeakStart,
 			PeakEnd: gi.PeakEnd, PeakRateMultiplier: gi.PeakRateMultiplier,
@@ -218,14 +218,18 @@ type planGroupSummary struct {
 }
 
 // planGroupSummaries 按套餐绑定顺序展开分组信息。
-func planGroupSummaries(groupIDs []int64, groupInfo map[int64]service.PlanGroupInfo) []planGroupSummary {
+func planGroupSummaries(groupIDs []int64, groupInfo map[int64]service.PlanGroupInfo, languages ...string) []planGroupSummary {
+	var language string
+	if len(languages) > 0 {
+		language = languages[0]
+	}
 	out := make([]planGroupSummary, 0, len(groupIDs))
 	for _, gid := range groupIDs {
 		info := groupInfo[gid]
 		out = append(out, planGroupSummary{
 			GroupID:            gid,
 			Platform:           info.Platform,
-			Name:               info.Name,
+			Name:               info.I18n.LocalizeName(language, info.Name),
 			RateMultiplier:     info.RateMultiplier,
 			PeakRateEnabled:    info.PeakRateEnabled,
 			PeakStart:          info.PeakStart,

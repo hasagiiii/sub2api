@@ -156,6 +156,8 @@ type RefundPlan struct {
 	// 每条都扣减 SubDaysToDeduct 天：订单为整个套餐付了一份钱，各分组的有效期
 	// 也是各自独立按同样天数发放的，退款必须对称地全部收回。
 	SubscriptionIDs []int64
+	// deductionHeld 表示扣减已在进入 REFUND_PENDING 前执行并保留，终态收敛时不再重复扣减。
+	deductionHeld bool
 }
 
 type RefundResult struct {
