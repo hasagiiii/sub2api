@@ -101,6 +101,8 @@ type UsageLog struct {
 	DurationMs *int `json:"duration_ms,omitempty"`
 	// FirstTokenMs holds the value of the "first_token_ms" field.
 	FirstTokenMs *int `json:"first_token_ms,omitempty"`
+	// XApp holds the value of the "x_app" field.
+	XApp *string `json:"x_app,omitempty"`
 	// UserAgent holds the value of the "user_agent" field.
 	UserAgent *string `json:"user_agent,omitempty"`
 	// IPAddress holds the value of the "ip_address" field.
@@ -228,7 +230,7 @@ func (*UsageLog) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case usagelog.FieldID, usagelog.FieldUserID, usagelog.FieldOrganizationID, usagelog.FieldPayerUserID, usagelog.FieldAuthzGeneration, usagelog.FieldAPIKeyID, usagelog.FieldAccountID, usagelog.FieldChannelID, usagelog.FieldGroupID, usagelog.FieldSubscriptionID, usagelog.FieldInputTokens, usagelog.FieldOutputTokens, usagelog.FieldCacheCreationTokens, usagelog.FieldCacheReadTokens, usagelog.FieldCacheCreation5mTokens, usagelog.FieldCacheCreation1hTokens, usagelog.FieldBillingType, usagelog.FieldDurationMs, usagelog.FieldFirstTokenMs, usagelog.FieldImageCount, usagelog.FieldTaskID, usagelog.FieldVideoCount, usagelog.FieldVideoDurationSeconds:
 			values[i] = new(sql.NullInt64)
-		case usagelog.FieldBalanceSource, usagelog.FieldRequestID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldUpstreamResponseModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize, usagelog.FieldImageInputSize, usagelog.FieldImageQuality, usagelog.FieldImageOutputSize, usagelog.FieldImageSizeSource, usagelog.FieldBillingStatus, usagelog.FieldVideoResolution:
+		case usagelog.FieldBalanceSource, usagelog.FieldRequestID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldUpstreamResponseModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldXApp, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize, usagelog.FieldImageInputSize, usagelog.FieldImageQuality, usagelog.FieldImageOutputSize, usagelog.FieldImageSizeSource, usagelog.FieldBillingStatus, usagelog.FieldVideoResolution:
 			values[i] = new(sql.NullString)
 		case usagelog.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -505,6 +507,13 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.FirstTokenMs = new(int)
 				*_m.FirstTokenMs = int(value.Int64)
+			}
+		case usagelog.FieldXApp:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field x_app", values[i])
+			} else if value.Valid {
+				_m.XApp = new(string)
+				*_m.XApp = value.String
 			}
 		case usagelog.FieldUserAgent:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -841,6 +850,11 @@ func (_m *UsageLog) String() string {
 	if v := _m.FirstTokenMs; v != nil {
 		builder.WriteString("first_token_ms=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.XApp; v != nil {
+		builder.WriteString("x_app=")
+		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")
 	if v := _m.UserAgent; v != nil {

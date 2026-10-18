@@ -33,6 +33,7 @@ const (
 
 // AsyncMediaTask 异步媒体任务领域模型，承载任务的完整生命周期。
 type AsyncMediaTask struct {
+	ExecutionKind     string
 	ID                int64
 	InternalRequestID string
 	UpstreamRequestID *string
@@ -81,6 +82,7 @@ type AsyncMediaTask struct {
 
 	// 请求元信息（提交时持久化，供终态 usage_log 回填端点/IP/UA）。
 	ClientIP         *string
+	XApp             *string
 	UserAgent        *string
 	InboundEndpoint  *string
 	UpstreamEndpoint *string
@@ -97,6 +99,8 @@ type AsyncMediaTask struct {
 // asynchronous image result endpoint. It contains only the fields needed to
 // authorize and render the status/result response.
 type AsyncMediaTaskStatus struct {
+	TaskID        int64                 `json:"task_id,omitempty"`
+	ExecutionKind string                `json:"execution_kind,omitempty"`
 	RequestID     string                `json:"request_id"`
 	Status        string                `json:"status"`
 	APIKeyID      int64                 `json:"api_key_id"`
@@ -150,6 +154,7 @@ func asyncMediaTaskStatusFromTask(task *AsyncMediaTask) *AsyncMediaTaskStatus {
 		return nil
 	}
 	return &AsyncMediaTaskStatus{
+		TaskID: task.ID, ExecutionKind: task.ExecutionKind,
 		RequestID:     *task.UpstreamRequestID,
 		Status:        task.Status,
 		APIKeyID:      task.APIKeyID,
@@ -189,6 +194,7 @@ func (status *AsyncMediaTaskStatus) toTask() *AsyncMediaTask {
 	}
 	requestID := status.RequestID
 	return &AsyncMediaTask{
+		ID: status.TaskID, ExecutionKind: status.ExecutionKind,
 		UpstreamRequestID:   &requestID,
 		APIKeyID:            status.APIKeyID,
 		AccountID:           status.AccountID,
@@ -233,6 +239,8 @@ func (t *AsyncMediaTask) IsTerminal() bool {
 	switch t.Status {
 	case AsyncMediaStatusSucceeded, AsyncMediaStatusRefunded, AsyncMediaStatusExpired:
 		return true
+	case AsyncMediaStatusFailed:
+		return t.ExecutionKind == InlineImageExecutionOpenAI
 	default:
 		return false
 	}
@@ -296,6 +304,7 @@ type TerminalUsageLogInput struct {
 
 	// 请求元信息（从任务表回填，供使用记录展示端点/耗时/IP/UA）。
 	ClientIP         string
+	XApp             string
 	UserAgent        string
 	InboundEndpoint  string
 	UpstreamEndpoint string

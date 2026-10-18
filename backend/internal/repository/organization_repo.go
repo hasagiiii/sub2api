@@ -2752,7 +2752,7 @@ func (r *organizationRepository) ListUsage(ctx context.Context, userID int64, fi
 		       l.billing_type,COALESCE(l.billing_mode,CASE WHEN l.image_count>0 THEN 'image' ELSE 'token' END),
 		       l.image_count,l.image_input_tokens,l.image_input_cost,l.image_output_tokens,l.image_output_cost,l.image_size,l.image_input_size,l.image_output_size,l.image_size_source,COALESCE(l.image_size_breakdown,'{}'::jsonb),
 		       l.video_count,l.video_resolution,l.video_duration_seconds,
-		       COALESCE(l.image_urls,'[]'::jsonb),COALESCE(l.cos_url,'[]'::jsonb),COALESCE(l.ip_address,''),COALESCE(l.user_agent,''),
+		       COALESCE(l.image_urls,'[]'::jsonb),COALESCE(l.cos_url,'[]'::jsonb),COALESCE(l.ip_address,''),COALESCE(l.user_agent,''),COALESCE(l.x_app,''),
 		       COALESCE(l.billing_status,'charged'),l.first_token_ms,l.duration_ms,l.created_at,
 		       CASE
 		            WHEN l.billing_type=1 AND k.organization_subscription_id IS NULL
@@ -2774,7 +2774,7 @@ func (r *organizationRepository) ListUsage(ctx context.Context, userID int64, fi
 		var item service.OrganizationUsageRow
 		var imageURLs, cosURLs, imageSizeBreakdown []byte
 		var taskID sql.NullInt64
-		if err := rows.Scan(&item.ID, &item.MemberUserID, &item.MemberLogin, &item.MemberUsername, &item.APIKeyName, &item.Model, &item.InputTokens, &item.OutputTokens, &item.CacheCreationTokens, &item.CacheReadTokens, &item.CacheCreation5mTokens, &item.CacheCreation1hTokens, &item.InputCost, &item.OutputCost, &item.CacheCreationCost, &item.CacheReadCost, &item.ActualCost, &item.TotalCost, &item.RateMultiplier, &item.Endpoint, &item.GroupID, &item.GroupName, &item.RequestType, &item.BillingType, &item.BillingMode, &item.ImageCount, &item.ImageInputTokens, &item.ImageInputCost, &item.ImageOutputTokens, &item.ImageOutputCost, &item.ImageSize, &item.ImageInputSize, &item.ImageOutputSize, &item.ImageSizeSource, &imageSizeBreakdown, &item.VideoCount, &item.VideoResolution, &item.VideoDurationSeconds, &imageURLs, &cosURLs, &item.IPAddress, &item.UserAgent, &item.Status, &item.FirstTokenMS, &item.DurationMS, &item.CreatedAt, &item.BalanceSource, &taskID); err != nil {
+		if err := rows.Scan(&item.ID, &item.MemberUserID, &item.MemberLogin, &item.MemberUsername, &item.APIKeyName, &item.Model, &item.InputTokens, &item.OutputTokens, &item.CacheCreationTokens, &item.CacheReadTokens, &item.CacheCreation5mTokens, &item.CacheCreation1hTokens, &item.InputCost, &item.OutputCost, &item.CacheCreationCost, &item.CacheReadCost, &item.ActualCost, &item.TotalCost, &item.RateMultiplier, &item.Endpoint, &item.GroupID, &item.GroupName, &item.RequestType, &item.BillingType, &item.BillingMode, &item.ImageCount, &item.ImageInputTokens, &item.ImageInputCost, &item.ImageOutputTokens, &item.ImageOutputCost, &item.ImageSize, &item.ImageInputSize, &item.ImageOutputSize, &item.ImageSizeSource, &imageSizeBreakdown, &item.VideoCount, &item.VideoResolution, &item.VideoDurationSeconds, &imageURLs, &cosURLs, &item.IPAddress, &item.UserAgent, &item.XApp, &item.Status, &item.FirstTokenMS, &item.DurationMS, &item.CreatedAt, &item.BalanceSource, &taskID); err != nil {
 			return nil, 0, err
 		}
 		_ = json.Unmarshal(imageURLs, &item.ImageURLs)

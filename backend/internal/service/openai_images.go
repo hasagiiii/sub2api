@@ -820,7 +820,11 @@ func (s *OpenAIGatewayService) ForwardImages(
 	if mapped := strings.TrimSpace(channelMappedModel); mapped != "" {
 		requestModel = mapped
 	}
-	latest, admissionErr := s.admitOpenAITurn(context.WithoutCancel(ctx), c, account, requestModel)
+	admissionCtx := ctx
+	if !taskOwnsImageStorage(ctx) {
+		admissionCtx = context.WithoutCancel(ctx)
+	}
+	latest, admissionErr := s.admitOpenAITurn(admissionCtx, c, account, requestModel)
 	if admissionErr != nil {
 		return nil, admissionErr
 	}

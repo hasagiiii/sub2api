@@ -231,6 +231,7 @@ export interface OrganizationUsageRow {
   image_urls: string[]
   cos_urls: string[]
   ip_address: string
+  x_app?: string | null
   user_agent: string
   status: string
   first_token_ms?: number | null

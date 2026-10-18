@@ -718,6 +718,7 @@ type UsageLog struct {
 	BillingStatus *string  `json:"billing_status,omitempty"`
 
 	// User-Agent
+	XApp      *string `json:"x_app"`
 	UserAgent *string `json:"user_agent"`
 	// IPAddress is visible to the owner of the usage record.
 	IPAddress *string `json:"ip_address,omitempty"`

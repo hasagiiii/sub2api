@@ -793,6 +793,7 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		ImageURLs:                 l.ImageURLs,
 		CosURLs:                   l.CosURLs,
 		BillingStatus:             l.BillingStatus,
+		XApp:                      l.XApp,
 		UserAgent:                 l.UserAgent,
 		IPAddress:                 l.IPAddress,
 		SessionID:                 l.SessionID,

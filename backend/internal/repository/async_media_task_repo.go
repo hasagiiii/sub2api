@@ -30,11 +30,14 @@ const asyncMediaTaskColumns = `
 	image_urls, cos_urls, image_metadata, result_payload,
 	error_reason, error_code, fail_deadline_at, finished_at,
 	client_ip, user_agent, inbound_endpoint, upstream_endpoint,
-	created_at, updated_at`
+	created_at, updated_at, x_app, execution_kind`
 
 func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.AsyncMediaTask) error {
 	if task == nil {
 		return errors.New("nil async media task")
+	}
+	if task.XApp == nil {
+		task.XApp = service.RequestAppFromContext(ctx)
 	}
 	if task.Status == "" {
 		task.Status = service.AsyncMediaStatusPending
@@ -76,7 +79,7 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 			status, held_cost, final_cost, rate_multiplier, size_tier,
 			image_urls, cos_urls, image_metadata, result_payload,
 			error_reason, error_code, fail_deadline_at, finished_at,
-			client_ip, user_agent, inbound_endpoint, upstream_endpoint
+			client_ip, user_agent, inbound_endpoint, upstream_endpoint, x_app, execution_kind
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7, $8, $9, $10, $11, $12, $13,
@@ -85,7 +88,7 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 			$21, $22, $23, $24, $25,
 			$26, $27, $28, $29,
 			$30, $31, $32, $33,
-			$34, $35, $36, $37
+			$34, $35, $36, $37, $38, $39
 		) RETURNING id, created_at, updated_at`
 
 	return scanSingleRow(ctx, r.sql, query, []any{
@@ -96,7 +99,7 @@ func (r *asyncMediaTaskRepository) Create(ctx context.Context, task *service.Asy
 		task.Status, task.HeldCost, task.FinalCost, task.RateMultiplier, task.SizeTier,
 		imageURLsJSON, cosURLsJSON, imageMetadataJSON, resultPayloadJSON,
 		task.ErrorReason, task.ErrorCode, task.FailDeadlineAt, task.FinishedAt,
-		task.ClientIP, task.UserAgent, task.InboundEndpoint, task.UpstreamEndpoint,
+		task.ClientIP, task.UserAgent, task.InboundEndpoint, task.UpstreamEndpoint, task.XApp, task.ExecutionKind,
 	}, &task.ID, &task.CreatedAt, &task.UpdatedAt)
 }
 
@@ -343,7 +346,7 @@ func (r *asyncMediaTaskRepository) InsertTerminalUsageLog(ctx context.Context, i
 			request_parameters,
 			inbound_endpoint, upstream_endpoint, duration_ms, ip_address, user_agent,
 			organization_id, payer_user_id, balance_source, authz_generation, account_rate_multiplier,
-			created_at
+			x_app, created_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7,
@@ -357,7 +360,7 @@ func (r *asyncMediaTaskRepository) InsertTerminalUsageLog(ctx context.Context, i
 			$28,
 			$29, $30, $31, $32, $33,
 			$34, $35, $36, $37, $38,
-			NOW()
+			$39, NOW()
 		)
 		ON CONFLICT (request_id, api_key_id) DO UPDATE SET
 			user_id = EXCLUDED.user_id,
@@ -392,6 +395,7 @@ func (r *asyncMediaTaskRepository) InsertTerminalUsageLog(ctx context.Context, i
 			duration_ms = EXCLUDED.duration_ms,
 			ip_address = EXCLUDED.ip_address,
 			user_agent = EXCLUDED.user_agent,
+			x_app = EXCLUDED.x_app,
 			organization_id = EXCLUDED.organization_id,
 			payer_user_id = EXCLUDED.payer_user_id,
 			balance_source = EXCLUDED.balance_source,
@@ -415,7 +419,7 @@ func (r *asyncMediaTaskRepository) InsertTerminalUsageLog(ctx context.Context, i
 		taskID, imageURLsJSON, cosURLsJSON, nullIfEmpty(in.BillingStatus),
 		requestParametersJSON,
 		nullIfEmpty(in.InboundEndpoint), nullIfEmpty(in.UpstreamEndpoint), durationMs, nullIfEmpty(in.ClientIP), nullIfEmpty(in.UserAgent),
-		usageLogOrganizationID(in.OrganizationID, in.BalanceSource), in.PayerUserID, in.BalanceSource, in.AuthzGeneration, in.AccountRateMultiplier,
+		usageLogOrganizationID(in.OrganizationID, in.BalanceSource), in.PayerUserID, in.BalanceSource, in.AuthzGeneration, in.AccountRateMultiplier, nullIfEmpty(in.XApp),
 	)
 	if err != nil {
 		return false, err
@@ -455,7 +459,7 @@ func scanAsyncMediaTask(rows *sql.Rows) (*service.AsyncMediaTask, error) {
 		&imageURLsJSON, &cosURLsJSON, &imageMetadataJSON, &resultPayloadJSON,
 		&task.ErrorReason, &task.ErrorCode, &task.FailDeadlineAt, &task.FinishedAt,
 		&task.ClientIP, &task.UserAgent, &task.InboundEndpoint, &task.UpstreamEndpoint,
-		&task.CreatedAt, &task.UpdatedAt,
+		&task.CreatedAt, &task.UpdatedAt, &task.XApp, &task.ExecutionKind,
 	); err != nil {
 		return nil, err
 	}

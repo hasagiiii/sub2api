@@ -1271,3 +1271,19 @@ describe('admin UsageTable latency TPS', () => {
     expect(tpsCell(wrapper, 'req-tps-image').text()).toBe('-')
   })
 })
+
+
+describe('usage application column', () => {
+  it('shows the recorded app and a placeholder for historical rows', () => {
+    const wrapper = mount(UsageTable, {
+      props: { data: [{ request_id: 'new', x_app: 'opentk' }, { request_id: 'old', x_app: null }], loading: false, columns: [{ key: 'x_app', label: 'x-app' }] },
+      global: { stubs: { DataTable: {
+        props: ['data'],
+        template: '<div><div v-for="row in data" :data-request-id="row.request_id"><slot name="cell-x_app" :row="row" /></div></div>'
+      }, EmptyState: true, Teleport: true } }
+    })
+    expect(wrapper.get('[data-request-id="new"]').text()).toBe('opentk')
+    expect(wrapper.get('[data-request-id="old"]').text()).toBe('-')
+    wrapper.unmount()
+  })
+})

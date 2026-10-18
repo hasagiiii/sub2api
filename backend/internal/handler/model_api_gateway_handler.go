@@ -59,6 +59,7 @@ func ProvideModelAPIGatewayHandler(
 }
 
 type modelAPIStatusResponse struct {
+	Stage string `json:"stage,omitempty"`
 	fal.StatusResponse
 	ActualCost float64                `json:"actual_cost"`
 	Error      *modelAPIResponseError `json:"error,omitempty"`
@@ -87,7 +88,7 @@ func NewModelAPIGatewayHandler(
 	videoService *service.AsyncVideoService,
 	settingService *service.SettingService,
 ) *ModelAPIGatewayHandler {
-	return &ModelAPIGatewayHandler{
+	h := &ModelAPIGatewayHandler{
 		gatewayService: gatewayService,
 		imagesService:  imagesService,
 		accountService: accountService,
@@ -95,6 +96,10 @@ func NewModelAPIGatewayHandler(
 		videoService:   videoService,
 		settingService: settingService,
 	}
+	if mediaService != nil {
+		mediaService.SetInlineImageGenerator(h.generateQueuedOpenAIImages)
+	}
+	return h
 }
 
 func (h *ModelAPIGatewayHandler) jsonError(c *gin.Context, status int, errType, message string) {
@@ -154,10 +159,32 @@ func (h *ModelAPIGatewayHandler) nativeSubmit(c *gin.Context, model string) {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
 		return
 	}
+	if len(strings.TrimSpace(c.GetHeader("x-client-request-id"))) > 64 {
+		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "x-client-request-id must not exceed 64 bytes")
+		return
+	}
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", "Invalid JSON body")
 		return
+	}
+
+	if _, openAIImage := service.ModelAPIOpenAIImageModel(model); openAIImage && h.mediaService != nil {
+		existing, lookupErr := h.mediaService.LookupInlineImageTask(c.Request.Context(), modelAPIInternalRequestID(c), apiKey.ID, model, payload)
+		if lookupErr != nil {
+			if errors.Is(lookupErr, service.ErrInlineImageConflict) {
+				h.jsonError(c, http.StatusConflict, "conflict_error", lookupErr.Error())
+			} else {
+				h.jsonError(c, http.StatusServiceUnavailable, "api_error", "Unable to confirm existing task")
+			}
+			return
+		}
+		if existing != nil {
+			id := existing.InternalRequestID
+			base := h.callbackBase(c, model, id)
+			c.JSON(http.StatusOK, fal.SubmitResponse{RequestID: id, Status: modelAPIStatusProcessing, StatusURL: base, ResponseURL: base, CancelURL: base + "/cancel"})
+			return
+		}
 	}
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite && strings.EqualFold(modelAPIImageAPI(model), service.FalAPIEdit) {
 		if err := validateCompositeEditURLs(payload); err != nil {
@@ -535,7 +562,7 @@ func (h *ModelAPIGatewayHandler) nativeCancel(c *gin.Context, reqID string) {
 		err = h.videoService.CancelTask(c.Request.Context(), videoTask, account)
 	}
 	if err != nil {
-		if errors.Is(err, service.ErrBytedanceAlreadyRunning) {
+		if errors.Is(err, service.ErrBytedanceAlreadyRunning) || errors.Is(err, service.ErrInlineImageRunning) {
 			h.jsonError(c, http.StatusConflict, "conflict_error", err.Error())
 			return
 		}
@@ -614,6 +641,9 @@ func (h *ModelAPIGatewayHandler) writeMediaResult(c *gin.Context, reqID string, 
 		response := modelAPIStatusResponse{
 			StatusResponse: fal.StatusResponse{Status: imageStatusFromTask(task), RequestID: reqID},
 			ActualCost:     task.FinalCost,
+		}
+		if task.ExecutionKind == service.InlineImageExecutionOpenAI {
+			response.Stage = h.mediaService.InlineImageStage(c.Request.Context(), task.ID)
 		}
 		logModelAPIClientResponse(c, upstream, http.StatusAccepted, response)
 		c.JSON(http.StatusAccepted, response)
@@ -727,11 +757,12 @@ func (h *ModelAPIGatewayHandler) callbackBase(c *gin.Context, model, reqID strin
 // ----- helpers -----
 
 func modelAPIInternalRequestID(c *gin.Context) string {
-	if v, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(v) != "" {
-		return strings.TrimSpace(v)
-	}
+	// This is an idempotency key, not the middleware's per-attempt correlation ID.
 	if v := strings.TrimSpace(c.GetHeader("x-client-request-id")); v != "" {
 		return v
+	}
+	if v, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
 	}
 	return uuid.New().String()
 }

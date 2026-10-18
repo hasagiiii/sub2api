@@ -525,6 +525,20 @@ func (_c *UsageLogCreate) SetNillableFirstTokenMs(v *int) *UsageLogCreate {
 	return _c
 }
 
+// SetXApp sets the "x_app" field.
+func (_c *UsageLogCreate) SetXApp(v string) *UsageLogCreate {
+	_c.mutation.SetXApp(v)
+	return _c
+}
+
+// SetNillableXApp sets the "x_app" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableXApp(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetXApp(*v)
+	}
+	return _c
+}
+
 // SetUserAgent sets the "user_agent" field.
 func (_c *UsageLogCreate) SetUserAgent(v string) *UsageLogCreate {
 	_c.mutation.SetUserAgent(v)
@@ -1233,6 +1247,10 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.FirstTokenMs(); ok {
 		_spec.SetField(usagelog.FieldFirstTokenMs, field.TypeInt, value)
 		_node.FirstTokenMs = &value
+	}
+	if value, ok := _c.mutation.XApp(); ok {
+		_spec.SetField(usagelog.FieldXApp, field.TypeString, value)
+		_node.XApp = &value
 	}
 	if value, ok := _c.mutation.UserAgent(); ok {
 		_spec.SetField(usagelog.FieldUserAgent, field.TypeString, value)
@@ -2142,6 +2160,24 @@ func (u *UsageLogUpsert) AddFirstTokenMs(v int) *UsageLogUpsert {
 // ClearFirstTokenMs clears the value of the "first_token_ms" field.
 func (u *UsageLogUpsert) ClearFirstTokenMs() *UsageLogUpsert {
 	u.SetNull(usagelog.FieldFirstTokenMs)
+	return u
+}
+
+// SetXApp sets the "x_app" field.
+func (u *UsageLogUpsert) SetXApp(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldXApp, v)
+	return u
+}
+
+// UpdateXApp sets the "x_app" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateXApp() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldXApp)
+	return u
+}
+
+// ClearXApp clears the value of the "x_app" field.
+func (u *UsageLogUpsert) ClearXApp() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldXApp)
 	return u
 }
 
@@ -3318,6 +3354,27 @@ func (u *UsageLogUpsertOne) UpdateFirstTokenMs() *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) ClearFirstTokenMs() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearFirstTokenMs()
+	})
+}
+
+// SetXApp sets the "x_app" field.
+func (u *UsageLogUpsertOne) SetXApp(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetXApp(v)
+	})
+}
+
+// UpdateXApp sets the "x_app" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateXApp() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateXApp()
+	})
+}
+
+// ClearXApp clears the value of the "x_app" field.
+func (u *UsageLogUpsertOne) ClearXApp() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearXApp()
 	})
 }
 
@@ -4712,6 +4769,27 @@ func (u *UsageLogUpsertBulk) UpdateFirstTokenMs() *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) ClearFirstTokenMs() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearFirstTokenMs()
+	})
+}
+
+// SetXApp sets the "x_app" field.
+func (u *UsageLogUpsertBulk) SetXApp(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetXApp(v)
+	})
+}
+
+// UpdateXApp sets the "x_app" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateXApp() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateXApp()
+	})
+}
+
+// ClearXApp clears the value of the "x_app" field.
+func (u *UsageLogUpsertBulk) ClearXApp() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearXApp()
 	})
 }
 

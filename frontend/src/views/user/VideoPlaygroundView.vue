@@ -641,6 +641,7 @@
                追加：进行中阶段（isBusy=true）时不渲染，让位给上方的 loading 卡片。
           -->
           <div v-if="primaryPreview && !playground.isBusy.value" class="space-y-2">
+            <span v-if="primaryPreview.source === 'default'" class="text-xs text-gray-500">{{ t('videoModels.playground.previewExample') }}</span>
             <div
               v-if="primaryPreview.source === 'payload'"
               class="flex items-center justify-end gap-2"
@@ -689,6 +690,34 @@
               loading="lazy"
               class="w-full max-h-[520px] rounded border border-gray-200 object-contain dark:border-gray-700"
             />
+            <nav
+              v-if="resultType === 'image' && primaryPreviews.length > 1"
+              class="flex items-center justify-center gap-3"
+              :aria-label="t('videoModels.playground.imagePagination')"
+              data-test="image-result-pagination"
+            >
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="previewPage === 0" @click="previousPreview">
+                <Icon name="chevronLeft" size="sm" />
+                {{ t('videoModels.playground.previousImage') }}
+              </button>
+              <span class="text-sm text-gray-600 dark:text-gray-400" aria-live="polite">
+                {{ t('videoModels.playground.imagePage', { current: previewPage + 1, total: primaryPreviews.length }) }}
+              </span>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="previewPage >= primaryPreviews.length - 1" @click="nextPreview">
+                {{ t('videoModels.playground.nextImage') }}
+                <Icon name="chevronRight" size="sm" />
+              </button>
+            </nav>
+            <div v-if="resultType === 'image' && primaryPreview.metadata" class="space-y-1 text-xs text-gray-500">
+              <p v-if="primaryPreview.metadata.name || primaryPreview.metadata.z_index !== undefined">
+                {{ primaryPreview.metadata.name }}
+                <span v-if="primaryPreview.metadata.z_index !== undefined">z_index: {{ primaryPreview.metadata.z_index }}</span>
+              </p>
+              <details>
+                <summary>{{ primaryPreview.metadata.size || 'JSON' }}</summary>
+                <pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words">{{ JSON.stringify(primaryPreview.metadata, null, 2) }}</pre>
+              </details>
+            </div>
             <div
               v-if="resultType !== 'video' && primaryPreview.source === 'payload' && playground.phase.value === 'completed'"
               class="flex flex-wrap justify-start gap-2"
@@ -722,19 +751,9 @@
             </a>
           </div>
 
-          <div v-if="additionalImageResults.length" class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2" data-test="image-result-layers">
-            <figure v-for="(layer, index) in additionalImageResults" :key="`${layer.url}-${index}`" class="min-w-0 space-y-2">
-              <img :src="layer.url" :alt="layer.name" loading="lazy" class="h-48 w-full rounded border border-gray-200 bg-gray-50 object-contain dark:border-gray-700 dark:bg-gray-900" />
-              <figcaption class="break-words text-sm">
-                {{ layer.name }} <span v-if="layer.zIndex !== undefined" class="text-xs text-gray-500">z_index: {{ layer.zIndex }}</span>
-              </figcaption>
-              <div class="flex flex-wrap items-center gap-2">
-                <a :href="layer.url" :download="imageDownloadFileName(layer.url)" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" :title="t('videoModels.playground.downloadImage')" :aria-label="t('videoModels.playground.downloadImage')"><Icon name="download" size="sm" /></a>
-                <button type="button" class="btn btn-secondary text-xs" :disabled="savingMaterialURLs.has(layer.url) || savedMaterialURLs.has(layer.url)" @click="saveImageToMaterials(layer.url)">{{ savedMaterialURLs.has(layer.url) ? t('videoModels.playground.savedToMaterials') : t('videoModels.playground.saveToMaterials') }}</button>
-              </div>
-              <details v-if="layer.metadata" class="text-xs"><summary>{{ layer.size || 'JSON' }}</summary><pre class="max-h-40 overflow-auto whitespace-pre-wrap break-words">{{ JSON.stringify(layer.metadata, null, 2) }}</pre></details>
-            </figure>
-          </div>
+          <p v-if="playground.notice.value" class="rounded bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950 dark:text-amber-200" role="status">
+            {{ t(`videoModels.playground.${playground.notice.value}`) }}
+          </p>
 
           <!-- idle：无任何任务 -->
           <div
@@ -986,6 +1005,8 @@ import type { ApiKey, Group } from '@/types'
 import { buildGatewayUrl } from '@/api/url'
 import { useAppStore } from '@/stores/app'
 import { useVideoPlayground } from '@/composables/useVideoPlayground'
+import { useResultPreviewPagination } from '@/composables/useResultPreviewPagination'
+import { resolveImageResults, type ImageResult } from '@/components/video/imageResults'
 import {
   buildDefaultBody,
   extractFieldSpecs,
@@ -1550,56 +1571,40 @@ async function onSubmit() {
 // 之所以把 URL 提取和渲染做在这个组件里而不是复用下方 resolvedOutputs 循环，是
 // 因为主预览需要在 idle 阶段（还没跑任务时）也展示，与 outputs 列表的展示生命周期
 // 不同；且展示体积更大、样式独立。
-const primaryPreview = computed<{ url: string; source: 'payload' | 'default' } | null>(() => {
-  const rf = (resultField.value || '').trim()
-  if (!rf) return null
+interface ResultPreview extends ImageResult {
+  source: 'payload' | 'default'
+}
+const primaryPreviews = computed<ResultPreview[]>(() => {
+  const path = resultField.value.trim()
+  if (!path) return []
 
-  // 通用：从一份数据里按路径取第一个可播放的 URL。
-  const tryPick = (src: unknown): string => {
-    if (!src) return ''
-    const leaves = pickByPath(src, rf)
-    for (const leaf of leaves) {
-      const u = leafToUrl(leaf)
-      if (u) return u
+  function resolve(payload: unknown, source: ResultPreview['source']): ResultPreview[] {
+    if (resultType.value === 'image') {
+      return resolveImageResults(payload, path).map(image => ({ ...image, source }))
     }
-    return ''
+    // Video previews retain the configured index and show the first playable result.
+    for (const leaf of pickByPath(payload, path)) {
+      const url = leafToUrl(leaf)
+      if (url) return [{ url, source }]
+    }
+    return []
   }
 
-  // 1) 有 payload 时优先用 payload。
   const payload = playground.resultPayload.value
-  if (payload) {
-    const u = tryPick(payload)
-    if (u) return { url: u, source: 'payload' }
-  }
+  // An empty actual result must not be replaced with an example image.
+  if (payload !== null && payload !== undefined) return resolve(payload, 'payload')
 
-  // 2) 回退：使用示例值。分两个来源：
-  //
-  //   a) default_params（输入参数）：
-  //      形如 { video: { properties: { url: { value: '...' } } } }
-  //      buildDefaultBody 已经把 schema 展平为 { video: { url: '...' } }，
-  //      然后按 result_field 路径 pickByPath 就能取到 URL。
-  //
-  //   b) output_fields（输出参数）：
-  //      **关键点**：result_field 的候选路径其实来自 output_fields，用户配置的
-  //      "video.url" 通常是输出参数里的路径。而输出参数的默认值/示例值同样
-  //      是以 { properties: { url: { value: '...' } } } 形态挂在 output_fields 上的。
-  //      如果只查 default_params，用户会遇到"给 output_fields 的 video.url 填了
-  //      默认值，但演练台右上没视频"的问题——因为路径根本不指向输入参数。
-  //      这里补一份 fallback：把 output_fields 递归展平成"扁平示例对象"，再
-  //      pickByPath；两份 fallback 都试，谁先命中用谁。
-  const dp = model.value?.intro?.default_params
-  if (dp && Object.keys(dp).length > 0) {
-    const flattened = buildDefaultBody(dp)
-    const u = tryPick(flattened)
-    if (u) return { url: u, source: 'default' }
-  }
-  const ofExample = buildOutputExamplePayload(outputFields.value)
-  if (ofExample && Object.keys(ofExample).length > 0) {
-    const u = tryPick(ofExample)
-    if (u) return { url: u, source: 'default' }
-  }
-  return null
+  if (playground.phase.value !== 'idle') return []
+  const defaults = resolve(buildDefaultBody(model.value?.intro?.default_params), 'default')
+  if (defaults.length) return defaults
+  return resolve(buildOutputExamplePayload(outputFields.value), 'default')
 })
+const {
+  page: previewPage,
+  current: primaryPreview,
+  previous: previousPreview,
+  next: nextPreview,
+} = useResultPreviewPagination(primaryPreviews)
 
 /**
  * buildOutputExamplePayload：把 output_fields[] 递归展平为"示例 payload 对象"，
@@ -1673,18 +1678,6 @@ const resolvedOutputs = computed<ResolvedOutput[]>(() => {
 const nonPrimaryOutputs = computed<ResolvedOutput[]>(() =>
   resolvedOutputs.value.filter((item) => !item.isPrimary)
 )
-
-const additionalImageResults = computed(() => {
-  const payload = playground.resultPayload.value
-  const path = resultField.value?.trim() || ''
-  if (resultType.value !== 'image' || !payload || !path) return []
-  const parents = path.endsWith('.url') ? pickByPath(payload, path.slice(0, -4)) : []
-  return pickByPath(payload, path).map((leaf, index) => {
-    const raw = parents[index]
-    const metadata = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : undefined
-    return { url: leafToUrl(leaf), name: typeof metadata?.name === 'string' ? metadata.name : '', size: typeof metadata?.size === 'string' ? metadata.size : '', zIndex: typeof metadata?.z_index === 'number' ? metadata.z_index : undefined, metadata }
-  }).filter(layer => layer.url && layer.url !== primaryPreview.value?.url)
-})
 
 function leafToText(v: unknown): string {
   if (v === null || v === undefined) return ''
@@ -1988,6 +1981,9 @@ async function copyIntegratePrompt() {
 // 三种阶段（idle/completed/failed/canceled 不属于 busy），这里按当前 phase 映射到对应
 // i18n key；未知 phase 兜底走 phaseRunning 保持有内容。
 const inflightPhaseLabel = computed(() => {
+  const stage = playground.statusPayload.value?.stage
+  if (stage === 'storing') return t('videoModels.playground.phaseStoring')
+  if (stage === 'finalizing') return t('videoModels.playground.phaseFinalizing')
   switch (playground.phase.value) {
     case 'submitting':
       return t('videoModels.playground.phaseSubmitting')
@@ -2332,6 +2328,7 @@ onMounted(async () => {
   mode.value = fieldSpecs.value.length > 0 ? 'form' : 'json'
   playground.reset()
   await loadKeys()
+  if (selectedKey.value) await playground.resume(slug.value, selectedKey.value.key)
 })
 
 onBeforeUnmount(() => {
@@ -2344,5 +2341,11 @@ watch(slug, async () => {
   initFormDefaults()
   mode.value = fieldSpecs.value.length > 0 ? 'form' : 'json'
   playground.reset()
+  if (selectedKey.value) await playground.resume(slug.value, selectedKey.value.key)
+})
+
+watch(() => selectedKey.value?.key, async key => {
+  playground.reset()
+  if (key) await playground.resume(slug.value, key)
 })
 </script>

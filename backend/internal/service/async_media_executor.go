@@ -46,6 +46,13 @@ const (
 //
 // 余额账本仅对 BillingTypeBalance 生效；订阅计费的额度核算沿用既有 usage_log 记录路径。
 type AsyncMediaService struct {
+	inlineMu               sync.Mutex
+	inlineWorkers          map[int64]bool
+	inlineCtx              context.Context
+	inlineCancel           context.CancelFunc
+	inlineWG               sync.WaitGroup
+	inlineStopped          bool
+	inlineGenerator        InlineImageGenerator
 	taskRepo               AsyncMediaTaskRepository
 	userRepo               UserRepository
 	groupRepo              GroupRepository
@@ -199,8 +206,8 @@ type AsyncMediaSubmitInput struct {
 }
 
 // AsyncMediaInlineResult is produced by synchronous image providers that are
-// exposed through the asynchronous media facade. URLs must already be public
-// and stable; COSURLs identifies the subset persisted in object storage.
+// exposed through the asynchronous media facade. The durable executor journals
+// raw data URLs before storage; COSURLs records each completed object upload.
 type AsyncMediaInlineResult struct {
 	RequestID        string
 	ImageURLs        []string
@@ -371,6 +378,7 @@ func (s *AsyncMediaService) prepareTask(ctx context.Context, in *AsyncMediaSubmi
 		SizeTier:          amStrPtr(sizeTier),
 		FailDeadlineAt:    &failDeadline,
 		ClientIP:          amStrPtr(in.ClientIP),
+		XApp:              RequestAppFromContext(ctx),
 		UserAgent:         amStrPtr(in.UserAgent),
 		InboundEndpoint:   amStrPtr(in.InboundEndpoint),
 		UpstreamEndpoint:  amStrPtr(asyncImageUpstreamEndpoint(in.Account, upstreamModel)),
@@ -456,7 +464,11 @@ func (s *AsyncMediaService) GetTaskByID(ctx context.Context, id int64) (*AsyncMe
 }
 
 func (s *AsyncMediaService) GetTaskForMutation(ctx context.Context, requestID string) (*AsyncMediaTask, error) {
-	return s.taskRepo.GetByUpstreamRequestID(ctx, requestID)
+	task, err := s.taskRepo.GetByUpstreamRequestID(ctx, requestID)
+	if err == nil && task == nil {
+		return s.taskRepo.GetByInternalRequestID(ctx, requestID)
+	}
+	return task, err
 }
 
 // ListByUserAndModel returns image tasks for the model playground history.
@@ -484,6 +496,9 @@ func (s *AsyncMediaService) GetTaskByUpstreamID(ctx context.Context, upstreamReq
 		}
 	}
 	task, err := s.taskRepo.GetByUpstreamRequestID(ctx, upstreamRequestID)
+	if err == nil && task == nil {
+		task, err = s.taskRepo.GetByInternalRequestID(ctx, upstreamRequestID)
+	}
 	if err == nil && task != nil {
 		s.cacheTaskStatus(ctx, task)
 	}
@@ -600,6 +615,11 @@ func (s *AsyncMediaService) AdvanceTask(ctx context.Context, task *AsyncMediaTas
 	if task.IsTerminal() {
 		return task, true, nil
 	}
+	if task.ExecutionKind == InlineImageExecutionOpenAI {
+		s.startInlineImageWorker(task, account)
+		return task, false, nil
+	}
+
 	if task.RequestParameters["_provider"] == PlatformBytedance || (account != nil && account.Platform == PlatformBytedance) {
 		s.startBytedanceWorker(task, account)
 		return task, false, nil
@@ -618,6 +638,16 @@ func (s *AsyncMediaService) CancelTask(ctx context.Context, task *AsyncMediaTask
 	if task.IsTerminal() {
 		return nil
 	}
+	if task.ExecutionKind == InlineImageExecutionOpenAI {
+		repo, ok := s.taskRepo.(InlineImageRepository)
+		if !ok {
+			return errors.New("inline image repository unavailable")
+		}
+		_, err := repo.FailInlineImage(ctx, task.ID, "cancelled by client", true, true)
+		s.refreshInlineImage(ctx, task.ID)
+		return err
+	}
+
 	if task.RequestParameters["_provider"] == PlatformBytedance || (account != nil && account.Platform == PlatformBytedance) {
 		return s.cancelBytedance(ctx, task)
 	}
@@ -646,6 +676,11 @@ func (s *AsyncMediaService) ReconcileTask(ctx context.Context, task *AsyncMediaT
 	if task.IsTerminal() {
 		return nil
 	}
+	if task.ExecutionKind == InlineImageExecutionOpenAI {
+		s.startInlineImageWorker(task, account)
+		return nil
+	}
+
 	if task.RequestParameters["_provider"] == PlatformBytedance || (account != nil && account.Platform == PlatformBytedance) {
 		s.startBytedanceWorker(task, account)
 		return nil
@@ -1109,6 +1144,7 @@ func (s *AsyncMediaService) writeTerminalUsageLog(
 		BillingStatus:         billingStatus,
 
 		ClientIP:         amDerefStr(task.ClientIP),
+		XApp:             amDerefStr(task.XApp),
 		UserAgent:        amDerefStr(task.UserAgent),
 		InboundEndpoint:  amDerefStr(task.InboundEndpoint),
 		UpstreamEndpoint: amDerefStr(task.UpstreamEndpoint),

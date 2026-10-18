@@ -245,6 +245,11 @@ func FirstTokenMs(v int) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldFirstTokenMs, v))
 }
 
+// XApp applies equality check predicate on the "x_app" field. It's identical to XAppEQ.
+func XApp(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldXApp, v))
+}
+
 // UserAgent applies equality check predicate on the "user_agent" field. It's identical to UserAgentEQ.
 func UserAgent(v string) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldUserAgent, v))
@@ -2053,6 +2058,81 @@ func FirstTokenMsIsNil() predicate.UsageLog {
 // FirstTokenMsNotNil applies the NotNil predicate on the "first_token_ms" field.
 func FirstTokenMsNotNil() predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotNull(FieldFirstTokenMs))
+}
+
+// XAppEQ applies the EQ predicate on the "x_app" field.
+func XAppEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldXApp, v))
+}
+
+// XAppNEQ applies the NEQ predicate on the "x_app" field.
+func XAppNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldXApp, v))
+}
+
+// XAppIn applies the In predicate on the "x_app" field.
+func XAppIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldXApp, vs...))
+}
+
+// XAppNotIn applies the NotIn predicate on the "x_app" field.
+func XAppNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldXApp, vs...))
+}
+
+// XAppGT applies the GT predicate on the "x_app" field.
+func XAppGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldXApp, v))
+}
+
+// XAppGTE applies the GTE predicate on the "x_app" field.
+func XAppGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldXApp, v))
+}
+
+// XAppLT applies the LT predicate on the "x_app" field.
+func XAppLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldXApp, v))
+}
+
+// XAppLTE applies the LTE predicate on the "x_app" field.
+func XAppLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldXApp, v))
+}
+
+// XAppContains applies the Contains predicate on the "x_app" field.
+func XAppContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldXApp, v))
+}
+
+// XAppHasPrefix applies the HasPrefix predicate on the "x_app" field.
+func XAppHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldXApp, v))
+}
+
+// XAppHasSuffix applies the HasSuffix predicate on the "x_app" field.
+func XAppHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldXApp, v))
+}
+
+// XAppIsNil applies the IsNil predicate on the "x_app" field.
+func XAppIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldXApp))
+}
+
+// XAppNotNil applies the NotNil predicate on the "x_app" field.
+func XAppNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldXApp))
+}
+
+// XAppEqualFold applies the EqualFold predicate on the "x_app" field.
+func XAppEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldXApp, v))
+}
+
+// XAppContainsFold applies the ContainsFold predicate on the "x_app" field.
+func XAppContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldXApp, v))
 }
 
 // UserAgentEQ applies the EQ predicate on the "user_agent" field.

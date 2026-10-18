@@ -200,6 +200,7 @@ type UsageLog struct {
 	NativeCompactionV2 bool
 	DurationMs         *int
 	FirstTokenMs       *int
+	XApp               *string
 	UserAgent          *string
 	IPAddress          *string
 	// SessionID is the explicit client-provided request correlation identifier

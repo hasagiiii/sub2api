@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -176,4 +177,22 @@ func TestModelAPIOpenAIBatchPreservesPartialFailureMetadata(t *testing.T) {
 	raw, err := json.Marshal(result.ResultPayload)
 	require.NoError(t, err)
 	require.Len(t, gjson.GetBytes(raw, "errors").Array(), 1)
+}
+
+func TestModelAPIIdempotencyIDPrefersClientHeaderOverAttemptID(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/model/openai/gpt-image-2", nil)
+	c.Request.Header.Set("x-client-request-id", "stable-client-task")
+	// The middleware is allowed to change request correlation for every HTTP attempt.
+	router := gin.New()
+	router.Use(middleware2.ClientRequestID())
+	router.POST("/", func(actual *gin.Context) {
+		require.Equal(t, "stable-client-task", modelAPIInternalRequestID(actual))
+		actual.Status(http.StatusOK)
+	})
+	for range 2 {
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.Header = c.Request.Header.Clone()
+		router.ServeHTTP(httptest.NewRecorder(), req)
+	}
 }

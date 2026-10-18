@@ -27,6 +27,10 @@ export function useVideoPlayground() {
   // 传入后端，后端会把它落到任务表，便于幂等追踪。
   const internalRequestId = ref<string>('')
   const errorMessage = ref<string>('')
+  const notice = ref<'submitUnconfirmed' | 'queryRetrying' | ''>('')
+  let generation = 0
+  let recoveryStartedAt = 0
+  let activeStorageKey = ''
   const statusPayload = ref<StatusResponse | null>(null)
   const resultPayload = ref<ResultResponse | null>(null)
   const submittedAt = ref<number>(0)
@@ -100,30 +104,46 @@ export function useVideoPlayground() {
   }
 
   async function pollOnce(slug: string, apiKey: string): Promise<void> {
-    pollAbort = new AbortController()
+    const run = generation
+    const controller = new AbortController()
+    pollAbort = controller
     let s: StatusResponse
     try {
       s = await videoPlaygroundAPI.status(slug, requestId.value, apiKey, {
-        signal: pollAbort.signal,
+        signal: controller.signal,
       })
     } catch (err) {
+      if (run !== generation || controller.signal.aborted) return
       // 静默失败：网络抖动/单次 5xx 都允许下一次轮询继续尝试
       // 但 401/403（例如 Key 被停用）视为终态失败
       const anyErr = err as { response?: { status?: number } }
       const st = anyErr.response?.status
-      if (st === 401 || st === 403) {
+      if (st === 404 && recoveryStartedAt && Date.now() - recoveryStartedAt >= 60_000) {
+        phase.value = 'failed'
+        notice.value = 'submitUnconfirmed'
+        errorMessage.value = 'Unable to confirm the task. Check task history before submitting again.'
+        stopPolling()
+        stopTickTimer()
+        return
+      }
+      if (st === 401 || st === 403 || (st === 404 && !recoveryStartedAt)) {
         phase.value = 'failed'
         errorMessage.value = extractErrorMessage(err, `Auth error (HTTP ${st}).`)
         stopPolling()
         stopTickTimer()
         return
       }
+      notice.value = recoveryStartedAt ? 'submitUnconfirmed' : 'queryRetrying'
       // 其他错误：安排下一次轮询
       pollTimer = window.setTimeout(() => {
         void pollOnce(slug, apiKey)
       }, POLL_INTERVAL_MS)
       return
     }
+    if (run !== generation || controller.signal.aborted) return
+    notice.value = ''
+    recoveryStartedAt = 0
+    persist(slug)
     statusPayload.value = s
     const st = String(s.status || '').toUpperCase()
 
@@ -141,10 +161,7 @@ export function useVideoPlayground() {
 
     if (st === 'FAILED' || st === 'ERROR') {
       phase.value = 'failed'
-      errorMessage.value =
-        (typeof (s as Record<string, unknown>).error === 'string'
-          ? String((s as Record<string, unknown>).error)
-          : '') || 'Task failed on upstream.'
+      errorMessage.value = extractErrorMessage({ response: { data: s } }, 'Task failed on upstream.')
       stopPolling()
       stopTickTimer()
       return
@@ -175,6 +192,7 @@ export function useVideoPlayground() {
     apiKey: string
   ): Promise<boolean> {
     reset()
+    const run = generation
     if (!slug || !apiKey) {
       phase.value = 'failed'
       errorMessage.value = 'Missing slug or API Key.'
@@ -187,8 +205,14 @@ export function useVideoPlayground() {
     const rid = generateClientRequestId()
     internalRequestId.value = rid
     startTickTimer()
+    activeStorageKey = await taskStorageKey(slug, apiKey)
+    if (run !== generation) return false
+    requestId.value = rid
+    recoveryStartedAt = Date.now()
+    persist(slug)
     try {
       const s = await videoPlaygroundAPI.submit(slug, body, apiKey, { internalRequestId: rid })
+      if (run !== generation) return false
       if (!s || !s.request_id) {
         phase.value = 'failed'
         errorMessage.value = 'Submit succeeded but no request_id returned.'
@@ -196,19 +220,68 @@ export function useVideoPlayground() {
         return false
       }
       requestId.value = s.request_id
+      recoveryStartedAt = 0
+      persist(slug)
       phase.value = 'queued'
       // 立即触发第一次轮询
       void pollOnce(slug, apiKey)
       return true
     } catch (err) {
+      if (run !== generation) return false
+      const status = (err as { response?: { status?: number } }).response?.status
+      if (!status || status >= 500) {
+        phase.value = 'queued'
+        notice.value = 'submitUnconfirmed'
+        void pollOnce(slug, apiKey)
+        return true
+      }
       phase.value = 'failed'
       errorMessage.value = extractErrorMessage(err, 'Failed to submit task.')
+      forget()
       stopTickTimer()
       return false
     }
   }
 
+  async function taskStorageKey(slug: string, apiKey: string): Promise<string> {
+    try {
+      const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(apiKey))
+      const fingerprint = Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join('')
+      return `playground-task:${fingerprint}:${slug}`
+    } catch { return '' }
+  }
+  function persist(slug: string) {
+    if (!activeStorageKey) return
+    try { sessionStorage.setItem(activeStorageKey, JSON.stringify({ slug, requestId: requestId.value, internalRequestId: internalRequestId.value, submittedAt: submittedAt.value, recovering: recoveryStartedAt > 0 })) } catch { /* storage is optional */ }
+  }
+  function forget() {
+    try { if (activeStorageKey) sessionStorage.removeItem(activeStorageKey) } catch { /* storage is optional */ }
+  }
+  async function resume(slug: string, apiKey: string): Promise<boolean> {
+    if (phase.value !== 'idle') return false
+    const run = generation
+    const key = await taskStorageKey(slug, apiKey)
+    if (run !== generation || phase.value !== 'idle' || !key) return false
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(key) || 'null')
+      if (!saved || saved.slug !== slug || typeof saved.requestId !== 'string' || !saved.requestId || typeof saved.submittedAt !== 'number' || Date.now() - saved.submittedAt > 24 * 60 * 60 * 1000) return false
+      activeStorageKey = key
+      requestId.value = saved.requestId
+      internalRequestId.value = saved.internalRequestId || saved.requestId
+      submittedAt.value = saved.submittedAt
+      recoveryStartedAt = saved.recovering ? Date.now() : 0
+      phase.value = 'queued'
+      startTickTimer()
+      void pollOnce(slug, apiKey)
+      return true
+    } catch { return false }
+  }
+
   function reset() {
+    generation += 1
+    activeStorageKey = ''
+    recoveryStartedAt = 0
+    notice.value = ''
     stopPolling()
     stopTickTimer()
     phase.value = 'idle'
@@ -234,6 +307,7 @@ export function useVideoPlayground() {
     requestId,
     internalRequestId,
     errorMessage,
+    notice,
     statusPayload,
     resultPayload,
     videoUrls,
@@ -244,6 +318,7 @@ export function useVideoPlayground() {
     isBusy,
     // actions
     start,
+    resume,
     reset,
   }
 }

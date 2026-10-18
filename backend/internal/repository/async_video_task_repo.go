@@ -32,11 +32,14 @@ const asyncVideoTaskColumns = `
 	request_payload, result_payload, video_urls, cos_urls,
 	error_reason, refund_status, refund_attempts, refund_next_retry_at, refund_error, fail_deadline_at, finished_at,
 	client_ip, user_agent, inbound_endpoint, upstream_endpoint,
-	created_at, updated_at`
+	created_at, updated_at, x_app`
 
 func (r *asyncVideoTaskRepository) Create(ctx context.Context, task *service.AsyncVideoTask) error {
 	if task == nil {
 		return errors.New("nil async video task")
+	}
+	if task.XApp == nil {
+		task.XApp = service.RequestAppFromContext(ctx)
 	}
 	if task.Status == "" {
 		task.Status = service.AsyncVideoStatusPending
@@ -73,7 +76,7 @@ func (r *asyncVideoTaskRepository) Create(ctx context.Context, task *service.Asy
 			status, billing_type, held_cost, final_cost, rate_multiplier, unit_price_snapshot, upstream_cost,
 			request_payload, result_payload, video_urls, cos_urls,
 			error_reason, fail_deadline_at, finished_at,
-			client_ip, user_agent, inbound_endpoint, upstream_endpoint
+			client_ip, user_agent, inbound_endpoint, upstream_endpoint, x_app
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7, $8, $9, $10, $11, $12, $13,
@@ -82,7 +85,7 @@ func (r *asyncVideoTaskRepository) Create(ctx context.Context, task *service.Asy
 			$20, $21, $22, $23, $24, $25, $26,
 			$27, $28, $29, $30,
 			$31, $32, $33,
-			$34, $35, $36, $37
+			$34, $35, $36, $37, $38
 		) RETURNING id, created_at, updated_at`
 
 	return scanSingleRow(ctx, r.sql, query, []any{
@@ -93,7 +96,7 @@ func (r *asyncVideoTaskRepository) Create(ctx context.Context, task *service.Asy
 		task.Status, task.BillingType, task.HeldCost, task.FinalCost, task.RateMultiplier, task.UnitPriceSnapshot, task.UpstreamCost,
 		requestJSON, resultJSON, videoURLsJSON, cosURLsJSON,
 		task.ErrorReason, task.FailDeadlineAt, task.FinishedAt,
-		task.ClientIP, task.UserAgent, task.InboundEndpoint, task.UpstreamEndpoint,
+		task.ClientIP, task.UserAgent, task.InboundEndpoint, task.UpstreamEndpoint, task.XApp,
 	}, &task.ID, &task.CreatedAt, &task.UpdatedAt)
 }
 
@@ -769,7 +772,7 @@ func (r *asyncVideoTaskRepository) InsertTerminalUsageLog(ctx context.Context, i
 			task_id, image_urls, cos_url, billing_status,
 			inbound_endpoint, upstream_endpoint, duration_ms, ip_address, user_agent,
 			organization_id, payer_user_id, balance_source, authz_generation,
-			created_at
+			x_app, created_at
 		) VALUES (
 			$1, $2, $3, $4,
 			$5, $6, $7,
@@ -781,7 +784,7 @@ func (r *asyncVideoTaskRepository) InsertTerminalUsageLog(ctx context.Context, i
 			$20, $21, $22, $23,
 			$24, $25, $26, $27, $28,
 			$29, $30, $31, $32,
-			NOW()
+			$33, NOW()
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING`
 
@@ -795,7 +798,7 @@ func (r *asyncVideoTaskRepository) InsertTerminalUsageLog(ctx context.Context, i
 		string(service.BillingModeVideo), billingTier,
 		taskID, videoURLsJSON, cosURLsJSON, nullIfEmpty(in.BillingStatus),
 		nullIfEmpty(in.InboundEndpoint), nullIfEmpty(in.UpstreamEndpoint), durationMs, nullIfEmpty(in.ClientIP), nullIfEmpty(in.UserAgent),
-		usageLogOrganizationID(in.OrganizationID, in.BalanceSource), in.PayerUserID, in.BalanceSource, in.AuthzGeneration,
+		usageLogOrganizationID(in.OrganizationID, in.BalanceSource), in.PayerUserID, in.BalanceSource, in.AuthzGeneration, nullIfEmpty(in.XApp),
 	)
 	if err != nil {
 		return false, err
@@ -835,7 +838,7 @@ func scanAsyncVideoTask(rows *sql.Rows) (*service.AsyncVideoTask, error) {
 		&requestJSON, &resultJSON, &videoURLsJSON, &cosURLsJSON,
 		&task.ErrorReason, &task.RefundStatus, &task.RefundAttempts, &task.RefundNextRetryAt, &task.RefundError, &task.FailDeadlineAt, &task.FinishedAt,
 		&task.ClientIP, &task.UserAgent, &task.InboundEndpoint, &task.UpstreamEndpoint,
-		&task.CreatedAt, &task.UpdatedAt,
+		&task.CreatedAt, &task.UpdatedAt, &task.XApp,
 	); err != nil {
 		return nil, err
 	}

@@ -734,12 +734,22 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 	if !stream {
 		return ctx, func() {}
 	}
+	// A queued image already has a server-owned lifetime; preserve its deadline
+	// and shutdown/lease cancellation instead of detaching it a second time.
+	if taskOwnsImageStorage(ctx) {
+		return ctx, func() {}
+	}
 	return context.WithoutCancel(ctx), func() {}
 }
 
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		return context.Background(), func() {}
+	}
+	// A queued image already has a server-owned lifetime; preserve its deadline
+	// and shutdown/lease cancellation instead of detaching it a second time.
+	if taskOwnsImageStorage(ctx) {
+		return ctx, func() {}
 	}
 	return context.WithoutCancel(ctx), func() {}
 }
@@ -774,6 +784,9 @@ func (s *GatewayService) billingDeps() *billingDeps {
 func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usageLog *UsageLog, logKey string) {
 	if repo == nil || usageLog == nil {
 		return
+	}
+	if usageLog.XApp == nil {
+		usageLog.XApp = RequestAppFromContext(ctx)
 	}
 	usageCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()

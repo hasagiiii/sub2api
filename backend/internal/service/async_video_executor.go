@@ -324,6 +324,7 @@ func (s *AsyncVideoService) SubmitAsync(ctx context.Context, in *AsyncVideoSubmi
 		RequestPayload:    requestPayload,
 		FailDeadlineAt:    &failDeadline,
 		ClientIP:          amStrPtr(in.ClientIP),
+		XApp:              RequestAppFromContext(ctx),
 		UserAgent:         amStrPtr(in.UserAgent),
 		InboundEndpoint:   amStrPtr(in.InboundEndpoint),
 		UpstreamEndpoint:  amStrPtr(falUpstreamEndpoint(upstreamModel)),
@@ -625,7 +626,11 @@ func (s *AsyncVideoService) CompleteManualBilling(ctx context.Context, id int64,
 
 // GetTaskByUpstreamID 按上游 request_id 查询任务。
 func (s *AsyncVideoService) GetTaskByUpstreamID(ctx context.Context, upstreamRequestID string) (*AsyncVideoTask, error) {
-	return s.taskRepo.GetByUpstreamRequestID(ctx, upstreamRequestID)
+	task, err := s.taskRepo.GetByUpstreamRequestID(ctx, upstreamRequestID)
+	if err == nil && task == nil {
+		return s.taskRepo.GetByInternalRequestID(ctx, upstreamRequestID)
+	}
+	return task, err
 }
 
 // AdvanceTask 供原生门面 status/result 触发单轮推进。
@@ -1229,6 +1234,7 @@ func (s *AsyncVideoService) writeTerminalUsageLog(
 		BillingStatus:   billingStatus,
 
 		ClientIP:         amDerefStr(task.ClientIP),
+		XApp:             amDerefStr(task.XApp),
 		UserAgent:        amDerefStr(task.UserAgent),
 		InboundEndpoint:  amDerefStr(task.InboundEndpoint),
 		UpstreamEndpoint: amDerefStr(task.UpstreamEndpoint),

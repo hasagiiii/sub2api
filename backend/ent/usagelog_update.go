@@ -826,6 +826,26 @@ func (_u *UsageLogUpdate) ClearFirstTokenMs() *UsageLogUpdate {
 	return _u
 }
 
+// SetXApp sets the "x_app" field.
+func (_u *UsageLogUpdate) SetXApp(v string) *UsageLogUpdate {
+	_u.mutation.SetXApp(v)
+	return _u
+}
+
+// SetNillableXApp sets the "x_app" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableXApp(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetXApp(*v)
+	}
+	return _u
+}
+
+// ClearXApp clears the value of the "x_app" field.
+func (_u *UsageLogUpdate) ClearXApp() *UsageLogUpdate {
+	_u.mutation.ClearXApp()
+	return _u
+}
+
 // SetUserAgent sets the "user_agent" field.
 func (_u *UsageLogUpdate) SetUserAgent(v string) *UsageLogUpdate {
 	_u.mutation.SetUserAgent(v)
@@ -1579,6 +1599,12 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.FirstTokenMsCleared() {
 		_spec.ClearField(usagelog.FieldFirstTokenMs, field.TypeInt)
+	}
+	if value, ok := _u.mutation.XApp(); ok {
+		_spec.SetField(usagelog.FieldXApp, field.TypeString, value)
+	}
+	if _u.mutation.XAppCleared() {
+		_spec.ClearField(usagelog.FieldXApp, field.TypeString)
 	}
 	if value, ok := _u.mutation.UserAgent(); ok {
 		_spec.SetField(usagelog.FieldUserAgent, field.TypeString, value)
@@ -2653,6 +2679,26 @@ func (_u *UsageLogUpdateOne) ClearFirstTokenMs() *UsageLogUpdateOne {
 	return _u
 }
 
+// SetXApp sets the "x_app" field.
+func (_u *UsageLogUpdateOne) SetXApp(v string) *UsageLogUpdateOne {
+	_u.mutation.SetXApp(v)
+	return _u
+}
+
+// SetNillableXApp sets the "x_app" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableXApp(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetXApp(*v)
+	}
+	return _u
+}
+
+// ClearXApp clears the value of the "x_app" field.
+func (_u *UsageLogUpdateOne) ClearXApp() *UsageLogUpdateOne {
+	_u.mutation.ClearXApp()
+	return _u
+}
+
 // SetUserAgent sets the "user_agent" field.
 func (_u *UsageLogUpdateOne) SetUserAgent(v string) *UsageLogUpdateOne {
 	_u.mutation.SetUserAgent(v)
@@ -3436,6 +3482,12 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if _u.mutation.FirstTokenMsCleared() {
 		_spec.ClearField(usagelog.FieldFirstTokenMs, field.TypeInt)
+	}
+	if value, ok := _u.mutation.XApp(); ok {
+		_spec.SetField(usagelog.FieldXApp, field.TypeString, value)
+	}
+	if _u.mutation.XAppCleared() {
+		_spec.ClearField(usagelog.FieldXApp, field.TypeString)
 	}
 	if value, ok := _u.mutation.UserAgent(); ok {
 		_spec.SetField(usagelog.FieldUserAgent, field.TypeString, value)

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -151,4 +152,24 @@ func TestDetachUpstreamContextSemantics(t *testing.T) {
 		defer release()
 		require.NoError(t, detached.Err())
 	})
+}
+
+func TestForwardQueuedImagesPreservesWorkerDeadline(t *testing.T) {
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw","response_format":"b64_json"}`)
+	c, _ := newOpenAIImagesTestContext(t, body)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"data":[{"url":"https://example.test/result.png"}]}`))}}
+	svc := newOpenAIImagesTestService(upstream)
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	deadline := time.Now().Add(time.Minute)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	_, _ = svc.ForwardQueuedImages(ctx, c, newOpenAIImagesAPIKeyAccount(), body, parsed)
+	require.NotNil(t, upstream.lastReq)
+	actual, ok := upstream.lastReq.Context().Deadline()
+	require.True(t, ok)
+	require.Equal(t, deadline, actual)
+	cancel()
+	require.ErrorIs(t, upstream.lastReq.Context().Err(), context.Canceled)
+	require.True(t, taskOwnsImageStorage(upstream.lastReq.Context()))
 }

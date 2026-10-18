@@ -317,3 +317,16 @@ func TestBuildAsyncImageResultPayloadPreservesNativeShapeWithoutStatus(t *testin
 	require.True(t, ok)
 	require.Equal(t, "https://fal.example/image.png", image["url"])
 }
+
+func TestModelAPIUnknownImageOutcomeIsAnExplicitTerminalError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/model/openai/gpt-image-2/requests/task", nil)
+	message := "Generation outcome unknown; held funds require review"
+	code := "generation_outcome_unknown"
+	h := &ModelAPIGatewayHandler{}
+	h.writeMediaResult(c, "task", &service.AsyncMediaTask{ExecutionKind: service.InlineImageExecutionOpenAI, Status: service.AsyncMediaStatusFailed, ErrorCode: &code, ErrorReason: &message}, service.PlatformOpenAI, true)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Contains(t, rec.Body.String(), "generation_outcome_unknown")
+	require.Contains(t, rec.Body.String(), "held funds require review")
+}

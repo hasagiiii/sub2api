@@ -583,6 +583,7 @@ type OrganizationUsageRow struct {
 	ImageURLs             []string       `json:"image_urls"`
 	CosURLs               []string       `json:"cos_urls"`
 	IPAddress             string         `json:"ip_address"`
+	XApp                  string         `json:"x_app"`
 	UserAgent             string         `json:"user_agent"`
 	Status                string         `json:"status"`
 	FirstTokenMS          *int           `json:"first_token_ms"`

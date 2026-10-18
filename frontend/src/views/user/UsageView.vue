@@ -679,6 +679,7 @@ const exportToCSV = async () => {
       'Reasoning Effort',
       'Inbound Endpoint',
       'IP Address',
+      'x-app',
       'Type',
       'Billing Mode',
       'Input Tokens',
@@ -698,6 +699,7 @@ const exportToCSV = async () => {
       formatReasoningEffort(log.reasoning_effort),
       log.inbound_endpoint || '',
       log.ip_address || '',
+      log.x_app || '',
       getRequestTypeExportText(log),
       getBillingModeLabel(getDisplayBillingMode(log), t),
       log.input_tokens,
@@ -748,6 +750,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'latency', label: t('usage.latency'), sortable: false },
   { key: 'created_at', label: t('usage.time'), sortable: true },
+  { key: 'x_app', label: 'x-app', sortable: false },
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
 ])
 

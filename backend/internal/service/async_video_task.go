@@ -82,6 +82,7 @@ type AsyncVideoTask struct {
 	FinishedAt        *time.Time
 
 	ClientIP         *string
+	XApp             *string
 	UserAgent        *string
 	InboundEndpoint  *string
 	UpstreamEndpoint *string
@@ -150,6 +151,7 @@ type VideoTerminalUsageLogInput struct {
 	BillingStatus string // charged / refunded
 
 	ClientIP         string
+	XApp             string
 	UserAgent        string
 	InboundEndpoint  string
 	UpstreamEndpoint string

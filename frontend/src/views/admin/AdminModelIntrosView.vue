@@ -120,7 +120,7 @@
           </template>
 
           <template #cell-actions="{ row }">
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <button
                 class="btn btn-primary btn-xs"
                 :disabled="!row.scheduling_enabled"
@@ -131,6 +131,8 @@
               </button>
               <button class="btn btn-secondary btn-xs" @click="openDetailDialog(row)">{{ t('common.view') }}</button>
               <button class="btn btn-secondary btn-xs" @click="openEditDialog(row)">{{ t('common.edit') }}</button>
+              <button class="btn btn-secondary btn-xs" @click="openCloneDialog(row)">{{ t('admin.modelIntros.clone') }}</button>
+              <button class="btn btn-secondary btn-xs" @click="exportModelIntroItem(row)">{{ t('admin.modelIntros.itemExport') }}</button>
               <button class="btn btn-danger btn-xs" @click="askDelete(row)">{{ t('common.delete') }}</button>
             </div>
           </template>
@@ -151,11 +153,12 @@
     <!-- Create / Edit Dialog -->
     <BaseDialog
       :show="showFormDialog"
-      :title="editingKey === null ? t('admin.modelIntros.createTitle') : t('admin.modelIntros.editTitle')"
+      :title="formTitle"
       width="extra-wide"
       @close="showFormDialog = false"
     >
       <div class="space-y-4">
+        <p v-if="formHint" class="text-sm text-gray-500 dark:text-gray-400">{{ formHint }}</p>
         <div>
           <label class="form-label">{{ t('admin.modelIntros.fields.modelKey') }}</label>
           <Select
@@ -724,6 +727,7 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import { formatDateTime } from '@/utils/format'
+import { modelIntroToUpsert, parseModelIntroImport, serializeModelIntros } from '@/utils/modelIntroTransfer'
 import type {
   ModelIntro,
   ModelIntroCandidate,
@@ -1129,6 +1133,16 @@ watch(translationSelectedKeyId, (newId, oldId) => {
 const rows = ref<ModelIntro[]>([])
 const schedulingUpdating = ref(new Set<string>())
 const loading = ref(false)
+const formMode = ref<'edit' | 'clone'>('edit')
+const formHint = ref('')
+// Keep original schemas when the editor has not changed them, including legacy fields.
+let transferSource: UpsertModelIntroRequest | null = null
+let transferParamsSnapshot = ''
+let transferOutputSnapshot = ''
+const formTitle = computed(() => {
+  if (formMode.value === 'clone') return t('admin.modelIntros.cloneTitle')
+  return editingKey.value === null ? t('admin.modelIntros.createTitle') : t('admin.modelIntros.editTitle')
+})
 const listExporting = ref(false)
 const listImporting = ref(false)
 const listImportInput = ref<HTMLInputElement | null>(null)
@@ -1349,6 +1363,9 @@ function formatParamValue(v: unknown): string {
 }
 
 function resetForm() {
+  formMode.value = 'edit'
+  formHint.value = ''
+  transferSource = null
   form.model_key = ''
   form.title = ''
   form.description = ''
@@ -1409,22 +1426,6 @@ async function loadList() {
   }
 }
 
-function modelIntroToUpsert(row: ModelIntro): UpsertModelIntroRequest {
-  return {
-    model_key: String(row.model_key || '').trim(),
-    title: row.title || '',
-    description: row.description || '',
-    description_en: row.description_en || '',
-    cover_url: row.cover_url || '',
-    default_params: row.default_params && typeof row.default_params === 'object' ? row.default_params : {},
-    sort_order: Number.isFinite(row.sort_order) ? row.sort_order : 0,
-    scheduling_enabled: row.scheduling_enabled !== false,
-    output_fields: Array.isArray(row.output_fields) ? row.output_fields : [],
-    result_field: row.result_field || '',
-    result_type: row.result_type === 'image' ? 'image' : 'video'
-  }
-}
-
 async function onSchedulingToggle(row: ModelIntro, schedulingEnabled: boolean) {
   if (schedulingUpdating.value.has(row.model_key)) return
   const previous = row.scheduling_enabled
@@ -1458,8 +1459,8 @@ async function exportModelIntroList() {
   if (listExporting.value) return
   listExporting.value = true
   try {
-    const items = (await loadAllModelIntros()).map(modelIntroToUpsert)
-    const content = JSON.stringify({ version: 1, exported_at: new Date().toISOString(), items }, null, 2)
+    const items = await loadAllModelIntros()
+    const content = serializeModelIntros(items)
     const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }))
     const anchor = document.createElement('a')
     anchor.href = url
@@ -1479,17 +1480,11 @@ async function importModelIntroList(event: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file || listImporting.value) return
+  listImporting.value = true
   try {
-    const parsed = JSON.parse(await file.text()) as { items?: unknown }
-    if (!parsed || !Array.isArray(parsed.items)) throw new Error('invalid shape')
-    const items = parsed.items.map((item) => modelIntroToUpsert(item as ModelIntro))
-    if (items.some((item) => !item.model_key)) throw new Error('missing model_key')
-    if (new Set(items.map((item) => item.model_key)).size !== items.length) {
-      throw new Error('duplicate model_key')
-    }
+    const items = parseModelIntroImport(await file.text())
     if (!window.confirm(t('admin.modelIntros.listImportConfirm', { count: items.length }))) return
 
-    listImporting.value = true
     const existingKeys = new Set((await loadAllModelIntros()).map((item) => item.model_key))
     for (const item of items) {
       if (existingKeys.has(item.model_key)) {
@@ -1522,7 +1517,8 @@ function openCreateDialog() {
   refreshTranslationModels()
 }
 
-function openEditDialog(row: ModelIntro) {
+function openEditDialog(row: ModelIntro | UpsertModelIntroRequest) {
+  resetForm()
   editingKey.value = row.model_key
   form.model_key = row.model_key
   form.title = row.title || ''
@@ -1531,7 +1527,7 @@ function openEditDialog(row: ModelIntro) {
   form.cover_url = row.cover_url || ''
   form.sort_order = row.sort_order || 0
   form.scheduling_enabled = row.scheduling_enabled !== false
-        form.outputFields = outputFieldsToSchemaRows(row.output_fields)
+  form.outputFields = outputFieldsToSchemaRows(row.output_fields)
   form.result_field = row.result_field || ''
   form.result_type = (row.result_type as ResultMediaType) || 'video'
   form.params = paramsFromMap(row.default_params || {})
@@ -1539,6 +1535,36 @@ function openEditDialog(row: ModelIntro) {
   ensureCandidatesLoaded()
   // 同 openCreateDialog：进入编辑页面刷新一次可用模型列表。
   refreshTranslationModels()
+}
+
+function prepareTransfer(source: UpsertModelIntroRequest) {
+  transferSource = source
+  transferParamsSnapshot = JSON.stringify(paramsToMap(form.params))
+  transferOutputSnapshot = JSON.stringify(schemaRowsToOutputFields(form.outputFields))
+}
+
+function openCloneDialog(row: ModelIntro) {
+  const source = modelIntroToUpsert(row)
+  openEditDialog(source)
+  editingKey.value = null
+  form.model_key = ''
+  formMode.value = 'clone'
+  formHint.value = t('admin.modelIntros.cloneHint', { model: row.model_key })
+  prepareTransfer(source)
+}
+
+function exportModelIntroItem(row: ModelIntro) {
+  try {
+    const url = URL.createObjectURL(new Blob([serializeModelIntros([row])], { type: 'application/json' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `model-intro-${row.model_key.replace(/[^a-zA-Z0-9._-]/g, '_')}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    appStore.showSuccess(t('admin.modelIntros.itemExported'))
+  } catch {
+    appStore.showError(t('admin.modelIntros.listExportFailed'))
+  }
 }
 
 function openDetailDialog(row: ModelIntro) {
@@ -2061,6 +2087,10 @@ async function submitForm() {
     appStore.showError(t('admin.modelIntros.errors.modelKeyRequired'))
     return
   }
+  if (formMode.value === 'clone' && key === transferSource?.model_key) {
+    appStore.showError(t('admin.modelIntros.cloneKeyMustDiffer'))
+    return
+  }
   // 方案 C 下输入参数使用 ParamSchemaEditor 递归编辑，天然保证合法 JSON，
   // 不再需要额外的 JSON 校验。
   const payload: UpsertModelIntroRequest = {
@@ -2075,6 +2105,14 @@ async function submitForm() {
     output_fields: schemaRowsToOutputFields(form.outputFields),
     result_field: (form.result_field || '').trim(),
     result_type: form.result_type === 'image' ? 'image' : 'video'
+  }
+  if (transferSource) {
+    if (JSON.stringify(payload.default_params) === transferParamsSnapshot) {
+      payload.default_params = transferSource.default_params
+    }
+    if (JSON.stringify(payload.output_fields) === transferOutputSnapshot) {
+      payload.output_fields = transferSource.output_fields
+    }
   }
   submitting.value = true
   try {

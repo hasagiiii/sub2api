@@ -650,6 +650,7 @@ func TestAsyncMediaWriteTerminalUsageLogPersistsImageRequestParameters(t *testin
 		APIKeyID:          11,
 		AccountID:         &accountID,
 		InternalRequestID: "req-image-parameters",
+		XApp:              amStrPtr("opentk"),
 		RequestedModel:    "gpt-image-2",
 		ImageSize:         &size,
 		Quality:           &quality,
@@ -671,6 +672,7 @@ func TestAsyncMediaWriteTerminalUsageLogPersistsImageRequestParameters(t *testin
 	require.Equal(t, ImageSizeSourceDefault, usage.ImageSizeSource)
 	require.Equal(t, map[string]int{ImageBillingSize1K: 1}, usage.ImageSizeBreakdown)
 	require.Equal(t, quality, usage.ImageQuality)
+	require.Equal(t, "opentk", usage.XApp)
 }
 
 func TestAsyncMedia_UpstreamFailure_RefundsFull(t *testing.T) {

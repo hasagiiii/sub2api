@@ -85,7 +85,7 @@ func (h *ModelAPIGatewayHandler) nativeOpenAIImageSubmit(c *gin.Context, apiKey 
 		h.jsonError(c, http.StatusServiceUnavailable, "api_error", "OpenAI image generation is unavailable")
 		return
 	}
-	internal, body, parsed, err := buildModelAPIOpenAIImageRequest(c, model, payload)
+	_, _, parsed, err := buildModelAPIOpenAIImageRequest(c, model, payload)
 	if err != nil {
 		h.jsonError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -107,12 +107,12 @@ func (h *ModelAPIGatewayHandler) nativeOpenAIImageSubmit(c *gin.Context, apiKey 
 		BillingType:       billingType, RateMultiplier: h.imagesService.ResolveImageRateMultiplier(c.Request.Context(), subject.UserID, apiKey), RateMultiplierSet: true,
 		ClientIP: c.ClientIP(), UserAgent: c.GetHeader("User-Agent"), InboundEndpoint: modelAPIInboundEndpoint(c),
 	}
-	task, err := h.mediaService.SubmitInline(c.Request.Context(), in, func(ctx context.Context) (*service.AsyncMediaInlineResult, error) {
-		return h.generateModelAPIOpenAIImages(ctx, internal, account, body, parsed)
-	})
+	task, err := h.mediaService.SubmitOpenAIImageTask(c.Request.Context(), in, payload)
 	if err != nil {
 		reqLog.Warn("model_api.openai_image_submit_failed", zap.Error(err))
 		switch {
+		case errors.Is(err, service.ErrInlineImageConflict):
+			h.jsonError(c, http.StatusConflict, "conflict_error", err.Error())
 		case errors.Is(err, service.ErrInsufficientBalance):
 			h.jsonError(c, http.StatusPaymentRequired, "insufficient_balance", "Insufficient balance to hold the estimated cost for this image task. Please recharge and try again.")
 		case errors.Is(err, service.ErrAsyncMediaPricingMissing):
@@ -122,7 +122,7 @@ func (h *ModelAPIGatewayHandler) nativeOpenAIImageSubmit(c *gin.Context, apiKey 
 		}
 		return
 	}
-	requestID := derefStringPtr(task.UpstreamRequestID)
+	requestID := task.InternalRequestID
 	base := h.callbackBase(c, model, requestID)
 	c.JSON(http.StatusOK, fal.SubmitResponse{RequestID: requestID, Status: modelAPIStatusProcessing, StatusURL: base, ResponseURL: base, CancelURL: base + "/cancel"})
 }
@@ -132,7 +132,7 @@ func (h *ModelAPIGatewayHandler) generateModelAPIOpenAIImages(ctx context.Contex
 	output, _ := gin.CreateTestContext(recorder)
 	output.Keys = internal.Copy().Keys
 	output.Request = internal.Request.Clone(ctx)
-	forwarded, err := h.imagesService.ForwardImages(ctx, output, account, body, parsed, "")
+	forwarded, err := h.imagesService.ForwardQueuedImages(ctx, output, account, body, parsed)
 	if err != nil {
 		return nil, err
 	}
@@ -165,16 +165,6 @@ func (h *ModelAPIGatewayHandler) generateModelAPIOpenAIImages(ctx context.Contex
 			item.ContentType = "image/" + format
 			item.Width, item.Height, item.FileSize = cfg.Width, cfg.Height, int64(len(data))
 			item.URL = "data:" + item.ContentType + ";base64," + item.B64JSON
-			if h.cosService != nil {
-				uploaded, err := h.cosService.UploadImageBytes(ctx, data, item.ContentType, fmt.Sprintf("openai-%d%s", i+1, geminiImageExtension(item.ContentType)))
-				if err != nil {
-					return nil, fmt.Errorf("store OpenAI image %d: %w", i, err)
-				}
-				if uploaded != "" {
-					item.URL = uploaded
-					result.COSURLs = append(result.COSURLs, uploaded)
-				}
-			}
 		}
 		if strings.TrimSpace(item.URL) == "" {
 			continue
@@ -212,4 +202,18 @@ func (h *ModelAPIGatewayHandler) generateModelAPIOpenAIImages(ctx context.Contex
 		result.ResultPayload["errors"] = response.Errors
 	}
 	return result, nil
+}
+
+// Rebuild request-local state from durable task data; never retain a live gin.Context.
+func (h *ModelAPIGatewayHandler) generateQueuedOpenAIImages(ctx context.Context, task *service.AsyncMediaTask, account *service.Account, key *service.APIKey, payload map[string]any) (*service.AsyncMediaInlineResult, error) {
+	original, _ := gin.CreateTestContext(httptest.NewRecorder())
+	original.Request = httptest.NewRequest(http.MethodPost, "/", nil).WithContext(ctx)
+	original.Request.Header.Set("User-Agent", derefStringPtr(task.UserAgent))
+	original.Request.Header.Set("x-app", derefStringPtr(task.XApp))
+	original.Set("api_key", key)
+	internal, body, parsed, err := buildModelAPIOpenAIImageRequest(original, task.RequestedModel, payload)
+	if err != nil {
+		return nil, err
+	}
+	return h.generateModelAPIOpenAIImages(ctx, internal, account, body, parsed)
 }

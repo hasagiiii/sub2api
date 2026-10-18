@@ -1,6 +1,20 @@
 package service
 
-import "strings"
+import (
+	"context"
+	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+)
+
+// RequestAppFromContext returns client metadata captured at HTTP ingress.
+func RequestAppFromContext(ctx context.Context) *string {
+	if ctx == nil {
+		return nil
+	}
+	value, _ := ctx.Value(ctxkey.XApp).(string)
+	return optionalTrimmedStringPtr(value)
+}
 
 func optionalTrimmedStringPtr(raw string) *string {
 	trimmed := strings.TrimSpace(raw)

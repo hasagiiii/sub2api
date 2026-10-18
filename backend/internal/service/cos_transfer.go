@@ -483,7 +483,14 @@ func (s *COSImageTransferService) UploadImageBytes(ctx context.Context, data []b
 		return "", err
 	}
 	if cfg == nil || !cfg.Enabled || !cfg.IsConfigured() {
-		logger.LegacyPrintf("service.cos_transfer", "[COS] UploadImageBytes disabled or not configured")
+		reason := "missing_config"
+		if cfg != nil {
+			reason = "incomplete_config"
+			if !cfg.Enabled {
+				reason = "disabled"
+			}
+		}
+		logger.LegacyPrintf("service.cos_transfer", "[COS] UploadImageBytes skipped: reason=%s", reason)
 		return "", nil
 	}
 	store, err := s.getOrCreateStore(ctx, cfg)
@@ -650,8 +657,11 @@ func (s *COSImageTransferService) buildPublicURL(cfg *COSImageConfig, key string
 
 func (s *COSImageTransferService) loadConfig(ctx context.Context) (*COSImageConfig, error) {
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyCOSImageConfig)
-	if err != nil || raw == "" {
-		return nil, nil //nolint:nilnil // 未配置是合法状态
+	if errors.Is(err, ErrSettingNotFound) || (err == nil && raw == "") {
+		return nil, nil //nolint:nilnil // Missing configuration is a valid state.
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read image storage configuration: %w", err)
 	}
 	var cfg COSImageConfig
 	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {

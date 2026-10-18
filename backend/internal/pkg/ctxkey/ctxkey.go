@@ -5,6 +5,9 @@ package ctxkey
 type Key string
 
 const (
+	// XApp identifies the client application from the inbound HTTP header.
+	XApp Key = "ctx_x_app"
+
 	// ForcePlatform 强制平台（用于 /antigravity 路由），由 middleware.ForcePlatform 设置
 	ForcePlatform Key = "ctx_force_platform"
 

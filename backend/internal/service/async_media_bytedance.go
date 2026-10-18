@@ -135,7 +135,7 @@ func (s *AsyncMediaService) submitBytedance(ctx context.Context, in *AsyncMediaS
 		OrganizationID: billing.OrganizationID, PayerUserID: amInt64Ptr(billing.PayerUserID), BalanceSource: amStrPtr(billing.BalanceSource), AuthzGeneration: amInt64Ptr(billing.AuthzGeneration),
 		Facade: AsyncMediaFacadeFal, RequestedModel: in.RequestedModel, UpstreamModel: amStrPtr(model), ImageSize: amStrPtr(size), SizeTier: amStrPtr(tier), NumImages: count,
 		RequestParameters: parameters, Status: AsyncMediaStatusPending, HeldCost: held, RateMultiplier: in.RateMultiplier, FailDeadlineAt: &deadline,
-		ClientIP: amStrPtr(in.ClientIP), UserAgent: amStrPtr(in.UserAgent), InboundEndpoint: amStrPtr(in.InboundEndpoint), UpstreamEndpoint: amStrPtr(base + "/images/generations"), statusCacheUpstream: PlatformBytedance}
+		XApp: RequestAppFromContext(ctx), ClientIP: amStrPtr(in.ClientIP), UserAgent: amStrPtr(in.UserAgent), InboundEndpoint: amStrPtr(in.InboundEndpoint), UpstreamEndpoint: amStrPtr(base + "/images/generations"), statusCacheUpstream: PlatformBytedance}
 	e := &BytedanceExecution{RequestPayload: payload, BillingType: in.BillingType, UnitPrice: unitPrice, InputImagePrice: inputImagePrice, InputImageCount: inputImageCount}
 	if err = repo.CreateBytedance(ctx, task, e); err != nil {
 		return nil, err
@@ -674,7 +674,7 @@ func BytedanceTerminalUsageInput(task *AsyncMediaTask, count int, finalCost, uni
 		Model: amDerefStr(task.UpstreamModel), RequestedModel: task.RequestedModel, UpstreamModel: amDerefStr(task.UpstreamModel), GroupID: task.GroupID, ChannelID: task.ChannelID,
 		TotalCost: total, ActualCost: finalCost, RateMultiplier: task.RateMultiplier, AccountRateMultiplier: &accountRate, BillingType: billingType, RequestType: int16(RequestTypeSync),
 		ImageCount: count, ImageSize: asyncMediaUsageLogImageSize(task), ImageInputSize: amDerefStr(task.ImageSize), BillingTier: amDerefStr(task.SizeTier), RequestParameters: parameters,
-		TaskID: task.ID, ImageURLs: task.ImageURLs, CosURLs: task.CosURLs, BillingStatus: status, ClientIP: amDerefStr(task.ClientIP), UserAgent: amDerefStr(task.UserAgent), InboundEndpoint: amDerefStr(task.InboundEndpoint), UpstreamEndpoint: amDerefStr(task.UpstreamEndpoint), DurationMs: asyncMediaDurationMs(task)}
+		TaskID: task.ID, ImageURLs: task.ImageURLs, CosURLs: task.CosURLs, BillingStatus: status, XApp: amDerefStr(task.XApp), ClientIP: amDerefStr(task.ClientIP), UserAgent: amDerefStr(task.UserAgent), InboundEndpoint: amDerefStr(task.InboundEndpoint), UpstreamEndpoint: amDerefStr(task.UpstreamEndpoint), DurationMs: asyncMediaDurationMs(task)}
 }
 
 func parametersInt(parameters map[string]any, key string) int {

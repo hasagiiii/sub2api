@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
@@ -82,11 +83,12 @@ func (s *UsageLogRepoSuite) TestCreateMergedRequestMetadata() {
 		RequestParameters:  map[string]any{"prompt": "merged metadata"},
 		NativeCompactionV2: true, CreatedAt: time.Now().UTC(),
 	}
-	inserted, err := s.repo.Create(s.ctx, entry)
+	inserted, err := s.repo.Create(context.WithValue(s.ctx, ctxkey.XApp, "opentk"), entry)
 	s.Require().NoError(err)
 	s.Require().True(inserted)
 	stored, err := s.repo.GetByID(s.ctx, entry.ID)
 	s.Require().NoError(err)
+	s.Require().Equal("opentk", *stored.XApp)
 	s.Require().Nil(stored.OrganizationID)
 	s.Require().Equal(entry.PayerUserID, stored.PayerUserID)
 	s.Require().Equal(entry.BalanceSource, stored.BalanceSource)
@@ -122,7 +124,7 @@ func (s *UsageLogRepoSuite) TestCreate() {
 }
 
 func TestUsageLogRepositoryCreate_BatchPathConcurrent(t *testing.T) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), ctxkey.XApp, "opentk")
 	client := testEntClient(t)
 	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
 
@@ -165,7 +167,7 @@ func TestUsageLogRepositoryCreate_BatchPathConcurrent(t *testing.T) {
 	}
 
 	var count int
-	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_logs WHERE api_key_id = $1", apiKey.ID).Scan(&count))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_logs WHERE api_key_id = $1 AND x_app = 'opentk'", apiKey.ID).Scan(&count))
 	require.Equal(t, total, count)
 }
 
@@ -278,7 +280,7 @@ func TestUsageLogRepositoryFlushCreateBatch_DeduplicatesSameKeyInMemory(t *testi
 }
 
 func TestUsageLogRepositoryCreateBestEffort_BatchPathDuplicateRequestID(t *testing.T) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), ctxkey.XApp, "opentk")
 	client := testEntClient(t)
 	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
 
@@ -317,7 +319,7 @@ func TestUsageLogRepositoryCreateBestEffort_BatchPathDuplicateRequestID(t *testi
 
 	require.Eventually(t, func() bool {
 		var count int
-		err := integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_logs WHERE request_id = $1 AND api_key_id = $2", requestID, apiKey.ID).Scan(&count)
+		err := integrationDB.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_logs WHERE request_id = $1 AND api_key_id = $2 AND x_app = 'opentk'", requestID, apiKey.ID).Scan(&count)
 		return err == nil && count == 1
 	}, 3*time.Second, 20*time.Millisecond)
 }

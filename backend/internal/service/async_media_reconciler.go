@@ -120,6 +120,7 @@ func (r *AsyncMediaReconciler) Stop() {
 	r.wg.Wait()
 	if r.exec != nil {
 		r.exec.StopBytedanceWorkers()
+		r.exec.StopInlineImageWorkers()
 	}
 }
 

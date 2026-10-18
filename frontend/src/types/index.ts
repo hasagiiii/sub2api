@@ -2113,6 +2113,7 @@ export interface UsageLog {
   billing_status?: string | null
 
   // User-Agent
+  x_app?: string | null
   user_agent: string | null
   ip_address?: string | null
 

@@ -20,6 +20,7 @@ const playgroundClient: AxiosInstance = axios.create({
   timeout: 60_000, // 视频任务提交/查询本身很快；60s 兜底防止 hang 死
   headers: {
     'Content-Type': 'application/json',
+    'x-app': 'opentk',
   },
 })
 

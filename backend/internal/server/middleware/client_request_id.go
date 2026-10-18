@@ -23,6 +23,9 @@ func ClientRequestID() gin.HandlerFunc {
 			return
 		}
 
+		// Capture client metadata before any forwarding or asynchronous billing work.
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.XApp, strings.TrimSpace(c.GetHeader("x-app"))))
+
 		if v, _ := c.Request.Context().Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(v) != "" {
 			var valid bool
 			v, valid = normalizeCorrelationID(v)

@@ -66,3 +66,22 @@ func TestClientRequestIDPreservesExistingContextID(t *testing.T) {
 	require.Equal(t, "existing-client-request-id", w.Body.String())
 	require.Equal(t, "existing-client-request-id", w.Header().Get(clientRequestIDHeader))
 }
+
+func TestClientRequestIDCapturesXAppHeader(t *testing.T) {
+	for _, value := range []string{"opentk", " custom-app ", ""} {
+		t.Run(value, func(t *testing.T) {
+			router := gin.New()
+			router.Use(ClientRequestID())
+			router.POST("/", func(c *gin.Context) {
+				value, ok := c.Request.Context().Value(ctxkey.XApp).(string)
+				require.True(t, ok)
+				c.String(http.StatusOK, value)
+			})
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"x_app":"ignored-body"}`))
+			req.Header.Set("X-App", value)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			require.Equal(t, strings.TrimSpace(value), w.Body.String())
+		})
+	}
+}
