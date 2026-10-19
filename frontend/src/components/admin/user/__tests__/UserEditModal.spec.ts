@@ -59,7 +59,7 @@ const mountModal = (concurrency: number, overrides: Record<string, unknown> = {}
   }
 })
 
-describe('UserEditModal concurrency', () => {
+describe('UserEditModal', () => {
   beforeEach(() => {
     auth.isSimpleMode = false
     update.mockReset()
@@ -67,6 +67,30 @@ describe('UserEditModal concurrency', () => {
     showSuccess.mockReset()
     showError.mockReset()
     update.mockResolvedValue({})
+  })
+
+  it.each(['', '   '])('resets an IAM user password without an email (%j)', async (email) => {
+    const wrapper = mountModal(3, { identity_type: 'iam', email })
+
+    await wrapper.get('input[placeholder="admin.users.enterNewPassword"]').setValue('NewPassword123!')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).not.toHaveBeenCalled()
+    expect(update).toHaveBeenCalledWith(7, expect.objectContaining({ password: 'NewPassword123!' }))
+    expect(update.mock.calls[0][1]).not.toHaveProperty('email')
+    expect(wrapper.emitted('success')).toBeTruthy()
+    expect(wrapper.emitted('close')).toBeTruthy()
+  })
+
+  it.each(['root', undefined])('requires an email for a non-IAM user (%j)', async (identity_type) => {
+    const wrapper = mountModal(3, { identity_type, email: '' })
+
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('admin.users.emailRequired')
+    expect(update).not.toHaveBeenCalled()
   })
 
   // Regression coverage for issue #5977: the gateway treats concurrency <= 0 as

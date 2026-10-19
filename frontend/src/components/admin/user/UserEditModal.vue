@@ -167,7 +167,8 @@ const stepUp = useStepUp()
 
 const handleUpdateUser = async () => {
   if (!props.user || submitting.value) return
-  if (!form.email.trim()) {
+  const email = form.email.trim()
+  if (!email && props.user.identity_type !== 'iam') {
     appStore.showError(t('admin.users.emailRequired'))
     return
   }
@@ -183,7 +184,8 @@ const handleUpdateUser = async () => {
   const userId = props.user.id
   submitting.value = true
   try {
-    const data: UpdateUserRequest = { email: form.email, username: form.username, notes: form.notes, role: form.role, observer_group_ids: form.observer_group_ids, concurrency: form.concurrency, rpm_limit: form.rpm_limit }
+    const data: UpdateUserRequest = { username: form.username, notes: form.notes, role: form.role, observer_group_ids: form.observer_group_ids, concurrency: form.concurrency, rpm_limit: form.rpm_limit }
+    if (email) data.email = email
     if (promotingObserver.value && Object.values(observerSetup).some(Boolean)) data.observer_setup = { ...observerSetup }
     if (form.password.trim()) data.password = form.password.trim()
     // 提升为管理员属敏感操作：后端返回 STEP_UP_REQUIRED 时弹 TOTP 验证并重试
