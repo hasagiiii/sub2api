@@ -15,7 +15,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/dgraph-io/ristretto"
 	"golang.org/x/sync/singleflight"
 )
@@ -563,8 +562,8 @@ func (s *SubscriptionService) withSubscriptionUpdateTx(ctx context.Context, fn f
 
 func renewedSubscriptionTerm(existingSub *UserSubscription, notes string, startsAt, expiresAt time.Time) *UserSubscription {
 	renewed := *existingSub
-	// 日窗口按日历日对齐（0 点刷新）；周/月窗口按订阅期限对齐（锚点为新周期起点）。
-	dailyWindowStart := timezone.StartOfDay(startsAt)
+	// 日/周/月窗口都从新周期起点滚动（日窗口每 24 小时在购买时刻刷新）。
+	dailyWindowStart := startsAt
 	periodicWindowStart := startsAt
 	renewed.StartsAt = startsAt
 	renewed.ExpiresAt = expiresAt
@@ -1075,10 +1074,13 @@ func normalizeExpiredWindows(subs []UserSubscription) {
 func normalizeExpiredWindowsAt(subs []UserSubscription, now time.Time) {
 	for i := range subs {
 		sub := &subs[i]
-		// 日窗口过期：清零展示数据
+		// 日窗口过期：清零展示数据；未过期时把锚点换算为当前窗口起点，
+		// 保证前端按“起点+24h”展示的重置时间与实际刷新时刻一致。
 		if sub.canAutomaticallyResetDailyAt(now) {
 			sub.DailyWindowStart = nil
 			sub.DailyUsageUSD = 0
+		} else {
+			sub.DailyWindowStart = sub.canonicalDailyWindowStart(sub.DailyWindowStart)
 		}
 		// 周窗口过期：清零展示数据
 		if sub.canAutomaticallyResetWeeklyAt(now) {
@@ -1091,9 +1093,11 @@ func normalizeExpiredWindowsAt(subs []UserSubscription, now time.Time) {
 			sub.MonthlyUsageUSD = 0
 		}
 		for groupID, usage := range sub.GroupUsages {
-			if !sub.HasOneTimeDailyQuota() && automaticGroupDailyWindowExpired(usage.DailyWindowStart, now) {
+			if !sub.HasOneTimeDailyQuota() && automaticGroupDailyWindowExpired(sub, usage.DailyWindowStart, now) {
 				usage.DailyWindowStart = nil
 				usage.DailyUsageUSD = 0
+			} else {
+				usage.DailyWindowStart = sub.canonicalDailyWindowStart(usage.DailyWindowStart)
 			}
 			if groupWindowNeedsReset(sub, usage.WeeklyWindowStart, 7*24*time.Hour, now) {
 				usage.WeeklyWindowStart = nil
@@ -1125,16 +1129,14 @@ func startOfDay(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
-func automaticGroupDailyWindowStart(previous *time.Time, now time.Time) (time.Time, bool) {
-	if previous == nil {
-		return time.Time{}, false
-	}
-	today := timezone.StartOfDay(now)
-	return today, today.After(timezone.StartOfDay(*previous))
+// automaticGroupDailyWindowStart 分组级日窗口与订阅级使用同一滚动规则
+// （从购买时刻起每 24 小时刷新）。
+func automaticGroupDailyWindowStart(sub *UserSubscription, previous *time.Time, now time.Time) (time.Time, bool) {
+	return sub.automaticDailyWindowStartFrom(previous, now)
 }
 
-func automaticGroupDailyWindowExpired(previous *time.Time, now time.Time) bool {
-	_, ok := automaticGroupDailyWindowStart(previous, now)
+func automaticGroupDailyWindowExpired(sub *UserSubscription, previous *time.Time, now time.Time) bool {
+	_, ok := automaticGroupDailyWindowStart(sub, previous, now)
 	return ok
 }
 
@@ -1153,9 +1155,10 @@ func (s *SubscriptionService) checkAndActivateWindowAt(ctx context.Context, sub 
 		return nil
 	}
 
-	// 日窗口锚定当天 0 点（日历日语义）；周/月窗口锚定首次使用时刻（期限对齐语义，
-	// 锚点不得早于 StartsAt，否则最后一个不完整周期会重复发放额度，见 issue #5051）。
-	return s.userSubRepo.ActivateWindows(ctx, sub.ID, timezone.StartOfDay(now), now)
+	// 日窗口锚定当前日窗口起点（StartsAt + N*24h，按购买时刻滚动）；周/月窗口锚定
+	// 首次使用时刻（期限对齐语义，锚点不得早于 StartsAt，否则最后一个不完整周期会
+	// 重复发放额度，见 issue #5051）。
+	return s.userSubRepo.ActivateWindows(ctx, sub.ID, sub.dailyWindowStartAt(now), now)
 }
 
 // CheckAndActivateWindowForGroup activates both the package window and the
@@ -1172,7 +1175,7 @@ func (s *SubscriptionService) CheckAndActivateWindowForGroup(ctx context.Context
 		return nil
 	}
 	if repo, ok := s.userSubRepo.(UserSubscriptionGroupUsageRepository); ok {
-		return repo.ActivateGroupWindows(ctx, sub.ID, groupID, timezone.StartOfDay(now), now)
+		return repo.ActivateGroupWindows(ctx, sub.ID, groupID, sub.dailyWindowStartAt(now), now)
 	}
 	return nil
 }
@@ -1187,14 +1190,15 @@ func (s *SubscriptionService) AdminResetQuota(ctx context.Context, subscriptionI
 		return nil, err
 	}
 	now := s.now()
-	// 日窗口锚点取当天 0 点：手动重置只清空用量，不改变“每天 0 点刷新”的节奏。
-	// 周/月窗口保持锚定重置时刻（期限对齐滚动窗口语义）。
-	if err := s.userSubRepo.ResetUsageWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, timezone.StartOfDay(now), now); err != nil {
+	// 日窗口锚点取当前日窗口起点：手动重置只清空用量，不改变“按购买时刻每 24 小时
+	// 刷新”的节奏。周/月窗口保持锚定重置时刻（期限对齐滚动窗口语义）。
+	dailyStart := sub.dailyWindowStartAt(now)
+	if err := s.userSubRepo.ResetUsageWindows(ctx, sub.ID, resetDaily, resetWeekly, resetMonthly, dailyStart, now); err != nil {
 		return nil, err
 	}
 	if groupRepo, ok := s.userSubRepo.(UserSubscriptionGroupUsageRepository); ok {
 		for _, groupID := range sub.CoveredGroupIDs() {
-			if err := groupRepo.ResetGroupUsageWindows(ctx, sub.ID, groupID, resetDaily, resetWeekly, resetMonthly, timezone.StartOfDay(now), now); err != nil {
+			if err := groupRepo.ResetGroupUsageWindows(ctx, sub.ID, groupID, resetDaily, resetWeekly, resetMonthly, dailyStart, now); err != nil {
 				return nil, err
 			}
 		}
@@ -1236,10 +1240,11 @@ func (s *SubscriptionService) AdminAdjustUsage(ctx context.Context, subscription
 	}
 	now := s.now()
 	if err := s.withSubscriptionUpdateTx(ctx, func(txCtx context.Context) error {
-		if err := s.userSubRepo.ActivateWindows(txCtx, subscriptionID, timezone.StartOfDay(now), now); err != nil {
+		dailyStart := sub.dailyWindowStartAt(now)
+		if err := s.userSubRepo.ActivateWindows(txCtx, subscriptionID, dailyStart, now); err != nil {
 			return err
 		}
-		if err := groupRepo.ActivateGroupWindows(txCtx, subscriptionID, groupID, timezone.StartOfDay(now), now); err != nil {
+		if err := groupRepo.ActivateGroupWindows(txCtx, subscriptionID, groupID, dailyStart, now); err != nil {
 			return err
 		}
 		return groupRepo.IncrementUsageForGroup(txCtx, subscriptionID, groupID, amount)
@@ -1266,7 +1271,7 @@ func (s *SubscriptionService) CheckAndResetWindowsForGroup(ctx context.Context, 
 	groupUsage := sub.GroupUsage(&Group{ID: groupID})
 	groupRepo, hasGroupRepo := s.userSubRepo.(UserSubscriptionGroupUsageRepository)
 
-	// 日窗口重置（每天 0 点刷新，按日历日对齐）
+	// 日窗口重置（从购买时刻起每 24 小时滚动）
 	if windowStart, ok := sub.automaticDailyWindowStartAt(now); ok {
 		expectedWindowStart := sub.DailyWindowStart
 		if err := s.userSubRepo.ResetDailyUsage(ctx, sub.ID, expectedWindowStart, windowStart); err != nil {
@@ -1278,7 +1283,7 @@ func (s *SubscriptionService) CheckAndResetWindowsForGroup(ctx context.Context, 
 	}
 	if hasGroupRepo && groupID > 0 && sub.GroupUsages != nil {
 		if !sub.HasOneTimeDailyQuota() {
-			if windowStart, ok := automaticGroupDailyWindowStart(groupUsage.DailyWindowStart, now); ok {
+			if windowStart, ok := automaticGroupDailyWindowStart(sub, groupUsage.DailyWindowStart, now); ok {
 				if err := groupRepo.ResetGroupDailyUsage(ctx, sub.ID, groupID, groupUsage.DailyWindowStart, windowStart); err != nil {
 					return err
 				}
@@ -1440,7 +1445,7 @@ func (s *SubscriptionService) ValidateAndCheckLimits(sub *UserSubscription, grou
 	// change can use a current per-group snapshot immediately. They only affect
 	// enforcement when the subscription has no package limit at all.
 	if sub.GroupUsages != nil {
-		if !sub.HasOneTimeDailyQuota() && (groupUsage.DailyWindowStart == nil || automaticGroupDailyWindowExpired(groupUsage.DailyWindowStart, now)) {
+		if !sub.HasOneTimeDailyQuota() && (groupUsage.DailyWindowStart == nil || automaticGroupDailyWindowExpired(sub, groupUsage.DailyWindowStart, now)) {
 			groupUsage.DailyUsageUSD = 0
 			needsMaintenance = true
 		}

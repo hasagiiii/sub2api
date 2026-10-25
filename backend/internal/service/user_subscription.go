@@ -2,8 +2,6 @@ package service
 
 import (
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
 const subscriptionDayDuration = 24 * time.Hour
@@ -146,22 +144,71 @@ func (s *UserSubscription) canAutomaticallyResetDailyAt(now time.Time) bool {
 	return ok
 }
 
-// automaticDailyWindowStartAt 计算日窗口按“配置时区日历日”对齐后的当前窗口起点。
-// 日额度固定在每天 0 点刷新（与周/月的期限对齐滚动窗口语义不同），因此只要持久化
-// 的窗口起点落在更早的日历日，就允许推进到今天 0 点。手动重置、激活等写入的任何
-// 非 0 点锚点都会在下一个 0 点被拉回日历日边界，不会永久漂移刷新时刻。
+// dailyWindowIndexAt 返回 t 所在日窗口的序号。日窗口从 StartsAt（购买/重新开通时刻）
+// 起每 24 小时滚动一次，刷新时刻固定为购买时刻，与激活、手动重置写入的锚点无关，
+// 因此不会漂移。早于 StartsAt 的时刻（如旧版写入的 0 点锚点）归入第 0 个窗口。
+// 序号不越过到期时间所在的窗口，避免到期后的不完整周期再发放一次额度。
+func (s *UserSubscription) dailyWindowIndexAt(t time.Time) int64 {
+	if !t.After(s.StartsAt) {
+		return 0
+	}
+	index := int64(t.Sub(s.StartsAt) / subscriptionDayDuration)
+	if s.ExpiresAt.After(s.StartsAt) {
+		last := int64((s.ExpiresAt.Sub(s.StartsAt) - 1) / subscriptionDayDuration)
+		if index > last {
+			index = last
+		}
+	}
+	return index
+}
+
+// dailyWindowStartAt 返回 now 所在日窗口的起点（StartsAt + N*24h）。
+// 激活、手动重置、自动推进写入的日窗口锚点都取此值，保证展示层按“起点+24h”
+// 计算的重置时间与实际刷新时刻一致。
+func (s *UserSubscription) dailyWindowStartAt(now time.Time) time.Time {
+	if s.StartsAt.IsZero() {
+		return now
+	}
+	return s.StartsAt.Add(time.Duration(s.dailyWindowIndexAt(now)) * subscriptionDayDuration)
+}
+
+// automaticDailyWindowStartAt 计算订阅级日窗口是否需要推进及新的窗口起点。
 func (s *UserSubscription) automaticDailyWindowStartAt(now time.Time) (time.Time, bool) {
-	if s.DailyWindowStart == nil {
+	return s.automaticDailyWindowStartFrom(s.DailyWindowStart, now)
+}
+
+// automaticDailyWindowStartFrom 按“从购买时刻起每 24 小时滚动”计算日窗口推进：
+// previous 所在窗口早于 now 所在窗口时，推进到 now 所在窗口的起点。
+// 日卡（期限不超过 1 天）为一次性额度，不自动刷新；续费延长期限后按购买时刻
+// 继续滚动，已付费的当天额度用满 24 小时才刷新。
+func (s *UserSubscription) automaticDailyWindowStartFrom(previous *time.Time, now time.Time) (time.Time, bool) {
+	if previous == nil {
 		return time.Time{}, false
 	}
 	if s.HasOneTimeDailyQuota() {
 		return time.Time{}, false
 	}
-	today := timezone.StartOfDay(now)
-	if !today.After(timezone.StartOfDay(*s.DailyWindowStart)) {
+	if s.StartsAt.IsZero() {
+		next := previous.Add(subscriptionDayDuration)
+		if now.Before(next) {
+			return time.Time{}, false
+		}
+		return previous.Add(now.Sub(*previous) / subscriptionDayDuration * subscriptionDayDuration), true
+	}
+	if s.dailyWindowIndexAt(now) <= s.dailyWindowIndexAt(*previous) {
 		return time.Time{}, false
 	}
-	return today, true
+	return s.dailyWindowStartAt(now), true
+}
+
+// canonicalDailyWindowStart 把任意日窗口锚点（含旧版 0 点锚点）换算为其所在
+// 日窗口的起点，仅用于展示，保证前端按“起点+24h”算出的重置时间准确。
+func (s *UserSubscription) canonicalDailyWindowStart(previous *time.Time) *time.Time {
+	if previous == nil || s.StartsAt.IsZero() {
+		return previous
+	}
+	t := s.StartsAt.Add(time.Duration(s.dailyWindowIndexAt(*previous)) * subscriptionDayDuration)
+	return &t
 }
 
 func (s *UserSubscription) canAutomaticallyResetWeeklyAt(now time.Time) bool {
@@ -180,7 +227,7 @@ func (s *UserSubscription) canAutomaticallyResetMonthlyAt(now time.Time) bool {
 // 自动推进（automaticWindowStartAt）与对外展示的重置时间（WeeklyResetTime/
 // MonthlyResetTime）必须共用这一修正，否则仪表盘显示的重置时间会早于窗口实际
 // 滚动的时间。
-// 日窗口按日历日对齐（automaticDailyWindowStartAt），不走这里。
+// 日窗口按购买时刻滚动（automaticDailyWindowStartFrom），不走这里。
 func (s *UserSubscription) windowResetAnchor(previous time.Time) time.Time {
 	legacyAnchor := startOfDay(s.StartsAt)
 	if legacyAnchor.Before(s.StartsAt) && previous.Equal(legacyAnchor) {
@@ -191,7 +238,7 @@ func (s *UserSubscription) windowResetAnchor(previous time.Time) time.Time {
 
 // automaticWindowStartAt 计算周/月窗口（期限对齐滚动窗口）的当前窗口起点。
 // 窗口从锚点按整数个 period 步进，且不越过订阅到期时间，避免最后一个不完整
-// 周期重复发放额度（issue #5051）。日窗口不走此函数，见 automaticDailyWindowStartAt。
+// 周期重复发放额度（issue #5051）。日窗口不走此函数，见 automaticDailyWindowStartFrom。
 func (s *UserSubscription) automaticWindowStartAt(previous *time.Time, period time.Duration, now time.Time) (time.Time, bool) {
 	if previous == nil {
 		return time.Time{}, false
@@ -219,8 +266,15 @@ func (s *UserSubscription) DailyResetTime() *time.Time {
 		t := s.ExpiresAt
 		return &t
 	}
-	// 日窗口按日历日对齐：下次刷新固定在窗口起点所在日的次日 0 点。
-	t := timezone.StartOfDay(*s.DailyWindowStart).AddDate(0, 0, 1)
+	if s.StartsAt.IsZero() {
+		t := s.DailyWindowStart.Add(subscriptionDayDuration)
+		return &t
+	}
+	// 日窗口从购买时刻起每 24 小时滚动：下次刷新为当前窗口起点 + 24h，且不晚于到期时间。
+	t := s.StartsAt.Add(time.Duration(s.dailyWindowIndexAt(*s.DailyWindowStart)+1) * subscriptionDayDuration)
+	if s.ExpiresAt.After(s.StartsAt) && t.After(s.ExpiresAt) {
+		t = s.ExpiresAt
+	}
 	return &t
 }
 
