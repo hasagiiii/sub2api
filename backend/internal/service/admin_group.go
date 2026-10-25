@@ -321,10 +321,18 @@ func defaultModelsListCandidateIDs(platform string) []string {
 	}
 }
 
-func defaultAllowImageGenerationForPlatform(platform string) bool {
-	// Grok image and video generation routes share the legacy image-generation gate.
-	// Older clients send the false zero value, so Grok groups must default enabled.
-	return platform == PlatformGrok || platform == PlatformBytedance
+// DefaultAllowImageGenerationForPlatform reports whether new groups on the platform allow
+// image generation. CreateGroup ORs the requested value with it, so a false in the create
+// request does not turn it off. Composite defaults disabled because the same switch also
+// gates OpenAI image generation there. Grok image and video generation routes share the
+// legacy image-generation gate, and Bytedance (Seedream) groups default enabled as well.
+func DefaultAllowImageGenerationForPlatform(platform string) bool {
+	switch platform {
+	case PlatformGrok, PlatformGemini, PlatformAntigravity, PlatformBytedance:
+		return true
+	default:
+		return false
+	}
 }
 
 func compositeDefaultModelsListCandidateIDs() []string {
@@ -559,7 +567,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		mcpXMLInject = *input.MCPXMLInject
 	}
 
-	allowImageGeneration := input.AllowImageGeneration || defaultAllowImageGenerationForPlatform(platform)
+	allowImageGeneration := input.AllowImageGeneration || DefaultAllowImageGenerationForPlatform(platform)
 	allowBatchImageGeneration := input.AllowBatchImageGeneration && allowImageGeneration && platform == PlatformGemini
 	kiroAutoStickyEnabled := platform == PlatformKiro
 	if input.KiroAutoStickyEnabled != nil {

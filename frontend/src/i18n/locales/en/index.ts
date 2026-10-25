@@ -4,6 +4,7 @@ import accountOps from './accountOps'
 import tokenGuard from './tokenGuard'
 import pelicanTests from './pelicanTests'
 import tokenGuardV2 from './tokenGuardV2'
+import adminAccessKeys from './adminAccessKeys'
 import landing from './landing'
 import common from './common'
 import dashboard from './dashboard'
@@ -33,6 +34,7 @@ const upstream = {
   pelicanTests,
   tokenGuardV2,
   requestTiming,
+  adminAccessKeys,
   ...landing,
   ...common,
   ...dashboard,
