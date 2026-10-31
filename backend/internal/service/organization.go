@@ -1783,9 +1783,8 @@ func (r *BillingContextResolver) resolveForAmount(ctx context.Context, consumerU
 	if ctx != nil {
 		preferredKey, _ = ctx.Value(billingAPIKeyContextKey{}).(*APIKey)
 	}
-	if preferredKey != nil && preferredKey.PreferCompanyBalance && resolved != nil && resolved.OrganizationID != nil && resolved.BalanceSource == BalanceSourceSelf {
-		resolved.PayerUserID = resolved.ConsumerUserID
-		resolved.BalanceSource = BalanceSourceCompany
+	if err := applyCompanyBalancePreference(ctx, r.repo, preferredKey, resolved); err != nil {
+		return nil, err
 	}
 	if enforceSpendLimit {
 		if err := r.CheckSpendLimit(ctx, resolved, requiredAmount); err != nil {
@@ -1793,6 +1792,33 @@ func (r *BillingContextResolver) resolveForAmount(ctx context.Context, consumerU
 		}
 	}
 	return resolved, nil
+}
+
+// applyCompanyBalancePreference only overrides a personal wallet while the
+// preferred company wallet has positive balance. Preflight still checks its
+// minimum reserve; settlement may overdraw it to charge completed usage. Using
+// the same selection rule avoids switching wallets merely because the final
+// charge exceeds the preflight reserve. IAM allocations retain their payer.
+func applyCompanyBalancePreference(ctx context.Context, repo OrganizationRepository, key *APIKey, billing *BillingContext) error {
+	if key == nil || !key.PreferCompanyBalance || billing == nil || billing.OrganizationID == nil || billing.BalanceSource != BalanceSourceSelf {
+		return nil
+	}
+	if *billing.OrganizationID <= 0 {
+		return ErrCompanyNotFound
+	}
+	balanceRepo, ok := repo.(OrganizationBalanceRepository)
+	if !ok {
+		return fmt.Errorf("organization balance repository is unavailable")
+	}
+	balance, err := balanceRepo.GetOrganizationBalance(ctx, *billing.OrganizationID)
+	if err != nil {
+		return fmt.Errorf("read preferred company balance: %w", err)
+	}
+	if balance > 0 {
+		billing.PayerUserID = billing.ConsumerUserID
+		billing.BalanceSource = BalanceSourceCompany
+	}
+	return nil
 }
 
 func (r *BillingContextResolver) CheckSpendLimit(ctx context.Context, billing *BillingContext, amount float64) error {

@@ -53,8 +53,10 @@ type APIKey struct {
 	// only one of the owner's subscriptions covers it.
 	UserSubscriptionID *int64
 	// PreferCompanyBalance controls wallet selection when an enterprise key
-	// reaches a configured balance-based fallback group. It never bypasses an
-	// exhausted enterprise subscription when no fallback group is configured.
+	// reaches a configured balance-based fallback group. For personal-wallet
+	// consumers, an exhausted company wallet falls back to their own balance.
+	// It never bypasses an exhausted enterprise subscription when no fallback
+	// group is configured.
 	PreferCompanyBalance bool
 	Status               string
 	IPWhitelist          []string

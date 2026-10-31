@@ -206,6 +206,57 @@ func TestApplyUsageBillingEffects_SelfSourceDoesNotSpillToOrganization(t *testin
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestApplyUsageBilling_PersonalFallbackPreservesWalletAndDeduplicates(t *testing.T) {
+	ctx := context.Background()
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+	orgID := int64(8)
+	cmd := &service.UsageBillingCommand{
+		RequestID: "owner-personal-fallback", APIKeyID: 7,
+		UserID: 42, PayerUserID: 42, OrganizationID: &orgID,
+		BalanceSource: service.BalanceSourceSelf, BalanceCost: 10,
+		AuthzGeneration: 3,
+	}
+	cmd.Normalize()
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO usage_billing_dedup").
+		WithArgs(cmd.RequestID, cmd.APIKeyID, cmd.RequestFingerprint).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery("SELECT request_fingerprint FROM usage_billing_dedup_archive").
+		WithArgs(cmd.RequestID, cmd.APIKeyID).
+		WillReturnRows(sqlmock.NewRows([]string{"request_fingerprint"}))
+	// Any company-wallet update is unexpected: a self source with an organization
+	// must charge the consumer's personal wallet and report that same wallet.
+	mock.ExpectQuery(conditionalBalanceDeductSQL).WithArgs(10.0, int64(42)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(90.0))
+	mock.ExpectCommit()
+	repo := &usageBillingRepository{db: db}
+	result, err := repo.Apply(ctx, cmd)
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	require.Equal(t, int64(42), result.PayerUserID)
+	require.Equal(t, service.BalanceSourceSelf, result.BalanceSource)
+	require.Equal(t, &orgID, result.OrganizationID)
+	require.Equal(t, int64(3), result.AuthzGeneration)
+	require.NotNil(t, result.NewBalance)
+	require.Equal(t, 90.0, *result.NewBalance)
+	require.False(t, result.BalanceOverdrafted)
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO usage_billing_dedup").
+		WithArgs(cmd.RequestID, cmd.APIKeyID, cmd.RequestFingerprint).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	mock.ExpectQuery("SELECT request_fingerprint FROM usage_billing_dedup WHERE").
+		WithArgs(cmd.RequestID, cmd.APIKeyID).
+		WillReturnRows(sqlmock.NewRows([]string{"request_fingerprint"}).AddRow(cmd.RequestFingerprint))
+	mock.ExpectRollback()
+	result, err = repo.Apply(ctx, cmd)
+	require.NoError(t, err)
+	require.False(t, result.Applied)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestApplyUsageBillingEffects_DeletedAPIKeyStillBillsBalance(t *testing.T) {
 	ctx := context.Background()
 	db, mock, err := sqlmock.New()

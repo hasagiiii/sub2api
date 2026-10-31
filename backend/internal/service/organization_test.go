@@ -398,7 +398,7 @@ func TestBillingContextResolverPassesRequiredAmount(t *testing.T) {
 
 func TestBillingContextResolverHonorsAPIKeyCompanyBalancePreference(t *testing.T) {
 	organizationID := int64(8)
-	repo := &organizationRepoStub{resolved: &BillingContext{
+	repo := &organizationRepoStub{organizationBalance: 1, resolved: &BillingContext{
 		ConsumerUserID: 12, OrganizationID: &organizationID, PayerUserID: 12, BalanceSource: BalanceSourceSelf,
 	}}
 	resolver := NewBillingContextResolver(repo)

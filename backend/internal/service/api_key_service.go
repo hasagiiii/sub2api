@@ -444,9 +444,8 @@ func (s *APIKeyService) ResolveBillingContextForAPIKey(ctx context.Context, apiK
 	if err != nil {
 		return nil
 	}
-	if apiKey.PreferCompanyBalance && ctxResult != nil && ctxResult.OrganizationID != nil && ctxResult.BalanceSource == BalanceSourceSelf {
-		ctxResult.PayerUserID = ctxResult.ConsumerUserID
-		ctxResult.BalanceSource = BalanceSourceCompany
+	if err := applyCompanyBalancePreference(ctx, s.organizationRepo, apiKey, ctxResult); err != nil {
+		return nil
 	}
 	return ctxResult
 }
