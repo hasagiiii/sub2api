@@ -36,14 +36,11 @@ const (
 	openAIImagesGenerationsURL = "https://api.openai.com/v1/images/generations"
 	openAIImagesEditsURL       = "https://api.openai.com/v1/images/edits"
 
-	openAIChatGPTStartURL        = "https://chatgpt.com/"
-	openAIChatGPTFilesURL        = "https://chatgpt.com/backend-api/files"
-	openAIImageBackendUserAgent  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-	openAIImageMaxDownloadBytes  = 20 << 20 // 20MB per image download
-	openAIImageMaxUploadPartSize = 20 << 20 // 20MB per multipart upload part
-	// ChatGPT's Responses image-generation bridge requires a Responses-capable
-	// text model. gpt-5.4-mini is not accepted by the upstream image workflow,
-	// while gpt-5.5 remains supported for the bridge.
+	openAIChatGPTStartURL                  = "https://chatgpt.com/"
+	openAIChatGPTFilesURL                  = "https://chatgpt.com/backend-api/files"
+	openAIImageBackendUserAgent            = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	openAIImageMaxDownloadBytes            = 20 << 20 // 20MB per image download
+	openAIImageMaxUploadPartSize           = 50 << 20 // OpenAI's documented per-image limit for GPT image edits
 	openAIImagesResponsesMainModel         = "gpt-5.6-luna"
 	openAIImagesVerbatimPromptInstructions = "When invoking the image_generation tool, use the user's image prompt verbatim. Do not rewrite, expand, summarize, embellish, translate, normalize punctuation, or add or remove visual details or constraints. Preserve the original language, wording, capitalization, quotes, and punctuation exactly."
 )
@@ -432,10 +429,15 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 			continue
 		}
 
-		data, err := io.ReadAll(io.LimitReader(part, openAIImageMaxUploadPartSize))
+		// Read one byte past the limit so an oversized part is rejected instead of
+		// being cut short and forwarded upstream as a corrupt image.
+		data, err := io.ReadAll(io.LimitReader(part, openAIImageMaxUploadPartSize+1))
 		_ = part.Close()
 		if err != nil {
 			return fmt.Errorf("read multipart field %s: %w", name, err)
+		}
+		if len(data) > openAIImageMaxUploadPartSize {
+			return fmt.Errorf("multipart field %q exceeds the %d MB per-part limit", name, openAIImageMaxUploadPartSize>>20)
 		}
 
 		fileName := strings.TrimSpace(part.FileName())
@@ -980,7 +982,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	defer func() { _ = resp.Body.Close() }()
 
 	var usage OpenAIUsage
-	imageCount := parsed.N
+	var imageCount int
 	var firstTokenMs *int
 	// upscale 依赖：分组（取自鉴权上下文）与显式请求尺寸（目标档位）。
 	var upscaleGroup *Group
@@ -992,90 +994,70 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		streamUsage, streamCount, streamSizes, streamBase64s, streamURLs, ttft, err := s.handleOpenAIImagesStreamingResponse(upstreamCtx, resp, c, startTime, nil, upscaleGroup, requestedUpscaleSize)
 		if err != nil {
 			if streamCount > 0 {
-				res := &OpenAIForwardResult{
-					RequestID:         resp.Header.Get("x-request-id"),
-					UpstreamHeaders:   resp.Header,
-					UpstreamSessionID: upstreamSessionIDFromResponse(resp),
-					Usage:             streamUsage,
-					Model:             requestModel,
-					UpstreamModel:     upstreamModel,
-					Stream:            parsed.Stream,
-					ResponseHeaders:   resp.Header.Clone(),
-					Duration:          time.Since(startTime),
-					FirstTokenMs:      ttft,
-					ImageCount:        streamCount,
-					ImageSize:         parsed.SizeTier,
-					ImageInputSize:    parsed.Size,
-					ImageQuality:      parsed.Quality,
-					ImageOutputSizes:  streamSizes,
-					ImageOutputBase64: streamBase64s,
-					ImageOutputURLs:   streamURLs,
-				}
-				s.MarkResponsesImageStatusUpstreamDone(upstreamCtx, res)
-				s.scheduleOpenAIImageCosUpload(upstreamCtx, res)
-				return res, err
+				return &OpenAIForwardResult{
+					RequestID:        resp.Header.Get("x-request-id"),
+					UpstreamHeaders:  resp.Header,
+					Usage:            streamUsage,
+					Model:            requestModel,
+					UpstreamModel:    upstreamModel,
+					Stream:           parsed.Stream,
+					ResponseHeaders:  resp.Header.Clone(),
+					Duration:         time.Since(startTime),
+					FirstTokenMs:     ttft,
+					ImageEndpoint:    true,
+					ImageCount:       streamCount,
+					ImageSize:        parsed.SizeTier,
+					ImageInputSize:   parsed.Size,
+					ImageOutputSizes: streamSizes,
+				}, err
 			}
 			return nil, err
 		}
 		usage = streamUsage
-		imageCount = streamCount
+		imageCount = resolveBillableImageCount(streamCount, 0, imageCountBillingEnabled(getAPIKeyFromContext(c)))
 		imageOutputSizes := streamSizes
 		imageOutputBase64s := streamBase64s
 		imageOutputURLs := streamURLs
 		firstTokenMs = ttft
-		res := &OpenAIForwardResult{
-			RequestID:         resp.Header.Get("x-request-id"),
-			UpstreamHeaders:   resp.Header,
-			UpstreamSessionID: upstreamSessionIDFromResponse(resp),
-			Usage:             usage,
-			Model:             requestModel,
-			UpstreamModel:     upstreamModel,
-			Stream:            parsed.Stream,
-			ResponseHeaders:   resp.Header.Clone(),
-			Duration:          time.Since(startTime),
-			FirstTokenMs:      firstTokenMs,
-			ImageCount:        imageCount,
-			ImageSize:         parsed.SizeTier,
-			ImageInputSize:    parsed.Size,
-			ImageQuality:      parsed.Quality,
-			ImageOutputSizes:  imageOutputSizes,
-			ImageOutputBase64: imageOutputBase64s,
-			ImageOutputURLs:   imageOutputURLs,
-		}
-		s.MarkResponsesImageStatusUpstreamDone(upstreamCtx, res)
-		s.scheduleOpenAIImageCosUpload(upstreamCtx, res)
-		return res, nil
+		return &OpenAIForwardResult{
+			RequestID:        resp.Header.Get("x-request-id"),
+			UpstreamHeaders:  resp.Header,
+			Usage:            usage,
+			Model:            requestModel,
+			UpstreamModel:    upstreamModel,
+			Stream:           parsed.Stream,
+			ResponseHeaders:  resp.Header.Clone(),
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			ImageEndpoint:    true,
+			ImageCount:       imageCount,
+			ImageSize:        parsed.SizeTier,
+			ImageInputSize:   parsed.Size,
+			ImageOutputSizes: imageOutputSizes,
+		}, nil
 	} else {
 		nonStreamUsage, nonStreamCount, nonStreamSizes, nonStreamBase64s, nonStreamURLs, err := s.handleOpenAIImagesNonStreamingResponse(upstreamCtx, resp, c, account, parsed, upscaleGroup, requestedUpscaleSize)
 		if err != nil {
 			return nil, err
 		}
 		usage = nonStreamUsage
-		if nonStreamCount > 0 {
-			imageCount = nonStreamCount
-		}
-		res := &OpenAIForwardResult{
-			RequestID:         resp.Header.Get("x-request-id"),
-			UpstreamHeaders:   resp.Header,
-			UpstreamSessionID: upstreamSessionIDFromResponse(resp),
-			Usage:             usage,
-			Model:             requestModel,
-			UpstreamModel:     upstreamModel,
-			Stream:            parsed.Stream,
-			ResponseHeaders:   resp.Header.Clone(),
-			Duration:          time.Since(startTime),
-			FirstTokenMs:      firstTokenMs,
-			ImageCount:        imageCount,
-			ImageSize:         parsed.SizeTier,
-			ImageInputSize:    parsed.Size,
-			ImageQuality:      parsed.Quality,
-			ImageOutputSizes:  nonStreamSizes,
-			ImageOutputBase64: nonStreamBase64s,
-			ImageOutputURLs:   nonStreamURLs,
-		}
-		s.MarkResponsesImageStatusUpstreamDone(upstreamCtx, res)
-		s.scheduleOpenAIImageCosUpload(upstreamCtx, res)
-		return res, nil
+		imageCount = resolveBillableImageCount(nonStreamCount, parsed.N, imageCountBillingEnabled(getAPIKeyFromContext(c)))
+		return &OpenAIForwardResult{
+			RequestID:        resp.Header.Get("x-request-id"),
+			UpstreamHeaders:  resp.Header,
+			Usage:            usage,
+			Model:            requestModel,
+			UpstreamModel:    upstreamModel,
+			Stream:           parsed.Stream,
+			ResponseHeaders:  resp.Header.Clone(),
+			Duration:         time.Since(startTime),
+			FirstTokenMs:     firstTokenMs,
+			ImageEndpoint:    true,
+			ImageCount:       imageCount,
+			ImageSize:        parsed.SizeTier,
+			ImageInputSize:   parsed.Size,
+			ImageOutputSizes: nonStreamSizes,
+		}, nil
 	}
 }
 

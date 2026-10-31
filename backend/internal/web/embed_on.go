@@ -367,6 +367,9 @@ func isFrontendRequestMethod(method string) bool {
 func shouldBypassEmbeddedFrontend(path string) bool {
 	trimmed := strings.TrimSpace(path)
 	return strings.HasPrefix(trimmed, "/api/") ||
+		trimmed == "/.well-known/oauth-protected-resource" ||
+		trimmed == "/.well-known/oauth-protected-resource/api/v1/mcp" ||
+		trimmed == "/.well-known/oauth-authorization-server" ||
 		strings.HasPrefix(trimmed, "/v1/") ||
 		strings.HasPrefix(trimmed, "/v1beta/") ||
 		strings.HasPrefix(trimmed, "/backend-api/") ||

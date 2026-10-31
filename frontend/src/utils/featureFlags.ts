@@ -144,20 +144,11 @@ export const FeatureFlags = {
     mode: 'opt-in',
     label: 'Affiliate',
   }),
-  // D1 客服工单：opt-in。后端关掉时 sidebar 入口隐藏，且 POST 工单接口
-  // 返回 404；admin 端的工单管理不受此开关影响（处理存量场景）。
-  supportTicket: defineFlag({
-    key: 'support_ticket_enabled',
+  // Read-only: enabled by the deployment's MCP_PUBLIC_URL, not an admin toggle.
+  mcp: defineFlag({
+    key: 'mcp_enabled',
     mode: 'opt-in',
-    label: 'Support Tickets',
-  }),
-  // 客服对话记录（add-support-chat-transcript-log）：admin 侧对话记录菜单入口
-  // 跟随客服浮窗总开关 support_chat_enabled。opt-in：关闭时 sidebar 入口隐藏，
-  // admin 路由本身不卡此开关（可查存量记录）。
-  supportChat: defineFlag({
-    key: 'support_chat_enabled',
-    mode: 'opt-in',
-    label: 'Support Chat',
+    label: 'MCP',
   }),
 } as const
 

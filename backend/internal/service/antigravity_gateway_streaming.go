@@ -850,6 +850,11 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 				continue
 			}
 
+			// 最后的错误帧可能没有 parts，必须在聚合选择前保留失败原因。
+			if extractGeminiFinishReason(parsed) == "MALFORMED_FUNCTION_CALL" {
+				return nil, nil, antigravity.ErrMalformedFunctionCall
+			}
+
 			last = parsed
 
 			// 保留最后一个有 parts 的响应，并收集所有 parts
@@ -1173,10 +1178,9 @@ func (s *AntigravityGatewayService) extractImageInputSize(body []byte) string {
 	return ""
 }
 
-// IsGeminiImageGenerationModel reports whether model is a supported Gemini
-// image-generation model name. The exported helper keeps model playground and
-// gateway routing aligned with the native Gemini forwarding path.
-func IsGeminiImageGenerationModel(model string) bool {
+// isImageGenerationModel 判断模型是否为图片生成模型
+// 支持的模型：gemini-3.1-flash-image, gemini-3.1-flash-lite-image, gemini-3-pro-image, gemini-2.5-flash-image 等
+func isImageGenerationModel(model string) bool {
 	modelLower := strings.ToLower(model)
 	// 移除 models/ 前缀
 	modelLower = strings.TrimPrefix(modelLower, "models/")

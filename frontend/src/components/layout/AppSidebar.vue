@@ -784,6 +784,10 @@ const PluginIcon = {
   render: () => h(Icon, { name: 'cube' })
 }
 
+const MCPIcon = {
+  render: () => h(Icon, { name: 'mcp' })
+}
+
 const BellIcon = {
   render: () =>
     h(
@@ -1052,6 +1056,7 @@ const flagSupportTicket = makeSidebarFlag(FeatureFlags.supportTicket)
 // 客服对话记录：跟随客服浮窗总开关 support_chat_enabled（opt-in）。
 const flagSupportChat = makeSidebarFlag(FeatureFlags.supportChat)
 const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
+const flagMCP = makeSidebarFlag(FeatureFlags.mcp)
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
 const flagAdminPayment = () => adminSettingsStore.paymentEnabled
 const flagBatchImageAccess = () => canUseBatchImage.value
@@ -1118,7 +1123,13 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     // showDot：用户视角未读工单 > 0 时点亮红点，见 ticketUnread store。
     { path: '/support/tickets', label: t('nav.support'), icon: SupportIcon, featureFlag: flagSupportTicket, showDot: flagTicketUnreadDot },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
-    ...customMenuItemsForUser.value.map(customMenuToNavItem),
+    { path: '/settings/mcp', label: t('mcp.title'), icon: MCPIcon, featureFlag: flagMCP },
+    ...customMenuItemsForUser.value.map((item): NavItem => ({
+      path: `/custom/${item.id}`,
+      label: item.label,
+      icon: null,
+      iconSvg: item.icon_svg,
+    })),
   )
   if (canAccessOrganizationRoute(authStore.user)) {
     const organizationIndex = authStore.user?.identity_type === 'iam' ? 0 : (withDashboard ? 1 : 0)
@@ -1300,6 +1311,7 @@ const adminNavItems = computed((): NavItem[] => {
   if (authStore.isSimpleMode) {
     const filtered = visible.filter(item => !item.hideInSimpleMode)
     filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
+    if (flagMCP()) filtered.push({ path: '/settings/mcp', label: t('mcp.title'), icon: MCPIcon })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
     for (const cm of customMenuItemsForAdmin.value) {
       filtered.push(customMenuToNavItem(cm))

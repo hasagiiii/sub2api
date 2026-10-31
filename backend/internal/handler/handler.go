@@ -69,41 +69,28 @@ type AdminHandlers struct {
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
-	Auth                      *AuthHandler
-	User                      *UserHandler
-	APIKey                    *APIKeyHandler
-	DeveloperKey              *DeveloperKeyHandler
-	DeveloperFile             *DeveloperFileHandler
-	Usage                     *UsageHandler
-	Redeem                    *RedeemHandler
-	Subscription              *SubscriptionHandler
-	Announcement              *AnnouncementHandler
-	ChannelMonitor            *ChannelMonitorUserHandler
-	ChannelMonitorV2          *ChannelMonitorV2Handler
-	Admin                     *AdminHandlers
-	Gateway                   *GatewayHandler
-	OpenAIGateway             *OpenAIGatewayHandler
-	Setting                   *SettingHandler
-	Totp                      *TotpHandler
-	Passkey                   *PasskeyHandler
-	Payment                   *PaymentHandler
-	PaymentWebhook            *PaymentWebhookHandler
-	AvailableChannel          *AvailableChannelHandler
-	PelicanShowcase           *PelicanShowcaseHandler
-	ModelPlaza                *ModelPlazaHandler
-	AsyncImage                *AsyncImageHandler
-	BatchImage                *BatchImageHandler
-	ImageGateway              *ImageGatewayHandler
-	ModelAPIGateway           *ModelAPIGatewayHandler
-	Plaza                     *PlazaHandler
-	SupportTicket             *SupportTicketHandler
-	SupportTicketAttachment   *SupportTicketAttachmentHandler
-	SupportTicketNotification *SupportTicketNotificationHandler
-	SupportChat               *SupportChatHandler
-	OidcProvider              *OidcProviderHandler
-	Organization              *OrganizationHandler
-	VideoModel                *VideoModelHandler
-	UserMaterial              *UserMaterialHandler
+	Auth             *AuthHandler
+	User             *UserHandler
+	MCPOAuth         *MCPOAuthHandler
+	APIKey           *APIKeyHandler
+	Usage            *UsageHandler
+	Redeem           *RedeemHandler
+	Subscription     *SubscriptionHandler
+	Announcement     *AnnouncementHandler
+	ChannelMonitor   *ChannelMonitorUserHandler
+	ChannelMonitorV2 *ChannelMonitorV2Handler
+	Admin            *AdminHandlers
+	Gateway          *GatewayHandler
+	OpenAIGateway    *OpenAIGatewayHandler
+	Setting          *SettingHandler
+	Totp             *TotpHandler
+	Passkey          *PasskeyHandler
+	Payment          *PaymentHandler
+	PaymentWebhook   *PaymentWebhookHandler
+	AvailableChannel *AvailableChannelHandler
+	ModelPlaza       *ModelPlazaHandler
+	AsyncImage       *AsyncImageHandler
+	BatchImage       *BatchImageHandler
 }
 
 // BuildInfo contains build-time information

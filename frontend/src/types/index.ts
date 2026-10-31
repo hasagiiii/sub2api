@@ -351,8 +351,8 @@ export interface PublicSettings {
   /** 浮窗 bubble/panel 图标；支持 emoji 或图片 URL；空字符串时前端回退到内置默认头像。 */
   support_chat_icon?: string
   allow_user_view_error_requests?: boolean
-  /** Usage 表中长上下文计费 x2 徽标的展示开关（后端默认开启，缺失时按开启处理） */
-  usage_show_long_context_badge?: boolean
+  /** True when the deployment configures MCP_PUBLIC_URL; MCP is disabled otherwise. */
+  mcp_enabled?: boolean
 }
 
 export interface AuthResponse {
@@ -665,6 +665,7 @@ export interface Group {
   // 图片生成计费配置
   allow_image_generation: boolean
   allow_batch_image_generation: boolean
+  image_count_billing: boolean
   image_rate_independent: boolean
   image_rate_multiplier: number
   batch_image_discount_multiplier: number
@@ -953,6 +954,7 @@ export interface CreateGroupRequest {
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
+  image_count_billing?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
   batch_image_discount_multiplier?: number
@@ -1034,6 +1036,7 @@ export interface UpdateGroupRequest {
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   allow_batch_image_generation?: boolean
+  image_count_billing?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
   batch_image_discount_multiplier?: number
@@ -1431,6 +1434,37 @@ export interface OpenCodeGoUsageSettings {
   debounce_minutes: number
 }
 
+export interface GrokCatalogScope {
+  account_id: number
+  account_type: string
+  endpoint: string
+  fingerprint: string
+}
+
+export interface GrokCatalogAttempt {
+  started_at: string
+  finished_at: string
+  status: string
+  error_code?: string
+  scope?: GrokCatalogScope
+}
+
+export interface GrokModelDiagnosticItem {
+  requested: string
+  upstream?: string
+  status: string
+}
+
+export interface GrokModelDiagnostics {
+  state: string
+  endpoint?: string
+  fetched_at?: string
+  expires_at?: string
+  models: string[]
+  last_attempt?: GrokCatalogAttempt
+  mappings: GrokModelDiagnosticItem[]
+}
+
 export interface Account {
   id: number
   name: string
@@ -1596,6 +1630,8 @@ export interface Account {
   parent_privacy_mode?: string
   parent_subscription_expires_at?: string
   parent_chatgpt_account_id?: string
+
+  grok_model_diagnostics?: GrokModelDiagnostics
 }
 
 // The admin account list may return this compact shape when lite=1. Detail
