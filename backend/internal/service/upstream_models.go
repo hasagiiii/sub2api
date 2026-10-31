@@ -810,7 +810,7 @@ func (s *AccountTestService) fetchUpstreamModelListRequest(ctx context.Context, 
 
 	if account.Platform == PlatformFal {
 		models, err := s.fetchFalUpstreamModels(ctx, account)
-		return models, nil, err
+		return models, nil, nil, err
 	}
 
 	// Leonardo exposes task submission/status endpoints rather than a models
@@ -823,7 +823,7 @@ func (s *AccountTestService) fetchUpstreamModelListRequest(ctx context.Context, 
 			}
 		}
 		sort.Strings(models)
-		return models, nil, nil
+		return models, nil, nil, nil
 	}
 
 	if s.httpUpstream == nil {

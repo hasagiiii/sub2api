@@ -152,7 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
@@ -436,6 +436,11 @@ const syncUpstreamModels = async () => {
     if (upstreamModels.length === 0) {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
       return
+    }
+
+    // Cache discovered models for dynamic platforms as selectable options.
+    if (isDynamicModelPlatform.value) {
+      dynamicModels.value = upstreamModels
     }
 
     if (!accountId) {

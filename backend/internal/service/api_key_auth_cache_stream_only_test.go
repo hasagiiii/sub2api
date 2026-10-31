@@ -15,7 +15,7 @@ func TestAPIKeyAuthSnapshotGroupStreamOnlyRoundtrip(t *testing.T) {
 		User: &User{ID: 41, Status: StatusActive, UserGroupDeniedModels: []string{"blocked-model"}},
 		Group: &Group{
 			ID: groupID, Name: "stream-only", Platform: PlatformAnthropic, Status: StatusActive,
-			Hydrated: true, StreamOnly: true,
+			Hydrated: true, StreamOnly: true, ImageCountBilling: true,
 		},
 	}
 	svc := &APIKeyService{}
@@ -29,11 +29,16 @@ func TestAPIKeyAuthSnapshotGroupStreamOnlyRoundtrip(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, used)
 	require.True(t, materialized.Group.StreamOnly)
+	require.True(t, materialized.Group.ImageCountBilling)
 	require.Equal(t, []string{"blocked-model"}, materialized.DeniedModelsInGroup())
 
-	// 升级前缓存的快照没有 stream_only：版本号不同必须作废，不能当成「未开启」放行非流式请求。
-	cached.Snapshot.Version = 25
-	_, used, err = svc.applyAuthCacheEntry(apiKey.Key, &cached)
-	require.NoError(t, err)
-	require.False(t, used)
+	// Neither merge parent's cache contains all merged policy fields:
+	// upstream v25 lacks stream_only; local v29 lacks image_count_billing.
+	for _, legacyVersion := range []int{25, 29} {
+		cached.Snapshot.Version = legacyVersion
+		materialized, used, err = svc.applyAuthCacheEntry(apiKey.Key, &cached)
+		require.NoError(t, err)
+		require.False(t, used, "reject incomplete v%d snapshot", legacyVersion)
+		require.Nil(t, materialized)
+	}
 }

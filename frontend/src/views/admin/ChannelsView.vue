@@ -681,13 +681,11 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 // Web Search global enabled state (loaded once on mount)
-// Platforms that support the account-level Web Search emulation toggle
-// (must stay in sync with the backend account-level whitelist in
-// backend/internal/service/account.go webSearchEmulationPlatformEnabled).
-// Both the rendering and the submit path use this set, so a platform added to
-// the backend whitelist automatically becomes configurable here.
+// Channel-level Web Search emulation platforms. Rendering and submission share
+// this set, including the local Kiro integration and upstream platform support.
 const WEB_SEARCH_EMULATION_PLATFORMS: ReadonlySet<string> = new Set([
   'anthropic',
+  'kiro',
   'openai',
   'command_code',
   'opencode_go',
@@ -863,10 +861,6 @@ function getGroupsForPlatform(platform: GroupPlatform): AdminGroup[] {
   return allGroups.value.filter(
     g => g.platform === platform || (g.platform === 'composite' && compositePlatforms.value.includes(platform))
   )
-}
-
-function supportsWebSearchEmulation(platform: GroupPlatform): boolean {
-  return platform === 'anthropic' || platform === 'kiro'
 }
 
 // ── Group helpers ──

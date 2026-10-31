@@ -1284,7 +1284,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 	if result.ImageCount > 0 {
 		if !imageCountBillingApplies(apiKey, result.ImageEndpoint) {
 			if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil && resolved.Mode == BillingModeToken {
-				return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt)
+				return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts...)
 			}
 		}
 		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier)
@@ -1447,7 +1447,7 @@ func (s *GatewayService) calculateImageCost(
 	billingModel string,
 	multiplier float64,
 ) *CostBreakdown {
-	sizeTier := NormalizeImageBillingTierOrDefault(result.ImageSize)
+	billingSize := imageBillingSizeOrTier(result.ImageSize)
 	forcePerImage := imageCountBillingApplies(apiKey, result.ImageEndpoint)
 	resolved := s.resolveChannelPricing(ctx, billingModel, apiKey)
 	// 分组定价只有按次/图片模式才能按张结算。token 模式缺少 token 输入时会算出
@@ -1466,7 +1466,7 @@ func (s *GatewayService) calculateImageCost(
 		}
 	}
 	groupConfig := imagePriceConfigFromAPIKey(apiKey)
-	if apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
+	if apiKeyHasConfiguredImagePrice(apiKey, billingSize) {
 		return s.billingService.CalculateImageCost(billingModel, billingSize, result.ImageCount, groupConfig, multiplier)
 	}
 	if resolved != nil && resolved.Source == PricingSourceChannel {
@@ -1487,7 +1487,7 @@ func (s *GatewayService) calculateImageCost(
 				Group:           apiKey.Group,
 				Tokens:          tokens,
 				RequestCount:    result.ImageCount,
-				SizeTier:        sizeTier,
+				SizeTier:        billingSize,
 				ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 				RateMultiplier:  multiplier,
 				Resolver:        s.resolver,
@@ -1508,7 +1508,7 @@ func (s *GatewayService) calculateImageCost(
 				Group:           apiKey.Group,
 				Tokens:          tokens,
 				RequestCount:    result.ImageCount,
-				SizeTier:        sizeTier,
+				SizeTier:        billingSize,
 				ReasoningEffort: optionalStringValue(result.ReasoningEffort),
 				RateMultiplier:  multiplier,
 				Resolver:        s.resolver,

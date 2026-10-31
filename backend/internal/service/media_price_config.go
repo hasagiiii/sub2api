@@ -1,5 +1,15 @@
 package service
 
+func imageBillingSizeOrTier(raw string) string {
+	if imageTierLabel(raw) != "" {
+		return imageTierLabel(raw)
+	}
+	if _, err := ParseImageRequestDimensions(raw); err == nil {
+		return raw
+	}
+	return NormalizeImageBillingTierOrDefault(raw)
+}
+
 // imageCountBillingEnabled 表示该分组强制按实际出图张数计费，即使渠道是 token 计费。
 func imageCountBillingEnabled(apiKey *APIKey) bool {
 	return apiKey != nil && apiKey.Group != nil && apiKey.Group.ImageCountBilling

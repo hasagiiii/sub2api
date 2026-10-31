@@ -144,6 +144,16 @@ export const FeatureFlags = {
     mode: 'opt-in',
     label: 'Affiliate',
   }),
+  supportTicket: defineFlag({
+    key: 'support_ticket_enabled',
+    mode: 'opt-in',
+    label: 'Support Tickets',
+  }),
+  supportChat: defineFlag({
+    key: 'support_chat_enabled',
+    mode: 'opt-in',
+    label: 'Support Chat',
+  }),
   // Read-only: enabled by the deployment's MCP_PUBLIC_URL, not an admin toggle.
   mcp: defineFlag({
     key: 'mcp_enabled',

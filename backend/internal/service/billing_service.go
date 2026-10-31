@@ -1329,10 +1329,6 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 			return s.fallbackPrices[normalized]
 		case "gpt-6-astra":
 			return s.fallbackPrices["gpt-6-astra"]
-		case "gpt-6-sol":
-			return s.fallbackPrices["gpt-6-sol"]
-		case "gpt-6-luna":
-			return s.fallbackPrices["gpt-6-luna"]
 		case "gpt-5.6-sol", "gpt-5.6-sol-wm":
 			return s.fallbackPrices["gpt-5.6-sol"]
 		case "gpt-5.6-terra":

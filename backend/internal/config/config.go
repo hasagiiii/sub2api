@@ -124,6 +124,32 @@ type SimpleModeConfig struct {
 	AutoCreateDefaultGroups bool `mapstructure:"auto_create_default_groups" yaml:"auto_create_default_groups"`
 }
 
+type CompanyConfig struct {
+	ApplicationsEnabled      bool    `mapstructure:"applications_enabled"`
+	IAMEnabled               bool    `mapstructure:"iam_enabled"`
+	DocumentationURL         string  `mapstructure:"documentation_url"`
+	UpgradeFee               float64 `mapstructure:"upgrade_fee"`
+	UpgradeCurrency          string  `mapstructure:"upgrade_currency"`
+	DefaultMemberLimit       int     `mapstructure:"default_member_limit"`
+	OutboxPollSeconds        int     `mapstructure:"outbox_poll_seconds"`
+	OutboxMaxAttempts        int     `mapstructure:"outbox_max_attempts"`
+	ReconcileIntervalSeconds int     `mapstructure:"reconcile_interval_seconds"`
+	ReviewQueueAlertSeconds  int     `mapstructure:"review_queue_alert_seconds"`
+	OutboxLagAlertSeconds    int     `mapstructure:"outbox_lag_alert_seconds"`
+}
+
+// AsyncMediaConfig 异步媒体（fal 等异步图片平台）任务相关配置。
+type AsyncMediaConfig struct {
+	// ReconcileIntervalSeconds reconciler 扫描未终结任务的间隔（秒）。
+	ReconcileIntervalSeconds int `mapstructure:"reconcile_interval_seconds"`
+	// FailTimeoutSeconds 任务从创建到强制判失（退费兜底）的最长时间（秒）。
+	FailTimeoutSeconds int `mapstructure:"fail_timeout_seconds"`
+	// PollIntervalSeconds 伪同步/对账单次轮询间隔（秒）。
+	PollIntervalSeconds int `mapstructure:"poll_interval_seconds"`
+	// PseudoSyncTimeoutSeconds 伪同步门面阻塞等待上限（秒，超时返回错误但不退费/不终结）。
+	PseudoSyncTimeoutSeconds int `mapstructure:"pseudo_sync_timeout_seconds"`
+}
+
 // MCPConfig fixes the public resource URL used by OAuth discovery and tokens.
 // Setting it is also the explicit opt-in that enables MCP.
 type MCPConfig struct {

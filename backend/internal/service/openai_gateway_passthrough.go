@@ -2600,7 +2600,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	// so OAuth accounts also fall back to the body framing (same rule as
 	// handleNonStreamingResponse).
 	if isEventStreamResponse(resp.Header) || (account != nil && account.Type == AccountTypeOAuth && bodyHasSSEFraming(body)) {
-		return s.handlePassthroughSSEToJSON(resp, c, account, body, originalModel, mappedModel)
+		return s.handlePassthroughSSEToJSON(ctx, resp, c, account, body, originalModel, mappedModel, group, requestedImageSize)
 	}
 
 	usage := &OpenAIUsage{}
