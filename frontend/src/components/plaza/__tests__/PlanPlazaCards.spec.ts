@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PlanPlazaCards from '../PlanPlazaCards.vue'
+import GroupBadge from '@/components/common/GroupBadge.vue'
 import type { PlazaPlanCard } from '@/api/plaza'
 
 // 项目约定：在组件单测里 mock vue-i18n，避免引入完整 i18n 实例。
@@ -141,6 +142,52 @@ describe('PlanPlazaCards', () => {
     const text = wrapper.text()
     expect(text).toContain('Unlimited usage')
     expect(text).toContain('Priority support')
+  })
+
+  // 首页（HomeShowcaseSection → PlanPlazaCards）分组展示：多个分组必须拆成
+  // 独立标签，而不是拼成一串 "A + B" 纯文字——纯文字在窄卡里折行后读不出边界。
+  describe('分组标签', () => {
+    const bundledGroups = [
+      { group_id: 1, group_name: 'Claude 官方', platform: 'anthropic', rate_multiplier: 1 },
+      { group_id: 2, group_name: 'Claude 镜像', platform: 'anthropic', rate_multiplier: 0.8 },
+    ]
+
+    it('打包多个分组时逐个渲染标签', () => {
+      const wrapper = mountCards([makeCard({ groups: bundledGroups })])
+      const block = wrapper.find('[data-test="plan-card-groups"]')
+      expect(block.exists()).toBe(true)
+      expect(block.text()).toContain('Claude 官方')
+      expect(block.text()).toContain('Claude 镜像')
+      // 旧实现会用 " + " 把分组名拼成一段纯文字，标签化后不再出现连接符。
+      expect(block.text()).not.toContain(' + ')
+      expect(wrapper.findAllComponents(GroupBadge)).toHaveLength(2)
+    })
+
+    it('标签内不再重复展示倍率（倍率已在标量区展示）', () => {
+      const wrapper = mountCards([makeCard({ groups: bundledGroups })])
+      const badges = wrapper.findAllComponents(GroupBadge)
+      for (const badge of badges) {
+        expect(badge.props('showRate')).toBe(false)
+      }
+      expect(badges[0].text()).toBe('Claude 官方')
+      expect(wrapper.text()).toContain('plaza.plans.rate')
+    })
+
+    it('缺少 groups 时回退到主分组字段', () => {
+      const wrapper = mountCards([makeCard({ group_name: 'Default' })])
+      const badges = wrapper.findAllComponents(GroupBadge)
+      expect(badges).toHaveLength(1)
+      expect(badges[0].text()).toBe('Default')
+    })
+
+    it('分组名为空时用 #id 兜底', () => {
+      const wrapper = mountCards([
+        makeCard({
+          groups: [{ group_id: 7, group_name: '  ', platform: 'openai', rate_multiplier: 1 }],
+        }),
+      ])
+      expect(wrapper.find('[data-test="plan-card-groups"]').text()).toContain('#7')
+    })
   })
 
   // 套餐列表强制使用 CNY，不再渲染 CurrencyToggle；曾经的 `emits currency-change` 用例已删除。

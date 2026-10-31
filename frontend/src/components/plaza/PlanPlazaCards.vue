@@ -45,7 +45,15 @@
           </span>
         </div>
 
-        <div class="mb-4 grid grid-cols-2 gap-3 text-xs text-gray-600 sm:grid-cols-3 dark:text-dark-300">
+        <!--
+          标量信息（有效期 / 倍率）两列并排。
+
+          分组原先也挤在这条三列网格的中间格里，多分组时会被拼成
+          「A + B + C」一整串纯文字，塞进 1/3 卡宽的窄格里折行后读不出
+          分组边界——这正是「看起来很乱」的来源。现在分组下沉为独立的
+          一行标签区（见下），这里只保留两个标量。
+        -->
+        <div class="mb-4 grid grid-cols-2 gap-3 text-xs text-gray-600 dark:text-dark-300">
           <div>
             <div class="text-[10px] uppercase tracking-wider text-gray-400">
               {{ t('plaza.plans.validity') }}
@@ -56,16 +64,31 @@
           </div>
           <div>
             <div class="text-[10px] uppercase tracking-wider text-gray-400">
-              {{ t('plaza.plans.group') }}
-            </div>
-            <!-- 打包授予多个分组时列出全部，单分组保持原样。 -->
-            <div class="font-medium text-gray-900 dark:text-white">{{ cardGroupNames(card) }}</div>
-          </div>
-          <div>
-            <div class="text-[10px] uppercase tracking-wider text-gray-400">
               {{ t('plaza.plans.rate') }}
             </div>
             <div class="font-medium text-gray-900 dark:text-white">{{ card.rate_multiplier }}x</div>
+          </div>
+        </div>
+
+        <!--
+          套餐分组：一个套餐可以打包授予多个分组（购买后每个分组各发一条
+          订阅），因此逐个渲染成标签而不是拼成一段文字。标签复用
+          GroupBadge（与站内其它分组展示同一套平台配色 + 平台图标），
+          关闭倍率后缀（倍率已在上方单独展示），允许长名称换行。
+        -->
+        <div v-if="cardGroups(card).length > 0" class="mb-4" data-test="plan-card-groups">
+          <div class="mb-1.5 text-[10px] uppercase tracking-wider text-gray-400">
+            {{ t('plaza.plans.group') }}
+          </div>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <GroupBadge
+              v-for="group in cardGroups(card)"
+              :key="group.group_id"
+              :name="group.name"
+              :platform="group.platform"
+              :show-rate="false"
+              :truncate="false"
+            />
           </div>
         </div>
 
@@ -150,7 +173,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import GroupBadge from '@/components/common/GroupBadge.vue'
 import type { PlazaPlanCard } from '@/api/plaza'
+import type { GroupPlatform } from '@/types'
 import { useAuthRedirect } from '@/composables/useAuthRedirect'
 import { useAppStore } from '@/stores/app'
 
@@ -252,15 +277,44 @@ function featureLines(card: PlazaPlanCard): string[] {
 }
 
 /**
- * 套餐可打包授予多个分组，卡片需要把它们都列出来，否则用户只看到主分组、
- * 误以为这一笔只买到一个分组的权益。
+ * 卡片上要展示的一个分组标签。
+ * `group_id` 仅作为 `v-for` 的 key（后端保证套餐内分组唯一）。
  */
-function cardGroupNames(card: PlazaPlanCard): string {
-  const names = (card.groups ?? [])
-    .map((group) => group.group_name?.trim() || `#${group.group_id}`)
-    .filter((name) => name.length > 0)
-  if (names.length === 0) return card.group_name
-  return names.join(' + ')
+interface PlanGroupTag {
+  group_id: number
+  name: string
+  platform?: GroupPlatform
+}
+
+/**
+ * 套餐可打包授予多个分组，卡片需要把它们都拆出来逐个展示，否则用户只看
+ * 到主分组、误以为这一笔只买到一个分组的权益。
+ *
+ * 数据来源优先级：
+ *   1. `groups`（新接口返回的完整打包列表，含各分组自己的 platform）；
+ *   2. 回退到 `group_id` / `group_name` / `platform` 这三个兼容字段——旧调用
+ *      方（例如企业控制台）只会补齐主分组字段，此时至少展示这一条。
+ *
+ * 名称缺失时用 `#<id>` 兜底，保证标签不会渲染成空壳。
+ */
+function cardGroups(card: PlazaPlanCard): PlanGroupTag[] {
+  const bundled = card.groups ?? []
+  if (bundled.length > 0) {
+    return bundled.map((group) => ({
+      group_id: group.group_id,
+      name: group.group_name?.trim() || `#${group.group_id}`,
+      platform: (group.platform || card.platform || undefined) as GroupPlatform | undefined,
+    }))
+  }
+  const primaryName = card.group_name?.trim()
+  if (!primaryName) return []
+  return [
+    {
+      group_id: card.group_id,
+      name: primaryName,
+      platform: (card.platform || undefined) as GroupPlatform | undefined,
+    },
+  ]
 }
 
 function displayedModels(card: PlazaPlanCard): string[] {
