@@ -61,11 +61,27 @@ func TestGatewayCacheCyberBlockWritesScopeAndExactKeysTogether(t *testing.T) {
 	active, err := store.IsCyberSessionScopeActive(ctx, "scope-1")
 	require.NoError(t, err)
 	require.True(t, active)
+
 	matched, err := store.FindCyberSessionBlocked(ctx, []string{"missing", "block-1", "block-2"})
 	require.NoError(t, err)
 	require.Equal(t, "block-1", matched)
 	require.Greater(t, server.TTL(cyberSessionScopePrefix+"scope-1"), time.Duration(0))
 	require.Equal(t, server.TTL(cyberSessionBlockPrefix+"block-1"), server.TTL(cyberSessionBlockPrefix+"block-2"))
+}
+
+func TestGatewayCacheCyberBlockWithoutScopeStoresOnlyExactIdentity(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	store, ok := NewGatewayCache(client).(service.CyberSessionBlockStore)
+	require.True(t, ok)
+
+	ctx := context.Background()
+	require.NoError(t, store.SetCyberSessionBlocked(ctx, "", []string{"explicit"}, time.Minute))
+	require.Equal(t, []string{cyberSessionBlockPrefix + "explicit"}, server.Keys())
+	matched, err := store.FindCyberSessionBlocked(ctx, []string{"explicit"})
+	require.NoError(t, err)
+	require.Equal(t, "explicit", matched)
 }
 
 func TestGatewayCacheCyberBlockCommandsAreBoundedAndLookupShortCircuits(t *testing.T) {
@@ -83,6 +99,7 @@ func TestGatewayCacheCyberBlockCommandsAreBoundedAndLookupShortCircuits(t *testi
 	}
 	ctx := context.Background()
 	require.NoError(t, store.SetCyberSessionBlocked(ctx, "large-scope", keys, time.Minute))
+	// Exact blocks use bounded batches; scope activation is a separate SET.
 	require.Equal(t, []int{cyberSessionRedisCommandMaxKeys, cyberSessionRedisCommandMaxKeys, 44}, hook.setBatchSizes)
 
 	lookup := make([]string, len(keys))

@@ -47,7 +47,7 @@ func (r openAISSEActivityReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
-func newOpenAISSEReadPump(body io.ReadCloser, maxLineSize int) *openAISSEReadPump {
+func newOpenAISSEReadPump(body io.ReadCloser, maxLineSize int, split ...bufio.SplitFunc) *openAISSEReadPump {
 	p := &openAISSEReadPump{
 		body: body, events: make(chan openAISSEReadEvent, 1),
 		stop: make(chan struct{}), done: make(chan struct{}),
@@ -59,6 +59,9 @@ func newOpenAISSEReadPump(body io.ReadCloser, maxLineSize int) *openAISSEReadPum
 		defer putSSEScannerBuf64K(buf)
 		scanner := bufio.NewScanner(openAISSEActivityReader{pump: p})
 		scanner.Buffer(buf[:0], maxLineSize)
+		if len(split) > 0 && split[0] != nil {
+			scanner.Split(split[0])
+		}
 		documents := newOpenAISSEJSONDocumentScanner(scanner)
 		send := func(e openAISSEReadEvent) bool {
 			select {

@@ -106,6 +106,24 @@ func TestOpenAISSEReadPumpFirstOutputDeadlineNotExtendedByComments(t *testing.T)
 	require.Less(t, time.Since(start), time.Second)
 }
 
+func TestOpenAISSEReadPumpEnforcesAggregateEventLimit(t *testing.T) {
+	// Each comment fits the line limit, but the event never ends with a blank line.
+	body := io.NopCloser(strings.NewReader(strings.Repeat(": heartbeat\n", 20)))
+	pump := newOpenAISSEReadPump(body, 64, newBoundedSSESplit(nil, 64, nil))
+	defer pump.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for pump.Next(ctx, 0, nil, nil) {
+	}
+	require.ErrorIs(t, pump.Err(), errSSETransportLimit)
+	pump.Close()
+	select {
+	case <-pump.done:
+	default:
+		t.Fatal("reader not joined after transport limit")
+	}
+}
+
 func TestOpenAISSEReadPumpIncompleteUsageIsNotAnUpstreamTerminal(t *testing.T) {
 	result := &OpenAIForwardResult{Usage: OpenAIUsage{OutputTokens: 7}, streamReadIncomplete: true}
 	require.False(t, result.SucceededForScheduling())

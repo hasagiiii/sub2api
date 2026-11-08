@@ -50,11 +50,11 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if maxErr, ok := extractMaxBytesError(err); ok {
-			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+		if handleRequestBodyReadError(c, reqLog, err) {
 			return
 		}
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
+		status, message := requestBodyReadFailure(reqLog, c.Request, err)
+		h.errorResponse(c, status, "invalid_request_error", message)
 		return
 	}
 	if len(body) == 0 {
@@ -197,7 +197,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	defer inflightDone()
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
-	requestCtx := service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context()))
+	requestCtx := service.WithOpenAIImageSizeRouting(service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context())), parsed.Size)
 
 	// 分组的 image_prefer_fal 开关：true 时混合调度反转为「fal 优先 + openai 兜底」
 	preferPlatform := ""
@@ -241,7 +241,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				sessionHash,
 				routingModel,
 				failedAccountIDs,
-				parsed.RequiredCapability,
+				parsed.RequiredCapabilityForModel(channelMapping.MappedModel),
 				parsed,
 				preferPlatform,
 			)
@@ -265,7 +265,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				if len(failedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, routingModel, service.PlatformOpenAI)
 					if !cls.ModelNotFound {
-						markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+						markOpsRoutingCapacityLimitedIfNoAvailable(c, selErr)
 					}
 					message := cls.Message
 					if !cls.ModelNotFound {
@@ -326,8 +326,17 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				sessionHash,
 				routingModel,
 				failedAccountIDs,
-				parsed.RequiredCapability,
+				parsed.RequiredCapabilityForModel(channelMapping.MappedModel),
 			)
+			if (selErr != nil || sel == nil || sel.Account == nil) && len(failedAccountIDs) == 0 {
+				if tier, unsupported := h.gatewayService.OpenAIImageSizeTierUnsupported(requestCtx, apiKey.GroupID, routingModel, parsed.Size, "", parsed.RequiredCapabilityForModel(channelMapping.MappedModel)); unsupported {
+					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+					message := service.OpenAIImageSizeTierUnsupportedMessage(parsed.Size, tier)
+					failImageStatus(message)
+					h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", message, streamStarted)
+					return
+				}
+			}
 			if selErr != nil {
 				if failoverClientGone(c) {
 					reqLog.Info("openai.images.account_select_aborted_client_disconnected", zap.Error(selErr))
@@ -340,7 +349,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				if len(failedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, clientRequestModel, routingModel, service.PlatformOpenAI)
 					if !cls.ModelNotFound {
-						markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+						markOpsRoutingCapacityLimitedIfNoAvailable(c, selErr)
 					}
 					message := cls.Message
 					if !cls.ModelNotFound {
@@ -659,6 +668,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			upstreamModel = result.UpstreamModel
 		}
 		sessionID := service.ExtractClientSessionID(c)
+		channelUsageFields := clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel)
 		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.OpenAIRecordUsageInput{
 				Result:             result,
@@ -675,7 +685,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				APIKeyService:      h.apiKeyService,
 				QuotaPlatform:      quotaPlatform,
 				SessionID:          sessionID,
-				ChannelUsageFields: clientRequestedUsageFields(c, channelMapping, requestModel, upstreamModel),
+				ChannelUsageFields: channelUsageFields,
 			}); err != nil {
 				logger.L().With(
 					zap.String("component", "handler.openai_gateway.images"),

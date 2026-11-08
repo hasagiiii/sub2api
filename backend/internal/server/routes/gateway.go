@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"net/http"
 	"strings"
@@ -35,8 +34,9 @@ func RegisterGatewayRoutes(
 	// no public upload route; only authenticated BPS requests can create them.
 	r.GET("/api/bps-images/:token", h.OpenAIGateway.ExcelBPSImage)
 	r.HEAD("/api/bps-images/:token", h.OpenAIGateway.ExcelBPSImage)
-	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
-	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
+	bodyMemoryBudget := pkghttputil.NewBodyMemoryBudget(cfg.Gateway.RequestBodyMemoryBudgetBytes)
+	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize, bodyMemoryBudget)
+	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize, bodyMemoryBudget)
 	imageAdmission := middleware.ExcelBPSImageAdmission(settingService, cfg.Gateway.MaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
@@ -644,15 +644,10 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 
 		body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 		if err != nil {
-			status := http.StatusBadRequest
-			message := "Failed to read request body"
-			var maxErr *http.MaxBytesError
-			if errors.As(err, &maxErr) {
-				status = http.StatusRequestEntityTooLarge
-				message = "Request body is too large"
+			if middleware.RejectRequestBodyReadError(c, "middleware.composite_route", err) {
+				return
 			}
-			c.JSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "message": message}})
-			c.Abort()
+			middleware.AbortWithRequestBodyReadFailure(c, "middleware.composite_route", err)
 			return
 		}
 
