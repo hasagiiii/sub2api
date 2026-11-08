@@ -95,6 +95,10 @@ type AccountUserLimitService struct {
 	activity  AccountUserActivityReader
 	snapshots sync.Map // accountID -> *accountUserSnapshot
 	now       func() time.Time
+
+	cleanupMu     sync.Mutex
+	cleanupCancel context.CancelFunc
+	cleanupDone   chan struct{}
 }
 
 // NewAccountUserLimitService 创建账号用户名额服务；usageLogRepo 实现 AccountUserActivityReader 时提供对话统计。

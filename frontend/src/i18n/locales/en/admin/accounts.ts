@@ -2021,7 +2021,7 @@ export default {
       scheduledUsers: {
         menu: 'User Scheduling',
         title: 'User Scheduling',
-        desc: 'Users that have used this account and their conversations. Clearing a user frees a slot for new users.',
+        desc: 'Users that have used this account and their conversations. Checked every minute: users bound for over 8 hours with fewer than 50 total requests on this account are automatically cleared, freeing their slot with a 1-minute cooldown.',
         slots: 'User slots',
         unlimited: 'Unlimited',
         user: 'User',

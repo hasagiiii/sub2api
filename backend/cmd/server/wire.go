@@ -158,7 +158,11 @@ func provideCleanup(
 	openAIAutoReset *service.OpenAIQuotaAutoResetService,
 	promptAudit *securityaudit.PromptService,
 	pluginManager *service.PluginManager,
+	accountUserLimit *service.AccountUserLimitService,
 ) func() {
+	if cfg.RunsBackgroundJobs() {
+		accountUserLimit.Start()
+	}
 	if openAIGateway != nil {
 		openAIGateway.StartBPSWarmPool()
 		if cfg.RunsBackgroundJobs() {
@@ -177,6 +181,10 @@ func provideCleanup(
 		// 应用层清理步骤可并行执行，基础设施资源（Redis/Ent）最后按顺序关闭。
 		parallelSteps := []cleanupStep{
 
+			{"AccountUserLimitService", func() error {
+				accountUserLimit.Stop()
+				return nil
+			}},
 			{"CompanyOperationsMonitor", func() error {
 				if companyOperations != nil {
 					companyOperations.Stop()

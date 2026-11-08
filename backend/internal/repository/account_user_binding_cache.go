@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -14,7 +15,7 @@ import (
 //
 // 设计说明：
 //   - account_users:{accountID}:bound   ZSET，member=userID，score=首次占用时间（Unix 秒），不过期，
-//     只能由管理员清理释放；多实例共享，保证所有节点看到同一份名额占用。
+//     由管理员或自动清理释放；多实例共享，保证所有节点看到同一份名额占用。
 //   - account_users:{accountID}:evicted ZSET，member=userID，score=冷却结束时间（Unix 秒）。
 //
 // 两个 key 共享 {accountID} hash tag，保证 Lua 脚本在 Redis Cluster 下也落在同一 slot。
@@ -62,6 +63,31 @@ var (
 		local cooldown = tonumber(ARGV[2])
 
 		local removed = redis.call('ZREM', bound, member)
+		if cooldown > 0 then
+			local now = tonumber(redis.call('TIME')[1])
+			redis.call('ZREMRANGEBYSCORE', evicted, '-inf', now)
+			redis.call('ZADD', evicted, now + cooldown, member)
+			redis.call('EXPIRE', evicted, cooldown + 60)
+		end
+		return removed
+	`)
+
+	// unbindAccountUserIfBoundAtScript 仅释放快照中仍未变化的绑定，避免误删重新绑定的用户。
+	// KEYS[1] = bound, KEYS[2] = evicted
+	// ARGV[1] = userID, ARGV[2] = boundAt（Unix 秒）, ARGV[3] = cooldown（秒）
+	// 未匹配时不修改绑定或冷却；匹配后沿用手动释放的冷却规则。
+	unbindAccountUserIfBoundAtScript = redis.NewScript(`
+		redis.replicate_commands()
+		local bound = KEYS[1]
+		local evicted = KEYS[2]
+		local member = ARGV[1]
+		local score = redis.call('ZSCORE', bound, member)
+		if score == false or tonumber(score) ~= tonumber(ARGV[2]) then
+			return 0
+		end
+
+		local removed = redis.call('ZREM', bound, member)
+		local cooldown = tonumber(ARGV[3])
 		if cooldown > 0 then
 			local now = tonumber(redis.call('TIME')[1])
 			redis.call('ZREMRANGEBYSCORE', evicted, '-inf', now)
@@ -138,6 +164,42 @@ func (c *accountUserBindingCache) UnbindUser(ctx context.Context, accountID, use
 	}
 	keys := []string{accountUserBoundKey(accountID), accountUserEvictedKey(accountID)}
 	removed, err := unbindAccountUserScript.Run(ctx, c.rdb, keys, strconv.FormatInt(userID, 10), int64(cooldown/time.Second)).Int()
+	if err != nil {
+		return false, err
+	}
+	return removed > 0, nil
+}
+
+// ScanBoundAccountIDs 扫描一页绑定 key；count 是 Redis SCAN 的提示值，返回空页时也应继续游标。
+// Redis SCAN 可能重复返回账号，调用方应允许重复处理，直到返回游标为 0。
+func (c *accountUserBindingCache) ScanBoundAccountIDs(ctx context.Context, cursor uint64, count int64) ([]int64, uint64, error) {
+	if c == nil || c.rdb == nil {
+		return nil, 0, nil
+	}
+	keys, next, err := c.rdb.Scan(ctx, cursor, accountUserBindingKeyPrefix+"*:bound", count).Result()
+	if err != nil {
+		return nil, 0, err
+	}
+	ids := make([]int64, 0, len(keys))
+	for _, key := range keys {
+		value := strings.TrimSuffix(strings.TrimPrefix(key, accountUserBindingKeyPrefix+"{"), "}:bound")
+		id, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || id <= 0 || key != accountUserBoundKey(id) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids, next, nil
+}
+
+// UnbindUserIfBoundAt 原子比较占用时间并释放名额；不匹配或不存在时不触碰冷却。
+// 比较精度与绑定 score 一致，为 Unix 秒。
+func (c *accountUserBindingCache) UnbindUserIfBoundAt(ctx context.Context, accountID, userID int64, boundAt time.Time, cooldown time.Duration) (bool, error) {
+	if c == nil || c.rdb == nil || userID <= 0 {
+		return false, nil
+	}
+	keys := []string{accountUserBoundKey(accountID), accountUserEvictedKey(accountID)}
+	removed, err := unbindAccountUserIfBoundAtScript.Run(ctx, c.rdb, keys, strconv.FormatInt(userID, 10), boundAt.Unix(), int64(cooldown/time.Second)).Int()
 	if err != nil {
 		return false, err
 	}
