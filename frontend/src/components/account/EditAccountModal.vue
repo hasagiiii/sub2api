@@ -2699,7 +2699,14 @@
         </button>
       </div>
 
-      <!-- OpenAI APIKey images: backfill b64_json from url -->
+      <!-- OpenAI images: size tier routing -->
+      <div
+        v-if="account?.platform === 'openai'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <OpenAIImageSizeTiersField v-model="openAIImageSizeTiers" />
+      </div>
+
       <div
         v-if="supportsUpstreamBillingProbe(account?.platform, account?.type)"
         class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
@@ -3872,6 +3879,13 @@ import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import OpenAIRequestTimezoneField from '@/components/account/OpenAIRequestTimezoneField.vue'
+import OpenAIImageSizeTiersField from '@/components/account/OpenAIImageSizeTiersField.vue'
+import {
+  OPENAI_IMAGE_SIZE_TIERS,
+  applyOpenAIImageSizeTiersToExtra,
+  readOpenAIImageSizeTiers,
+  type OpenAIImageSizeTier
+} from '@/components/account/openaiImageSizeTiers'
 import Toggle from '@/components/common/Toggle.vue'
 import AccountRpmSettings from '@/components/account/AccountRpmSettings.vue'
 import { applyAccountRPMSettings } from '@/components/account/accountRpm'
@@ -4771,6 +4785,7 @@ const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIResponsesImageGenerationEnabled = ref(true)
 // Images 非流式响应缺 b64_json 时由网关下载 url 回填（仅 OpenAI API Key）。
 const openAIImagesUrlToB64JsonEnabled = ref(false)
+const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TIERS])
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiOAuthWSSSEAcceleration = ref(false)
@@ -5276,10 +5291,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	upstreamRequestIdHeader.value = readUpstreamRequestIdHeader(extra)
 	maxUsers.value = readAccountMaxUsers(extra)
 	openAIImagesUrlToB64JsonEnabled.value = extra?.images_url_to_b64_json === true
-  autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
-  autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
-  autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
-  autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
+	openAIImageSizeTiers.value = readOpenAIImageSizeTiers(extra)
+	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
+	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
+	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
+	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
 	autoResetCreditEnabled.value = extra?.auto_reset_credit_enabled === true
 	autoResetCredit5hThreshold.value =
 		typeof extra?.auto_reset_credit_5h_threshold === 'number' ? extra.auto_reset_credit_5h_threshold * 100 : 100
@@ -7202,6 +7218,7 @@ const handleSubmit = async () => {
       } else {
         newExtra.openai_responses_image_generation_enabled = false
       }
+		applyOpenAIImageSizeTiersToExtra(newExtra, openAIImageSizeTiers.value)
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
 			newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
 		} else {

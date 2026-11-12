@@ -112,6 +112,8 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sqlmock.AnyArg(), // session_id
 			sqlmock.AnyArg(), // request_parameters
 			log.NativeCompactionV2,
+			log.CacheCreation30mTokens,
+			log.CacheCreation12hTokens,
 			createdAt,
 			nil, // x_app
 		).
@@ -218,6 +220,8 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sqlmock.AnyArg(), // session_id
 			sqlmock.AnyArg(), // request_parameters
 			log.NativeCompactionV2,
+			log.CacheCreation30mTokens,
+			log.CacheCreation12hTokens,
 			createdAt,
 			nil, // x_app
 		).
@@ -300,8 +304,8 @@ func TestPrepareUsageLogInsert_PersistsNativeCompactionV2WithoutChangingRequestT
 	prepared := prepareUsageLogInsert(log)
 
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
-	require.Equal(t, "boolean", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-3])
-	require.Equal(t, true, prepared.args[len(prepared.args)-3])
+	require.Equal(t, "boolean", usageLogInsertArgTypes[len(usageLogInsertArgTypes)-5])
+	require.Equal(t, true, prepared.args[len(prepared.args)-5])
 	require.Equal(t, int16(service.RequestTypeStream), prepared.args[30])
 	require.Equal(t, service.RequestTypeStream, log.RequestType)
 	require.True(t, log.Stream)
@@ -997,6 +1001,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // session_id
 			[]byte(nil),      // request_parameters
 			false,            // native_compaction_v2
+			0,                // cache_creation_30m_tokens
+			0,                // cache_creation_12h_tokens
 			now,
 			sql.NullString{}, // x_app
 		}})
@@ -1092,6 +1098,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // session_id
 			[]byte(nil),       // request_parameters
 			false,             // native_compaction_v2
+			0,                 // cache_creation_30m_tokens
+			0,                 // cache_creation_12h_tokens
 			now,
 			sql.NullString{}, // x_app
 		}})
@@ -1168,6 +1176,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // session_id
 			[]byte(nil),       // request_parameters
 			true,              // native_compaction_v2
+			0,                 // cache_creation_30m_tokens
+			0,                 // cache_creation_12h_tokens
 			now,
 			sql.NullString{}, // x_app
 		}})
@@ -1245,6 +1255,8 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{},  // session_id
 			[]byte(nil),       // request_parameters
 			false,             // native_compaction_v2
+			0,                 // cache_creation_30m_tokens
+			0,                 // cache_creation_12h_tokens
 			now,
 			sql.NullString{}, // x_app
 		}})

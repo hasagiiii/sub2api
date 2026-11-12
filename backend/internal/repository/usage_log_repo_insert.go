@@ -95,6 +95,8 @@ var usageLogInsertArgTypes = [...]string{
 	"text",        // session_id
 	"jsonb",       // request_parameters
 	"boolean",     // native_compaction_v2
+	"integer",     // cache_creation_30m_tokens
+	"integer",     // cache_creation_12h_tokens
 	"timestamptz", // created_at
 	"text",        // x_app
 }
@@ -315,6 +317,8 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			session_id,
 			request_parameters,
 			native_compaction_v2,
+			cache_creation_30m_tokens,
+			cache_creation_12h_tokens,
 			created_at,
 			x_app
 		) VALUES (
@@ -323,7 +327,7 @@ func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor,
 			$12, $13, $14, $15,
 			$16, $17, $18, $19,
 			$20, $21, $22, $23, $24, $25,
-			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73
+			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id, created_at
@@ -786,6 +790,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 			session_id,
 			request_parameters,
 			native_compaction_v2,
+			cache_creation_30m_tokens,
+			cache_creation_12h_tokens,
 			created_at,
 			x_app
 		) AS (VALUES `)
@@ -891,6 +897,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				session_id,
 			request_parameters,
 			native_compaction_v2,
+				cache_creation_30m_tokens,
+				cache_creation_12h_tokens,
 				created_at,
 				x_app
 			)
@@ -966,6 +974,8 @@ func buildUsageLogBatchInsertQuery(keys []string, preparedByKey map[string]usage
 				session_id,
 			request_parameters,
 			native_compaction_v2,
+				cache_creation_30m_tokens,
+				cache_creation_12h_tokens,
 				created_at,
 				x_app
 			FROM input
@@ -1081,6 +1091,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			session_id,
 			request_parameters,
 			native_compaction_v2,
+			cache_creation_30m_tokens,
+			cache_creation_12h_tokens,
 			created_at,
 			x_app
 		) AS (VALUES `)
@@ -1182,6 +1194,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			session_id,
 			request_parameters,
 			native_compaction_v2,
+			cache_creation_30m_tokens,
+			cache_creation_12h_tokens,
 			created_at,
 			x_app
 		)
@@ -1257,6 +1271,8 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 			session_id,
 			request_parameters,
 			native_compaction_v2,
+			cache_creation_30m_tokens,
+			cache_creation_12h_tokens,
 			created_at,
 			x_app
 		FROM input
@@ -1340,6 +1356,8 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			session_id,
 			request_parameters,
 			native_compaction_v2,
+			cache_creation_30m_tokens,
+			cache_creation_12h_tokens,
 			created_at,
 			x_app
 		) VALUES (
@@ -1348,7 +1366,7 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 			$12, $13, $14, $15,
 			$16, $17, $18, $19,
 			$20, $21, $22, $23, $24, $25,
-			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73
+			$26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75
 		)
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 	`, prepared.args...)
@@ -1518,6 +1536,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			sessionID,                         // session_id
 			mustMarshalAnyMap(log.RequestParameters),
 			log.NativeCompactionV2,
+			log.CacheCreation30mTokens,
+			log.CacheCreation12hTokens,
 			createdAt,
 			nullString(log.XApp),
 		},

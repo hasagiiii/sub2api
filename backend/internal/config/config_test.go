@@ -23,6 +23,7 @@ func resetViperWithJWTSecret(t *testing.T) {
 	t.Setenv("DATA_DIR", "")
 	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
 	isolateConfigDir(t)
+	stubMemoryLimit(t, 0)
 }
 
 // isolateConfigDir 防止测试机上的真实全局 config（如 /app/data/config.yaml、./config.yaml）
@@ -36,6 +37,91 @@ func isolateConfigDir(t *testing.T) {
 		t.Fatalf("write empty config: %v", err)
 	}
 	t.Setenv("DATA_DIR", tmpDir)
+}
+
+func stubMemoryLimit(t *testing.T, limit uint64) {
+	t.Helper()
+	original := detectMemoryLimitBytes
+	detectMemoryLimitBytes = func() uint64 { return limit }
+	t.Cleanup(func() { detectMemoryLimitBytes = original })
+}
+
+func TestAutoRequestBodyMemoryBudget(t *testing.T) {
+	require.Equal(t, int64(1<<30), autoRequestBodyMemoryBudget(0))
+	require.Equal(t, int64(1<<30), autoRequestBodyMemoryBudget(2<<30))
+	require.Equal(t, int64(2<<30), autoRequestBodyMemoryBudget(8<<30))
+	require.Equal(t, int64(32<<30), autoRequestBodyMemoryBudget(128<<30))
+	require.Equal(t, int64(math.MaxUint64/4), autoRequestBodyMemoryBudget(math.MaxUint64))
+}
+
+func TestLoadRequestBodyMemoryBudget(t *testing.T) {
+	t.Run("auto-sized from memory limit when unset", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		stubMemoryLimit(t, 128<<30)
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.Equal(t, int64(32<<30), cfg.Gateway.RequestBodyMemoryBudgetBytes)
+	})
+
+	t.Run("explicit environment value wins, including 0", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		stubMemoryLimit(t, 128<<30)
+		t.Setenv("GATEWAY_REQUEST_BODY_MEMORY_BUDGET_BYTES", "0")
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.Zero(t, cfg.Gateway.RequestBodyMemoryBudgetBytes)
+	})
+
+	t.Run("empty environment value is ignored like viper does", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		stubMemoryLimit(t, 128<<30)
+		t.Setenv("GATEWAY_REQUEST_BODY_MEMORY_BUDGET_BYTES", "")
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.Equal(t, int64(32<<30), cfg.Gateway.RequestBodyMemoryBudgetBytes)
+	})
+
+	t.Run("explicit environment value wins over auto-sizing", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		stubMemoryLimit(t, 128<<30)
+		t.Setenv("GATEWAY_REQUEST_BODY_MEMORY_BUDGET_BYTES", "2147483648")
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.Equal(t, int64(2<<30), cfg.Gateway.RequestBodyMemoryBudgetBytes)
+	})
+
+	t.Run("explicit config file 0 disables the budget", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		stubMemoryLimit(t, 128<<30)
+		configFile := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(configFile, []byte("gateway:\n  request_body_memory_budget_bytes: 0\n"), 0o600))
+		t.Setenv("CONFIG_FILE", configFile)
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.Zero(t, cfg.Gateway.RequestBodyMemoryBudgetBytes)
+	})
+
+	t.Run("config file without the key is auto-sized", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		stubMemoryLimit(t, 128<<30)
+		configFile := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(configFile, []byte("gateway:\n  max_body_size: 268435456\n"), 0o600))
+		t.Setenv("CONFIG_FILE", configFile)
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.Equal(t, int64(32<<30), cfg.Gateway.RequestBodyMemoryBudgetBytes)
+	})
+
+	t.Run("explicit config file value wins", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		stubMemoryLimit(t, 128<<30)
+		configFile := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(configFile, []byte("gateway:\n  request_body_memory_budget_bytes: 1073741824\n"), 0o600))
+		t.Setenv("CONFIG_FILE", configFile)
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.Equal(t, int64(1<<30), cfg.Gateway.RequestBodyMemoryBudgetBytes)
+	})
 }
 
 func TestLoadDefaultModelsListReadMaxBytes(t *testing.T) {
@@ -158,6 +244,12 @@ func TestLoadHTTPIngressSafetyDefaults(t *testing.T) {
 	require.False(t, cfg.Server.TrustedProxiesConfigured)
 	require.True(t, cfg.TrustForwardedIPForAPIKeyACL())
 	require.Equal(t, int64(32*1024*1024), cfg.Gateway.TextMaxBodySize)
+	require.Equal(t, int64(1<<30), cfg.Gateway.RequestBodyMemoryBudgetBytes)
+	require.Equal(t, 120, cfg.Gateway.RequestBodyReadTimeoutSeconds)
+	require.Equal(t, 120, cfg.Gateway.DownstreamWriteTimeoutSeconds)
+	require.Equal(t, 500<<20, cfg.Gateway.MaxLineSize)
+	require.Equal(t, int64(8<<20), cfg.Gateway.SSEQueueMaxBytes)
+	require.Equal(t, 4096, cfg.Gateway.SSEEventMaxLines)
 	require.True(t, cfg.APIKeyAuth.InvalidAbuse.Enabled)
 	require.Equal(t, 120, cfg.APIKeyAuth.InvalidAbuse.Threshold)
 	require.Equal(t, 16384, cfg.APIKeyAuth.InvalidAbuse.Capacity)
@@ -1702,6 +1794,16 @@ func TestValidateConfigErrors(t *testing.T) {
 		mutate  func(*Config)
 		wantErr string
 	}{
+		{
+			name:    "negative ingress memory budget",
+			mutate:  func(c *Config) { c.Gateway.RequestBodyMemoryBudgetBytes = -1 },
+			wantErr: "gateway.request_body_memory_budget_bytes",
+		},
+		{
+			name:    "negative upload timeout",
+			mutate:  func(c *Config) { c.Gateway.RequestBodyReadTimeoutSeconds = -1 },
+			wantErr: "gateway.request_body_read_timeout_seconds",
+		},
 		{
 			name:    "server read header timeout",
 			mutate:  func(c *Config) { c.Server.ReadHeaderTimeout = 0 },

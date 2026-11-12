@@ -230,6 +230,7 @@ const (
 	// 白名单非空时，是否放行非白名单域名按主域名限量注册（每域名 1 个账户）。
 	// 默认 false：非白名单域名直接拒绝（白名单严格模式）。
 	SettingKeyRegistrationEmailDomainQuotaEnabled = "registration_email_domain_quota_enabled"
+	SettingKeyRegistrationEmailBlacklist          = "registration_email_blacklist"          // 注册邮箱精确黑名单（JSON 数组，按收件箱身份匹配；不进 SystemSettings，由专用接口读写）
 	SettingKeyPromoCodeEnabled                    = "promo_code_enabled"                    // 是否启用优惠码功能
 	SettingKeyPasswordResetEnabled                = "password_reset_enabled"                // 是否启用忘记密码功能（需要先开启邮件验证）
 	SettingKeyFrontendURL                         = "frontend_url"                          // 前端基础URL，用于生成邮件中的重置密码链接
@@ -243,13 +244,13 @@ const (
 	SettingKeyRiskControlEnabled                  = "risk_control_enabled"                  // 是否启用风控中心入口与审计链路
 	SettingKeyContentModerationConfig             = "content_moderation_config"             // 内容审计配置（JSON）
 	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"           // cyber 命中后会话级自动屏蔽总开关(默认关)
+	SettingKeyCyberPolicyUserAllowlist            = "cyber_policy_user_allowlist"           // Platform user IDs with log-only cyber handling
 	SettingKeyCyberSessionBlockTTLSeconds         = "cyber_session_block_ttl_seconds"       // 会话屏蔽 TTL 秒数(默认 3600)
 	SettingKeyCyberSessionIdentityStrictEnabled   = "cyber_session_identity_strict_enabled" // 要求可信显式会话身份(默认关，仅会话屏蔽开启时生效)
 	SettingKeyLoginAgreementEnabled               = "login_agreement_enabled"               // 登录前是否要求同意条款
 	SettingKeyLoginAgreementMode                  = "login_agreement_mode"                  // 条款确认展示模式：modal / checkbox
 	SettingKeyLoginAgreementUpdatedAt             = "login_agreement_updated_at"            // 条款更新日期（展示用）
 	SettingKeyLoginAgreementDocuments             = "login_agreement_documents"             // 条款文档列表（JSON，Markdown 内容）
-	SettingKeyCyberPolicyUserAllowlist            = "cyber_policy_user_allowlist"           // Platform user IDs with log-only cyber handling
 
 	// 邮件服务设置
 	SettingKeySMTPHost     = "smtp_host"      // SMTP服务器地址

@@ -14,9 +14,9 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-// v30 combines local v29 routing/restrictions with upstream v25 image_count_billing.
-// Neither parent's snapshots contain the complete merged authorization policy.
-const apiKeyAuthSnapshotVersion = 30
+// v31 combines local v30 routing/restrictions with upstream v27 require_privacy_set
+// and user-group RPM override group tracking.
+const apiKeyAuthSnapshotVersion = 31
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -402,10 +402,11 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 	// 填充 (user, group) RPM override —— snapshot 构建时查一次 DB，后续请求零 DB 往返。
 	if apiKey.GroupID != nil && *apiKey.GroupID > 0 && s.userGroupRateRepo != nil {
 		override, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, apiKey.UserID, *apiKey.GroupID)
-		if err == nil && override != nil {
+		if err == nil {
 			snapshot.User.UserGroupRPMOverride = override
+			snapshot.User.UserGroupRPMOverrideGroupID = *apiKey.GroupID
 		}
-		// 查询失败或无 override 时留 nil，checkRPM 会回退到 DB 查询
+		// 查询失败时不记录分组，checkRPM 会回退到 DB 查询
 	}
 
 	if apiKey.Group != nil {
@@ -481,6 +482,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ProfitControlEnabled:            apiKey.Group.ProfitControlEnabled,
 			ProfitMinMargin:                 apiKey.Group.ProfitMinMargin,
 			ProfitSafetyBuffer:              apiKey.Group.ProfitSafetyBuffer,
+			RequirePrivacySet:               apiKey.Group.RequirePrivacySet,
 		}
 	}
 	return snapshot
@@ -510,27 +512,28 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		RateLimit1d:                snapshot.RateLimit1d,
 		RateLimit7d:                snapshot.RateLimit7d,
 		User: &User{
-			ID:                         snapshot.User.ID,
-			IdentityType:               snapshot.User.IdentityType,
-			AccountID:                  snapshot.User.AccountID,
-			AuthzGeneration:            snapshot.User.AuthzGeneration,
-			MustChangePassword:         snapshot.User.MustChangePassword,
-			Status:                     snapshot.User.Status,
-			Role:                       snapshot.User.Role,
-			Balance:                    snapshot.User.Balance,
-			Concurrency:                snapshot.User.Concurrency,
-			AllowedGroups:              snapshot.User.AllowedGroups,
-			Email:                      snapshot.User.Email,
-			Username:                   snapshot.User.Username,
-			BalanceNotifyEnabled:       snapshot.User.BalanceNotifyEnabled,
-			RestrictPublicGroups:       snapshot.User.RestrictPublicGroups,
-			BalanceNotifyThresholdType: snapshot.User.BalanceNotifyThresholdType,
-			BalanceNotifyThreshold:     snapshot.User.BalanceNotifyThreshold,
-			BalanceNotifyExtraEmails:   snapshot.User.BalanceNotifyExtraEmails,
-			TotalRecharged:             snapshot.User.TotalRecharged,
-			RPMLimit:                   snapshot.User.RPMLimit,
-			UserGroupRPMOverride:       snapshot.User.UserGroupRPMOverride,
-			UserGroupDeniedModels:      snapshot.User.UserGroupDeniedModels,
+			ID:                          snapshot.User.ID,
+			IdentityType:                snapshot.User.IdentityType,
+			AccountID:                   snapshot.User.AccountID,
+			AuthzGeneration:             snapshot.User.AuthzGeneration,
+			MustChangePassword:          snapshot.User.MustChangePassword,
+			Status:                      snapshot.User.Status,
+			Role:                        snapshot.User.Role,
+			Balance:                     snapshot.User.Balance,
+			Concurrency:                 snapshot.User.Concurrency,
+			AllowedGroups:               snapshot.User.AllowedGroups,
+			Email:                       snapshot.User.Email,
+			Username:                    snapshot.User.Username,
+			BalanceNotifyEnabled:        snapshot.User.BalanceNotifyEnabled,
+			RestrictPublicGroups:        snapshot.User.RestrictPublicGroups,
+			BalanceNotifyThresholdType:  snapshot.User.BalanceNotifyThresholdType,
+			BalanceNotifyThreshold:      snapshot.User.BalanceNotifyThreshold,
+			BalanceNotifyExtraEmails:    snapshot.User.BalanceNotifyExtraEmails,
+			TotalRecharged:              snapshot.User.TotalRecharged,
+			RPMLimit:                    snapshot.User.RPMLimit,
+			UserGroupRPMOverride:        snapshot.User.UserGroupRPMOverride,
+			UserGroupDeniedModels:       snapshot.User.UserGroupDeniedModels,
+			UserGroupRPMOverrideGroupID: snapshot.User.UserGroupRPMOverrideGroupID,
 		},
 	}
 	if snapshot.Group != nil {
@@ -607,6 +610,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ProfitControlEnabled:            snapshot.Group.ProfitControlEnabled,
 			ProfitMinMargin:                 snapshot.Group.ProfitMinMargin,
 			ProfitSafetyBuffer:              snapshot.Group.ProfitSafetyBuffer,
+			RequirePrivacySet:               snapshot.Group.RequirePrivacySet,
 		}
 		normalizeKiroCacheEmulationFields(apiKey.Group)
 		normalizeKiroEndpointFields(apiKey.Group)
