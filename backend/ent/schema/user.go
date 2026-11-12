@@ -110,6 +110,13 @@ func (User) Fields() []ent.Field {
 				}
 			}).
 			Default("email"),
+		// 自助注册时的客户端 IP 与 User-Agent（仅管理端可见）；管理员/IAM 创建的用户为空。
+		field.String("register_ip").
+			MaxLen(64).
+			Default(""),
+		field.String("register_user_agent").
+			SchemaType(map[string]string{dialect.Postgres: "text"}).
+			Default(""),
 		field.Time("last_login_at").
 			Optional().
 			Nillable().

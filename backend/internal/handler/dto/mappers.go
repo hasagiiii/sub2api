@@ -85,6 +85,8 @@ func UserFromServiceAdmin(u *service.User) *AdminUser {
 		OrganizationRole:     u.OrganizationRole,
 		GroupRates:           u.GroupRates,
 		RestrictPublicGroups: u.RestrictPublicGroups,
+		RegisterIP:           u.RegisterIP,
+		RegisterUserAgent:    u.RegisterUserAgent,
 	}
 }
 

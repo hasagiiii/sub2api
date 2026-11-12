@@ -63,6 +63,10 @@ const (
 	FieldTotpEnabledAt = "totp_enabled_at"
 	// FieldSignupSource holds the string denoting the signup_source field in the database.
 	FieldSignupSource = "signup_source"
+	// FieldRegisterIP holds the string denoting the register_ip field in the database.
+	FieldRegisterIP = "register_ip"
+	// FieldRegisterUserAgent holds the string denoting the register_user_agent field in the database.
+	FieldRegisterUserAgent = "register_user_agent"
 	// FieldLastLoginAt holds the string denoting the last_login_at field in the database.
 	FieldLastLoginAt = "last_login_at"
 	// FieldLastActiveAt holds the string denoting the last_active_at field in the database.
@@ -254,6 +258,8 @@ var Columns = []string{
 	FieldTotpEnabled,
 	FieldTotpEnabledAt,
 	FieldSignupSource,
+	FieldRegisterIP,
+	FieldRegisterUserAgent,
 	FieldLastLoginAt,
 	FieldLastActiveAt,
 	FieldRestrictPublicGroups,
@@ -341,6 +347,12 @@ var (
 	DefaultSignupSource string
 	// SignupSourceValidator is a validator for the "signup_source" field. It is called by the builders before save.
 	SignupSourceValidator func(string) error
+	// DefaultRegisterIP holds the default value on creation for the "register_ip" field.
+	DefaultRegisterIP string
+	// RegisterIPValidator is a validator for the "register_ip" field. It is called by the builders before save.
+	RegisterIPValidator func(string) error
+	// DefaultRegisterUserAgent holds the default value on creation for the "register_user_agent" field.
+	DefaultRegisterUserAgent string
 	// DefaultRestrictPublicGroups holds the default value on creation for the "restrict_public_groups" field.
 	DefaultRestrictPublicGroups bool
 	// DefaultBalanceNotifyEnabled holds the default value on creation for the "balance_notify_enabled" field.
@@ -476,6 +488,16 @@ func ByTotpEnabledAt(opts ...sql.OrderTermOption) OrderOption {
 // BySignupSource orders the results by the signup_source field.
 func BySignupSource(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSignupSource, opts...).ToFunc()
+}
+
+// ByRegisterIP orders the results by the register_ip field.
+func ByRegisterIP(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRegisterIP, opts...).ToFunc()
+}
+
+// ByRegisterUserAgent orders the results by the register_user_agent field.
+func ByRegisterUserAgent(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRegisterUserAgent, opts...).ToFunc()
 }
 
 // ByLastLoginAt orders the results by the last_login_at field.

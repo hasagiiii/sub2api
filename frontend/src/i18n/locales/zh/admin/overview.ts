@@ -528,8 +528,8 @@ export default {
       deleteUser: '删除用户',
       archived: '已归档',
       deleteConfirmMessage: "确定要删除用户 '{email}' 吗？此操作无法撤销。",
-      searchPlaceholder: 'ID/邮箱/登录账号/用户名/备注/API Key 模糊搜索...',
-      searchUsers: 'ID/邮箱/登录账号/用户名/备注/API Key 模糊搜索',
+      searchPlaceholder: 'ID/邮箱/登录账号/用户名/备注/注册 IP/API Key 模糊搜索...',
+      searchUsers: 'ID/邮箱/登录账号/用户名/备注/注册 IP/API Key 模糊搜索',
       roleFilter: '角色筛选',
       allRoles: '全部角色',
       allStatus: '全部状态',
@@ -587,6 +587,7 @@ export default {
         status: '状态',
         lastActive: '最后活跃时间',
         lastUsed: '最后使用时间',
+        registerClient: '注册 IP / UA',
         created: '创建时间',
         actions: '操作'
       },

@@ -170,6 +170,16 @@ func SignupSource(v string) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldSignupSource, v))
 }
 
+// RegisterIP applies equality check predicate on the "register_ip" field. It's identical to RegisterIPEQ.
+func RegisterIP(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldRegisterIP, v))
+}
+
+// RegisterUserAgent applies equality check predicate on the "register_user_agent" field. It's identical to RegisterUserAgentEQ.
+func RegisterUserAgent(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldRegisterUserAgent, v))
+}
+
 // LastLoginAt applies equality check predicate on the "last_login_at" field. It's identical to LastLoginAtEQ.
 func LastLoginAt(v time.Time) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldLastLoginAt, v))
@@ -1453,6 +1463,136 @@ func SignupSourceEqualFold(v string) predicate.User {
 // SignupSourceContainsFold applies the ContainsFold predicate on the "signup_source" field.
 func SignupSourceContainsFold(v string) predicate.User {
 	return predicate.User(sql.FieldContainsFold(FieldSignupSource, v))
+}
+
+// RegisterIPEQ applies the EQ predicate on the "register_ip" field.
+func RegisterIPEQ(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldRegisterIP, v))
+}
+
+// RegisterIPNEQ applies the NEQ predicate on the "register_ip" field.
+func RegisterIPNEQ(v string) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldRegisterIP, v))
+}
+
+// RegisterIPIn applies the In predicate on the "register_ip" field.
+func RegisterIPIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldIn(FieldRegisterIP, vs...))
+}
+
+// RegisterIPNotIn applies the NotIn predicate on the "register_ip" field.
+func RegisterIPNotIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldRegisterIP, vs...))
+}
+
+// RegisterIPGT applies the GT predicate on the "register_ip" field.
+func RegisterIPGT(v string) predicate.User {
+	return predicate.User(sql.FieldGT(FieldRegisterIP, v))
+}
+
+// RegisterIPGTE applies the GTE predicate on the "register_ip" field.
+func RegisterIPGTE(v string) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldRegisterIP, v))
+}
+
+// RegisterIPLT applies the LT predicate on the "register_ip" field.
+func RegisterIPLT(v string) predicate.User {
+	return predicate.User(sql.FieldLT(FieldRegisterIP, v))
+}
+
+// RegisterIPLTE applies the LTE predicate on the "register_ip" field.
+func RegisterIPLTE(v string) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldRegisterIP, v))
+}
+
+// RegisterIPContains applies the Contains predicate on the "register_ip" field.
+func RegisterIPContains(v string) predicate.User {
+	return predicate.User(sql.FieldContains(FieldRegisterIP, v))
+}
+
+// RegisterIPHasPrefix applies the HasPrefix predicate on the "register_ip" field.
+func RegisterIPHasPrefix(v string) predicate.User {
+	return predicate.User(sql.FieldHasPrefix(FieldRegisterIP, v))
+}
+
+// RegisterIPHasSuffix applies the HasSuffix predicate on the "register_ip" field.
+func RegisterIPHasSuffix(v string) predicate.User {
+	return predicate.User(sql.FieldHasSuffix(FieldRegisterIP, v))
+}
+
+// RegisterIPEqualFold applies the EqualFold predicate on the "register_ip" field.
+func RegisterIPEqualFold(v string) predicate.User {
+	return predicate.User(sql.FieldEqualFold(FieldRegisterIP, v))
+}
+
+// RegisterIPContainsFold applies the ContainsFold predicate on the "register_ip" field.
+func RegisterIPContainsFold(v string) predicate.User {
+	return predicate.User(sql.FieldContainsFold(FieldRegisterIP, v))
+}
+
+// RegisterUserAgentEQ applies the EQ predicate on the "register_user_agent" field.
+func RegisterUserAgentEQ(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentNEQ applies the NEQ predicate on the "register_user_agent" field.
+func RegisterUserAgentNEQ(v string) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentIn applies the In predicate on the "register_user_agent" field.
+func RegisterUserAgentIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldIn(FieldRegisterUserAgent, vs...))
+}
+
+// RegisterUserAgentNotIn applies the NotIn predicate on the "register_user_agent" field.
+func RegisterUserAgentNotIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldRegisterUserAgent, vs...))
+}
+
+// RegisterUserAgentGT applies the GT predicate on the "register_user_agent" field.
+func RegisterUserAgentGT(v string) predicate.User {
+	return predicate.User(sql.FieldGT(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentGTE applies the GTE predicate on the "register_user_agent" field.
+func RegisterUserAgentGTE(v string) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentLT applies the LT predicate on the "register_user_agent" field.
+func RegisterUserAgentLT(v string) predicate.User {
+	return predicate.User(sql.FieldLT(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentLTE applies the LTE predicate on the "register_user_agent" field.
+func RegisterUserAgentLTE(v string) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentContains applies the Contains predicate on the "register_user_agent" field.
+func RegisterUserAgentContains(v string) predicate.User {
+	return predicate.User(sql.FieldContains(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentHasPrefix applies the HasPrefix predicate on the "register_user_agent" field.
+func RegisterUserAgentHasPrefix(v string) predicate.User {
+	return predicate.User(sql.FieldHasPrefix(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentHasSuffix applies the HasSuffix predicate on the "register_user_agent" field.
+func RegisterUserAgentHasSuffix(v string) predicate.User {
+	return predicate.User(sql.FieldHasSuffix(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentEqualFold applies the EqualFold predicate on the "register_user_agent" field.
+func RegisterUserAgentEqualFold(v string) predicate.User {
+	return predicate.User(sql.FieldEqualFold(FieldRegisterUserAgent, v))
+}
+
+// RegisterUserAgentContainsFold applies the ContainsFold predicate on the "register_user_agent" field.
+func RegisterUserAgentContainsFold(v string) predicate.User {
+	return predicate.User(sql.FieldContainsFold(FieldRegisterUserAgent, v))
 }
 
 // LastLoginAtEQ applies the EQ predicate on the "last_login_at" field.

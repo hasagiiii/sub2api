@@ -682,6 +682,17 @@
             </span>
           </template>
 
+          <template #cell-register_client="{ row }">
+            <div v-if="row.register_ip || row.register_user_agent" class="max-w-[260px] text-xs" data-test="register-client">
+              <div class="font-mono text-gray-700 dark:text-gray-300">{{ row.register_ip || '-' }}</div>
+              <div
+                class="truncate text-gray-500 dark:text-dark-400"
+                :title="row.register_user_agent || undefined"
+              >{{ row.register_user_agent || '-' }}</div>
+            </div>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+          </template>
+
           <template #cell-last_active_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-dark-400">
               {{ value ? formatDateTime(value) : '-' }}
@@ -988,6 +999,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'usage_grok', label: t('admin.users.columns.usageGrok'), sortable: false },
   { key: 'concurrency', label: t('admin.users.columns.concurrency'), sortable: true },
   { key: 'status', label: t('admin.users.columns.status'), sortable: true },
+  { key: 'register_client', label: t('admin.users.columns.registerClient'), sortable: false },
   { key: 'last_active_at', label: t('admin.users.columns.lastActive'), sortable: true },
   { key: 'last_used_at', label: t('admin.users.columns.lastUsed'), sortable: true },
   { key: 'created_at', label: t('admin.users.columns.created'), sortable: true },

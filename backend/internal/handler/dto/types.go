@@ -61,6 +61,9 @@ type AdminUser struct {
 	// RestrictPublicGroups 为 true 时，该用户仅可使用 allowed_groups 中列出的
 	// 公开分组。这是管理侧的权限开关，不下发给用户自身的接口。
 	RestrictPublicGroups bool `json:"restrict_public_groups"`
+	// RegisterIP / RegisterUserAgent 为自助注册时记录的客户端信息，管理员创建的用户为空。
+	RegisterIP        string `json:"register_ip"`
+	RegisterUserAgent string `json:"register_user_agent"`
 }
 
 type APIKey struct {

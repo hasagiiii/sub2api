@@ -194,8 +194,13 @@ func (r *userRepository) createWithPublicID(ctx context.Context, userIn *service
 		}
 	}
 
+	if userIn.RegisterIP == "" && userIn.RegisterUserAgent == "" {
+		userIn.RegisterIP, userIn.RegisterUserAgent = service.RegisterClientInfoFromContext(ctx)
+	}
 	createOp := txClient.User.Create().
 		SetUsername(userIn.Username).
+		SetRegisterIP(userIn.RegisterIP).
+		SetRegisterUserAgent(userIn.RegisterUserAgent).
 		SetNotes(userIn.Notes).
 		SetPasswordHash(userIn.PasswordHash).
 		SetRole(userIn.Role).
@@ -709,6 +714,7 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 			dbuser.LoginNameContainsFold(filters.Search),
 			userIAMPrincipalContainsFold(filters.Search),
 			dbuser.NotesContainsFold(filters.Search),
+			dbuser.RegisterIPContainsFold(filters.Search),
 			dbuser.HasAPIKeysWith(apikey.KeyContainsFold(filters.Search)),
 		}
 		// 纯数字（在 int64 范围内）也按 ID 精确匹配：admin 常用 "#123" 或 "123" 定位用户。
@@ -1860,6 +1866,8 @@ func applyUserEntityToService(dst *service.User, src *dbent.User) {
 	dst.RecoveryEmailVerifiedAt = src.RecoveryEmailVerifiedAt
 	dst.AuthzGeneration = src.AuthzGeneration
 	dst.SignupSource = src.SignupSource
+	dst.RegisterIP = src.RegisterIP
+	dst.RegisterUserAgent = src.RegisterUserAgent
 	dst.LastLoginAt = src.LastLoginAt
 	dst.LastActiveAt = src.LastActiveAt
 	dst.CreatedAt = src.CreatedAt

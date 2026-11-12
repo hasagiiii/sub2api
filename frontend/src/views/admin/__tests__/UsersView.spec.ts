@@ -119,6 +119,7 @@ const DataTableStub = {
         <slot name="cell-iam_principal" :value="row.iam_principal" :row="row" />
         <slot name="cell-enterprise_identity" :value="row.enterprise_identity" :row="row" />
         <slot name="cell-last_used_at" :value="row.last_used_at" :row="row" />
+        <slot name="cell-register_client" :row="row" />
         <div :data-test="'actions-' + row.id"><slot name="cell-actions" :row="row" /></div>
       </div>
     </div>
@@ -420,6 +421,30 @@ describe('admin UsersView', () => {
       }),
       expect.any(Object)
     )
+  })
+
+  it('shows the signup IP and user agent column by default', async () => {
+    listUsers.mockResolvedValue({
+      items: [
+        createAdminUser({ id: 1, email: 'signup@example.com', register_ip: '203.0.113.7', register_user_agent: 'Mozilla/5.0 (Test)' }),
+        createAdminUser({ id: 2, email: 'admin-created@example.com', register_ip: '', register_user_agent: '' })
+      ],
+      total: 2,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mountUsersView()
+    await flushPromises()
+
+    const columns = wrapper.get('[data-test="columns"]').text().split(',')
+    expect(columns.indexOf('register_client')).toBe(columns.indexOf('last_active_at') - 1)
+    const cells = wrapper.findAll('[data-test="register-client"]')
+    expect(cells).toHaveLength(1)
+    expect(cells[0].text()).toContain('203.0.113.7')
+    expect(cells[0].text()).toContain('Mozilla/5.0 (Test)')
+    expect(cells[0].find('[title="Mozilla/5.0 (Test)"]').exists()).toBe(true)
   })
 
   it('shows and copies the full login principal for IAM users only', async () => {

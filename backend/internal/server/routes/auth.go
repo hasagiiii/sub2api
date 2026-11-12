@@ -28,6 +28,8 @@ func RegisterAuthRoutes(
 	// 公开接口
 	auth := v1.Group("/auth")
 	auth.Use(servermiddleware.BackendModeAuthGuard(settingService))
+	// 记录注册来源 IP / User-Agent，供自助注册（邮箱与第三方 OAuth）落库。
+	auth.Use(servermiddleware.RegisterClientInfo())
 	// 认证事件（登录/注册/2FA/token 刷新失败）入审计
 	auth.Use(gin.HandlerFunc(auditLog))
 	{

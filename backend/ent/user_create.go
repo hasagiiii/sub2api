@@ -356,6 +356,34 @@ func (_c *UserCreate) SetNillableSignupSource(v *string) *UserCreate {
 	return _c
 }
 
+// SetRegisterIP sets the "register_ip" field.
+func (_c *UserCreate) SetRegisterIP(v string) *UserCreate {
+	_c.mutation.SetRegisterIP(v)
+	return _c
+}
+
+// SetNillableRegisterIP sets the "register_ip" field if the given value is not nil.
+func (_c *UserCreate) SetNillableRegisterIP(v *string) *UserCreate {
+	if v != nil {
+		_c.SetRegisterIP(*v)
+	}
+	return _c
+}
+
+// SetRegisterUserAgent sets the "register_user_agent" field.
+func (_c *UserCreate) SetRegisterUserAgent(v string) *UserCreate {
+	_c.mutation.SetRegisterUserAgent(v)
+	return _c
+}
+
+// SetNillableRegisterUserAgent sets the "register_user_agent" field if the given value is not nil.
+func (_c *UserCreate) SetNillableRegisterUserAgent(v *string) *UserCreate {
+	if v != nil {
+		_c.SetRegisterUserAgent(*v)
+	}
+	return _c
+}
+
 // SetLastLoginAt sets the "last_login_at" field.
 func (_c *UserCreate) SetLastLoginAt(v time.Time) *UserCreate {
 	_c.mutation.SetLastLoginAt(v)
@@ -810,6 +838,14 @@ func (_c *UserCreate) defaults() error {
 		v := user.DefaultSignupSource
 		_c.mutation.SetSignupSource(v)
 	}
+	if _, ok := _c.mutation.RegisterIP(); !ok {
+		v := user.DefaultRegisterIP
+		_c.mutation.SetRegisterIP(v)
+	}
+	if _, ok := _c.mutation.RegisterUserAgent(); !ok {
+		v := user.DefaultRegisterUserAgent
+		_c.mutation.SetRegisterUserAgent(v)
+	}
 	if _, ok := _c.mutation.RestrictPublicGroups(); !ok {
 		v := user.DefaultRestrictPublicGroups
 		_c.mutation.SetRestrictPublicGroups(v)
@@ -936,6 +972,17 @@ func (_c *UserCreate) check() error {
 		if err := user.SignupSourceValidator(v); err != nil {
 			return &ValidationError{Name: "signup_source", err: fmt.Errorf(`ent: validator failed for field "User.signup_source": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.RegisterIP(); !ok {
+		return &ValidationError{Name: "register_ip", err: errors.New(`ent: missing required field "User.register_ip"`)}
+	}
+	if v, ok := _c.mutation.RegisterIP(); ok {
+		if err := user.RegisterIPValidator(v); err != nil {
+			return &ValidationError{Name: "register_ip", err: fmt.Errorf(`ent: validator failed for field "User.register_ip": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.RegisterUserAgent(); !ok {
+		return &ValidationError{Name: "register_user_agent", err: errors.New(`ent: missing required field "User.register_user_agent"`)}
 	}
 	if _, ok := _c.mutation.RestrictPublicGroups(); !ok {
 		return &ValidationError{Name: "restrict_public_groups", err: errors.New(`ent: missing required field "User.restrict_public_groups"`)}
@@ -1077,6 +1124,14 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.SignupSource(); ok {
 		_spec.SetField(user.FieldSignupSource, field.TypeString, value)
 		_node.SignupSource = value
+	}
+	if value, ok := _c.mutation.RegisterIP(); ok {
+		_spec.SetField(user.FieldRegisterIP, field.TypeString, value)
+		_node.RegisterIP = value
+	}
+	if value, ok := _c.mutation.RegisterUserAgent(); ok {
+		_spec.SetField(user.FieldRegisterUserAgent, field.TypeString, value)
+		_node.RegisterUserAgent = value
 	}
 	if value, ok := _c.mutation.LastLoginAt(); ok {
 		_spec.SetField(user.FieldLastLoginAt, field.TypeTime, value)
@@ -1710,6 +1765,30 @@ func (u *UserUpsert) UpdateSignupSource() *UserUpsert {
 	return u
 }
 
+// SetRegisterIP sets the "register_ip" field.
+func (u *UserUpsert) SetRegisterIP(v string) *UserUpsert {
+	u.Set(user.FieldRegisterIP, v)
+	return u
+}
+
+// UpdateRegisterIP sets the "register_ip" field to the value that was provided on create.
+func (u *UserUpsert) UpdateRegisterIP() *UserUpsert {
+	u.SetExcluded(user.FieldRegisterIP)
+	return u
+}
+
+// SetRegisterUserAgent sets the "register_user_agent" field.
+func (u *UserUpsert) SetRegisterUserAgent(v string) *UserUpsert {
+	u.Set(user.FieldRegisterUserAgent, v)
+	return u
+}
+
+// UpdateRegisterUserAgent sets the "register_user_agent" field to the value that was provided on create.
+func (u *UserUpsert) UpdateRegisterUserAgent() *UserUpsert {
+	u.SetExcluded(user.FieldRegisterUserAgent)
+	return u
+}
+
 // SetLastLoginAt sets the "last_login_at" field.
 func (u *UserUpsert) SetLastLoginAt(v time.Time) *UserUpsert {
 	u.Set(user.FieldLastLoginAt, v)
@@ -2255,6 +2334,34 @@ func (u *UserUpsertOne) SetSignupSource(v string) *UserUpsertOne {
 func (u *UserUpsertOne) UpdateSignupSource() *UserUpsertOne {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateSignupSource()
+	})
+}
+
+// SetRegisterIP sets the "register_ip" field.
+func (u *UserUpsertOne) SetRegisterIP(v string) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetRegisterIP(v)
+	})
+}
+
+// UpdateRegisterIP sets the "register_ip" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateRegisterIP() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateRegisterIP()
+	})
+}
+
+// SetRegisterUserAgent sets the "register_user_agent" field.
+func (u *UserUpsertOne) SetRegisterUserAgent(v string) *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.SetRegisterUserAgent(v)
+	})
+}
+
+// UpdateRegisterUserAgent sets the "register_user_agent" field to the value that was provided on create.
+func (u *UserUpsertOne) UpdateRegisterUserAgent() *UserUpsertOne {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateRegisterUserAgent()
 	})
 }
 
@@ -2993,6 +3100,34 @@ func (u *UserUpsertBulk) SetSignupSource(v string) *UserUpsertBulk {
 func (u *UserUpsertBulk) UpdateSignupSource() *UserUpsertBulk {
 	return u.Update(func(s *UserUpsert) {
 		s.UpdateSignupSource()
+	})
+}
+
+// SetRegisterIP sets the "register_ip" field.
+func (u *UserUpsertBulk) SetRegisterIP(v string) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetRegisterIP(v)
+	})
+}
+
+// UpdateRegisterIP sets the "register_ip" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateRegisterIP() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateRegisterIP()
+	})
+}
+
+// SetRegisterUserAgent sets the "register_user_agent" field.
+func (u *UserUpsertBulk) SetRegisterUserAgent(v string) *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.SetRegisterUserAgent(v)
+	})
+}
+
+// UpdateRegisterUserAgent sets the "register_user_agent" field to the value that was provided on create.
+func (u *UserUpsertBulk) UpdateRegisterUserAgent() *UserUpsertBulk {
+	return u.Update(func(s *UserUpsert) {
+		s.UpdateRegisterUserAgent()
 	})
 }
 
