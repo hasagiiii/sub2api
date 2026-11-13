@@ -806,12 +806,12 @@ func (r *organizationRepository) AdminAdjustOrganizationBalance(ctx context.Cont
 		return replayErr
 	}
 	var balanceAfter string
-	operator := "+"
 	kind := "admin_adjustment"
+	// Top-ups may only partially repay an organization's negative balance.
+	query := `UPDATE organizations SET balance=balance+$2::numeric,updated_at=NOW() WHERE id=$1 RETURNING balance::text`
 	if operation == "subtract" {
-		operator = "-"
+		query = `UPDATE organizations SET balance=balance-$2::numeric,updated_at=NOW() WHERE id=$1 AND balance-$2::numeric >= 0 RETURNING balance::text`
 	}
-	query := fmt.Sprintf(`UPDATE organizations SET balance=balance%s$2::numeric,updated_at=NOW() WHERE id=$1 AND balance%s$2::numeric >= 0 RETURNING balance::text`, operator, operator)
 	if err := tx.QueryRowContext(ctx, query, organizationID, amount).Scan(&balanceAfter); errors.Is(err, sql.ErrNoRows) {
 		var exists bool
 		if scanErr := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organizations WHERE id=$1)`, organizationID).Scan(&exists); scanErr != nil {
@@ -820,7 +820,7 @@ func (r *organizationRepository) AdminAdjustOrganizationBalance(ctx context.Cont
 		if !exists {
 			return service.ErrCompanyNotFound
 		}
-		return service.ErrInsufficientBalance
+		return service.ErrCompanyInsufficientBalance
 	} else if err != nil {
 		return err
 	}

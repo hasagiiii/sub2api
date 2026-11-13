@@ -61,19 +61,21 @@
         <div v-if="isOwner" class="space-y-2">
           <div class="flex flex-wrap items-end gap-3">
             <div class="min-w-[200px] flex-1">
-              <label class="input-label" for="company-balance-amount">{{ t('organization.finance.transferAmount') }}</label>
+              <label class="input-label" for="company-balance-amount">{{ t(adminMode ? 'organization.admin.amount' : 'organization.finance.transferAmount') }}</label>
               <input id="company-balance-amount" v-model.trim="companyBalanceAmount" class="input w-full" type="number" min="0.00000001" step="0.00000001">
             </div>
-            <button class="btn btn-primary" :disabled="!canCompanyDeposit || operationKey !== ''" @click="transferCompanyBalance('deposit')">{{ t('organization.finance.deposit') }}</button>
-            <button class="btn btn-secondary" :disabled="!canCompanyWithdraw || operationKey !== ''" @click="transferCompanyBalance('withdraw')">{{ t('organization.finance.withdraw') }}</button>
+            <button class="btn btn-primary" :disabled="!canCompanyDeposit || operationKey !== ''" @click="transferCompanyBalance('deposit')">{{ t(adminMode ? 'organization.admin.addBalance' : 'organization.finance.deposit') }}</button>
+            <button class="btn btn-secondary" :disabled="!canCompanyWithdraw || operationKey !== ''" @click="transferCompanyBalance('withdraw')">{{ t(adminMode ? 'organization.admin.subtractBalance' : 'organization.finance.withdraw') }}</button>
           </div>
           <p class="text-xs text-gray-500">
-            {{ t('organization.finance.depositAvailable') }}: {{ companyAmount(finance?.available) }}
-            <span class="mx-1">·</span>
+            <template v-if="!adminMode">
+              {{ t('organization.finance.depositAvailable') }}: {{ companyAmount(finance?.available) }}
+              <span class="mx-1">·</span>
+            </template>
             {{ t('organization.finance.withdrawAvailable') }}: {{ companyAmount(finance?.company_available) }}
           </p>
         </div>
-        <p v-if="isOwner" class="text-xs text-gray-500">{{ t('organization.finance.companyBalanceHint') }}</p>
+        <p v-if="isOwner" class="text-xs text-gray-500">{{ t(adminMode ? 'organization.admin.balanceHint' : 'organization.finance.companyBalanceHint') }}</p>
       </section>
 
       <section class="card space-y-4 p-5" data-testid="organization-members">
@@ -1736,7 +1738,7 @@ const companyTransferAmount = computed(() => {
 })
 
 const canCompanyDeposit = computed(
-  () => companyTransferAmount.value > 0 && companyTransferAmount.value <= Number(finance.value?.available || 0),
+  () => companyTransferAmount.value > 0 && (adminMode.value || companyTransferAmount.value <= Number(finance.value?.available || 0)),
 )
 
 const canCompanyWithdraw = computed(
@@ -2340,7 +2342,11 @@ async function transferCompanyBalance(operation: 'deposit' | 'withdraw') {
   operationKey.value = 'company:balance'
   error.value = ''
   try {
-    await consoleAPI.transferCompanyBalance(companyBalanceAmount.value, operation)
+    if (adminMode.value) {
+      await organizationAPI.adjustOrganizationBalance(adminOrganizationID.value, companyBalanceAmount.value, operation === 'deposit' ? 'add' : 'subtract')
+    } else {
+      await consoleAPI.transferCompanyBalance(companyBalanceAmount.value, operation)
+    }
     companyBalanceAmount.value = ''
     await load()
   } catch (cause) {

@@ -10,6 +10,7 @@ import CompanyApplicationsView from '@/views/admin/CompanyApplicationsView.vue'
 const memberAPI = vi.hoisted(() => ({
   getContext: vi.fn(), listMembers: vi.fn(), listOrganizations: vi.fn(), listApplications: vi.fn(),
   setOrganizationStatus: vi.fn(), getOrganization: vi.fn(), requestNameChange: vi.fn(),
+  adjustOrganizationBalance: vi.fn(), transferCompanyBalance: vi.fn(), listPolicies: vi.fn(),
 }))
 const adminConsoleAPI = vi.hoisted(() => ({
   getContext: vi.fn(), listMembers: vi.fn(), listPolicies: vi.fn(), transferCompanyBalance: vi.fn(),
@@ -72,6 +73,45 @@ describe('system administrator enterprise management', () => {
     await buttons[0].trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/admin/organizations/5/finance')
+  })
+
+  it.each([
+    ['organization.admin.addBalance', 'add'],
+    ['organization.admin.subtractBalance', 'subtract'],
+  ] as const)('uses direct admin adjustments for %s with zero personal balance', async (label, operation) => {
+    await router.replace('/admin/organizations/5/finance')
+    const wrapper = mount(OrganizationConsoleView, { ...mountOptions, props: { organizationId: 5 } })
+    await flushPromises()
+    await wrapper.get('#company-balance-amount').setValue('25')
+    const button = wrapper.findAll('button').find(item => item.text() === label)!
+    expect(button.attributes('disabled')).toBeUndefined()
+    await button.trigger('click')
+    await flushPromises()
+    expect(memberAPI.adjustOrganizationBalance).toHaveBeenCalledWith(5, 25, operation)
+    expect(adminConsoleAPI.transferCompanyBalance).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('organization.admin.balanceHint')
+    expect(wrapper.text()).not.toContain('organization.finance.depositAvailable')
+    expect((wrapper.get('#company-balance-amount').element as HTMLInputElement).value).toBe('')
+    wrapper.unmount()
+  })
+
+  it('keeps personal balance checks and transfers for the company owner', async () => {
+    await router.replace('/organization/finance')
+    memberAPI.getContext.mockResolvedValue({ ...ownerContext, finance: { ...ownerContext.finance, available: '10' } })
+    memberAPI.listMembers.mockResolvedValue({ items: [], member_limit: 20, used_slots: 0 })
+    memberAPI.listPolicies.mockResolvedValue([])
+    const wrapper = mount(OrganizationConsoleView, mountOptions)
+    await flushPromises()
+    await wrapper.get('#company-balance-amount').setValue('25')
+    const deposit = wrapper.findAll('button').find(item => item.text() === 'organization.finance.deposit')!
+    expect(deposit.attributes('disabled')).toBeDefined()
+    await wrapper.get('#company-balance-amount').setValue('5')
+    expect(deposit.attributes('disabled')).toBeUndefined()
+    await deposit.trigger('click')
+    await flushPromises()
+    expect(memberAPI.transferCompanyBalance).toHaveBeenCalledWith(5, 'deposit')
+    expect(memberAPI.adjustOrganizationBalance).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('runs the console against the admin API with a visible tab bar and no personal actions', async () => {
