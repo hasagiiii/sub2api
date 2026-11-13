@@ -403,12 +403,10 @@ func (s *PaymentConfigService) syncAssignedPlanGroups(ctx context.Context, planI
 			}
 			if _, err := tx.ExecContext(ctx, `INSERT INTO organization_subscriptions(organization_id,group_id,plan_id,starts_at,expires_at,status,assigned_at)
 				VALUES($1,$2,$3,$4,$5,'active',NOW())
-				ON CONFLICT (organization_id, group_id) WHERE deleted_at IS NULL DO UPDATE SET
-					plan_id=EXCLUDED.plan_id,
+				ON CONFLICT (organization_id, group_id, plan_id) WHERE deleted_at IS NULL AND plan_id IS NOT NULL DO UPDATE SET
 					status='active',
 					expires_at=GREATEST(organization_subscriptions.expires_at, EXCLUDED.expires_at),
-					updated_at=NOW()
-				WHERE organization_subscriptions.plan_id IS NULL OR organization_subscriptions.plan_id=EXCLUDED.plan_id`, organizationID, groupID, planID, startsAt, expiresAt); err != nil {
+					updated_at=NOW()`, organizationID, groupID, planID, startsAt, expiresAt); err != nil {
 				return err
 			}
 		}

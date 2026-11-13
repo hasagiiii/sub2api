@@ -1420,8 +1420,8 @@ func organizationNullStringPtr(value sql.NullString) *string {
 
 // orgSubscriptionProvisionSQL 发放一条企业订阅，已过期的同分组订阅原地续期。
 //
-// 唯一索引 idx_org_subscriptions_org_group_active 只看 deleted_at，不看有效期，
-// 所以一条早已过期的订阅会一直占着 (organization_id, group_id) 这个位置。若在冲突
+// 独立分组订阅的唯一索引只看 deleted_at 和 plan_id IS NULL，不看有效期，
+// 所以一条早已过期的独立订阅会一直占着 (organization_id, group_id) 这个位置。若在冲突
 // 时直接报 409，企业订阅到期后就再也发不出新的，只能先撤销旧的——而个人订阅遇到
 // 过期是原地续期，两边语义不该不一致。
 //
@@ -1435,7 +1435,7 @@ func organizationNullStringPtr(value sql.NullString) *string {
 // $1=organization_id $2=group_id $3=validity_days $4=assigned_by $5=notes
 const orgSubscriptionProvisionSQL = `INSERT INTO organization_subscriptions(organization_id,group_id,starts_at,expires_at,status,assigned_by,assigned_at,notes)
 VALUES($1,$2,NOW(),NOW()+($3::int * INTERVAL '1 day'),'active',$4,NOW(),NULLIF($5,''))
-ON CONFLICT (organization_id,group_id) WHERE deleted_at IS NULL
+ON CONFLICT (organization_id,group_id) WHERE deleted_at IS NULL AND plan_id IS NULL
 DO UPDATE SET
     plan_id=NULL,
     starts_at=NOW(),
@@ -1459,9 +1459,8 @@ RETURNING id,starts_at,expires_at,status,assigned_at,created_at`
 
 const orgSubscriptionPlanProvisionSQL = `INSERT INTO organization_subscriptions(organization_id,group_id,plan_id,starts_at,expires_at,status,assigned_by,assigned_at,notes)
 VALUES($1,$2,$3,NOW(),NOW()+($4::int * INTERVAL '1 day'),'active',$5,NOW(),NULLIF($6,''))
-ON CONFLICT (organization_id,group_id) WHERE deleted_at IS NULL
+ON CONFLICT (organization_id,group_id,plan_id) WHERE deleted_at IS NULL AND plan_id IS NOT NULL
 DO UPDATE SET
-    plan_id=$3,
     starts_at=NOW(),
     expires_at=NOW()+($4::int * INTERVAL '1 day'),
     status='active',
@@ -1958,7 +1957,7 @@ func (r *organizationRepository) AdminRevokeOrganizationSubscription(ctx context
 // CreateOrganizationSubscription it operates directly on orgID (fulfillment is
 // system-triggered, not owner-triggered) and is idempotent on orderID via the
 // order note stored on the subscription row:
-//   - If an active, non-deleted subscription for (orgID, groupID) already
+//   - If an active, non-deleted subscription for (orgID, groupID, planID) already
 //     carries this order's note, it is a retry and we no-op.
 //   - Else if an active, non-deleted subscription exists, we extend expires_at
 //     (from the later of now / current expiry) and append the order note.
@@ -2007,7 +2006,7 @@ func (r *organizationRepository) assignOrExtendOrganizationSubscription(ctx cont
 		existingID    int64
 		existingNotes sql.NullString
 	)
-	lookupErr := tx.QueryRowContext(ctx, `SELECT id,notes FROM organization_subscriptions WHERE organization_id=$1 AND group_id=$2 AND deleted_at IS NULL FOR UPDATE`, orgID, groupID).
+	lookupErr := tx.QueryRowContext(ctx, `SELECT id,notes FROM organization_subscriptions WHERE organization_id=$1 AND group_id=$2 AND plan_id IS NOT DISTINCT FROM $3::bigint AND deleted_at IS NULL FOR UPDATE`, orgID, groupID, planID).
 		Scan(&existingID, &existingNotes)
 	switch {
 	case lookupErr == nil:
@@ -2015,7 +2014,7 @@ func (r *organizationRepository) assignOrExtendOrganizationSubscription(ctx cont
 		if existingNotes.Valid && organizationNotesContainLine(existingNotes.String, orderNote) {
 			return tx.Commit()
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE organization_subscriptions SET plan_id=COALESCE($4,plan_id),expires_at=GREATEST(expires_at,NOW())+($1::int * INTERVAL '1 day'),status='active',notes=CASE WHEN COALESCE(notes,'')='' THEN $2 ELSE notes||E'\n'||$2 END,updated_at=NOW() WHERE id=$3`, validityDays, orderNote, existingID, planID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE organization_subscriptions SET expires_at=GREATEST(expires_at,NOW())+($1::int * INTERVAL '1 day'),status='active',notes=CASE WHEN COALESCE(notes,'')='' THEN $2 ELSE notes||E'\n'||$2 END,updated_at=NOW() WHERE id=$3`, validityDays, orderNote, existingID); err != nil {
 			return err
 		}
 	case errors.Is(lookupErr, sql.ErrNoRows):
@@ -2148,12 +2147,10 @@ func (r *organizationRepository) syncOrganizationPlanGroups(ctx context.Context,
 		  AND s.expires_at > NOW()
 		  AND group_id.value ~ '^[1-9][0-9]*$'
 		GROUP BY s.organization_id, group_id.value::bigint, s.plan_id
-		ON CONFLICT (organization_id, group_id) WHERE deleted_at IS NULL DO UPDATE SET
-			plan_id = EXCLUDED.plan_id,
+		ON CONFLICT (organization_id, group_id, plan_id) WHERE deleted_at IS NULL AND plan_id IS NOT NULL DO UPDATE SET
 			status = 'active',
 			expires_at = GREATEST(organization_subscriptions.expires_at, EXCLUDED.expires_at),
-			updated_at = NOW()
-		WHERE organization_subscriptions.plan_id IS NULL OR organization_subscriptions.plan_id = EXCLUDED.plan_id`, organizationID)
+			updated_at = NOW()`, organizationID)
 	return err
 }
 

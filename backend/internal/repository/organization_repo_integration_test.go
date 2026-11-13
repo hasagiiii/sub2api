@@ -650,6 +650,68 @@ func TestAdminCreateOrganizationSubscription(t *testing.T) {
 	require.NotEmpty(t, items[0].OrganizationName)
 }
 
+func TestOrganizationSubscriptionsDifferentPlansCoexist(t *testing.T) {
+	isolateOrganizationIntegrationTest(t)
+	ctx := context.Background()
+	repo := NewOrganizationRepository(integrationDB)
+	admin := createOrganizationRoot(t, integrationEntClient, 100, service.RoleAdmin)
+	owner := createOrganizationRoot(t, integrationEntClient, 100, service.RoleUser)
+	orgID := createActiveOrganization(t, owner, 20)
+	var groupID int64
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `INSERT INTO groups(name,status,platform,subscription_type,daily_limit_usd) VALUES($1,'active','codex','subscription',100) RETURNING id`, "orgsub-coexist-"+uuid.NewString()).Scan(&groupID))
+	plans := make([]int64, 2)
+	for i := range plans {
+		require.NoError(t, integrationDB.QueryRowContext(ctx, `INSERT INTO subscription_plans(group_id,group_ids,name,price,validity_days,daily_limit_usd) VALUES($1,$2::jsonb,$3,10,30,10) RETURNING id`, groupID, fmt.Sprintf("[%d]", groupID), "coexist-"+uuid.NewString()).Scan(&plans[i]))
+	}
+	first, err := repo.AdminCreateOrganizationSubscriptionsByPlan(ctx, admin.ID, orgID, plans[0], 30, "first")
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	require.NoError(t, repo.IncrementOrganizationSubscriptionUsage(ctx, first[0].ID, 6))
+	second, err := repo.AdminCreateOrganizationSubscriptionsByPlan(ctx, admin.ID, orgID, plans[1], 30, "second")
+	require.NoError(t, err, "different plans sharing a group must coexist")
+	require.Len(t, second, 1)
+	require.NotEqual(t, first[0].ID, second[0].ID)
+	_, err = repo.AdminCreateOrganizationSubscriptionsByPlan(ctx, admin.ID, orgID, plans[0], 30, "duplicate")
+	require.ErrorIs(t, err, service.ErrOrgSubscriptionExists)
+	legacy, err := repo.AdminCreateOrganizationSubscription(ctx, admin.ID, orgID, groupID, 30, "standalone")
+	require.NoError(t, err)
+	require.NotEqual(t, first[0].ID, legacy.ID)
+	// Member listing synchronizes plan groups; it must preserve all three identities.
+	active, err := repo.ListActiveOrganizationSubscriptionsForMember(ctx, owner.ID)
+	require.NoError(t, err)
+	require.Len(t, active, 3)
+
+	// Paid renewal must select only its own plan, and retries must not extend twice.
+	require.NoError(t, repo.AssignOrExtendOrganizationSubscriptionByPlan(ctx, orgID, groupID, plans[1], 10, 987654))
+	require.NoError(t, repo.AssignOrExtendOrganizationSubscriptionByPlan(ctx, orgID, groupID, plans[1], 10, 987654))
+	items, total, err := repo.AdminListOrganizationSubscriptions(ctx, admin.ID, 1, 20, &groupID, service.SubscriptionStatusActive, "", "created_at", "desc")
+	require.NoError(t, err)
+	require.EqualValues(t, 3, total)
+	for _, item := range items {
+		switch item.ID {
+		case first[0].ID:
+			require.Equal(t, plans[0], *item.PlanID)
+			require.WithinDuration(t, first[0].ExpiresAt, item.ExpiresAt, time.Second)
+			require.InDelta(t, 6, mustParseFloat(t, item.DailyUsageUSD), 0.000001)
+		case second[0].ID:
+			require.Equal(t, plans[1], *item.PlanID)
+			require.WithinDuration(t, second[0].ExpiresAt.Add(10*24*time.Hour), item.ExpiresAt, time.Second)
+			require.InDelta(t, 0, mustParseFloat(t, item.DailyUsageUSD), 0.000001)
+		}
+	}
+
+	// Reassigning an expired plan renews that identity without touching its neighbor.
+	_, err = integrationDB.ExecContext(ctx, `UPDATE organization_subscriptions SET status='expired',expires_at=NOW()-INTERVAL '1 day' WHERE id=$1`, first[0].ID)
+	require.NoError(t, err)
+	renewed, err := repo.AdminCreateOrganizationSubscriptionsByPlan(ctx, admin.ID, orgID, plans[0], 15, "renewed")
+	require.NoError(t, err)
+	require.Len(t, renewed, 1)
+	require.Equal(t, first[0].ID, renewed[0].ID)
+	runtime, err := repo.GetOrganizationSubscriptionForBilling(ctx, renewed[0].ID)
+	require.NoError(t, err)
+	require.InDelta(t, 0, runtime.DailyUsageUSD, 0.000001)
+}
+
 func TestOrganizationSubscriptionPlanQuotaIsSharedAcrossGroups(t *testing.T) {
 	isolateOrganizationIntegrationTest(t)
 	ctx := context.Background()
