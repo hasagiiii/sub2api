@@ -762,9 +762,10 @@ type CreateSubscriptionOrderRequest struct {
 }
 
 // CreateSubscriptionOrder places a paid subscription order for the company via
-// the standard payment gateway. Owner-only (enforced downstream). Payment is
-// charged to the owner through the normal personal payment pipeline, and the
-// subscription is fulfilled onto the company subject once payment is confirmed.
+// the standard payment gateway. Active owners and members with
+// organization.subscription.manage may place the order. Payment is charged
+// through the normal personal payment pipeline, and the subscription is
+// fulfilled onto the company subject once payment is confirmed.
 // POST /api/v1/organization/subscription-orders
 func (h *OrganizationHandler) CreateSubscriptionOrder(c *gin.Context) {
 	userID, ok := organizationSubject(c)
@@ -1531,6 +1532,54 @@ func (h *OrganizationHandler) AdminDecideNameChange(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"status": req.Decision + "d"})
+}
+
+func (h *OrganizationHandler) AdminSetMemberLimit(c *gin.Context) {
+	actorID, ok := organizationSubject(c)
+	if !ok {
+		return
+	}
+	organizationID, ok := parseOrganizationIDParam(c, "organization_id")
+	if !ok {
+		return
+	}
+	var req struct {
+		MemberLimit int `json:"member_limit" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid member limit")
+		return
+	}
+	if err := h.organization.AdminSetMemberLimit(c.Request.Context(), actorID, organizationID, req.MemberLimit); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"member_limit": req.MemberLimit})
+}
+
+func (h *OrganizationHandler) AdminAdjustOrganizationBalance(c *gin.Context) {
+	actorID, ok := organizationSubject(c)
+	if !ok {
+		return
+	}
+	organizationID, ok := parseOrganizationIDParam(c, "organization_id")
+	if !ok {
+		return
+	}
+	var req struct {
+		Amount         string `json:"amount" binding:"required"`
+		Operation      string `json:"operation" binding:"required"`
+		IdempotencyKey string `json:"idempotency_key" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid organization balance adjustment")
+		return
+	}
+	if err := h.organization.AdminAdjustOrganizationBalance(c.Request.Context(), actorID, organizationID, req.Amount, req.Operation, req.IdempotencyKey); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"operation": req.Operation})
 }
 
 func (h *OrganizationHandler) AdminSetOrganizationStatus(c *gin.Context) {

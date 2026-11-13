@@ -95,7 +95,11 @@
 	<div v-if="organizationDetail" class="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" @click.self="organizationDetail = undefined">
 		<section class="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-md bg-white p-5 shadow-xl dark:bg-dark-800">
 			<div class="flex items-start justify-between gap-3"><div><h3 class="font-semibold">{{ organizationDetail.organization.name }}</h3><p class="mt-1 font-mono text-xs text-gray-500">{{ organizationDetail.organization.company_id }}</p></div><button class="icon-btn" :aria-label="t('common.close')" @click="organizationDetail = undefined"><Icon name="x" size="sm" /></button></div>
-			<dl class="mt-5 grid gap-4 sm:grid-cols-2"><div><dt class="text-xs text-gray-500">{{ t('organization.admin.members') }}</dt><dd class="mt-1">{{ organizationDetail.organization.member_count }}/{{ organizationDetail.organization.member_limit }}</dd></div><div><dt class="text-xs text-gray-500">{{ t('common.status') }}</dt><dd class="mt-1">{{ t(`organization.status.${organizationDetail.organization.status}`) }}</dd></div></dl>
+			<dl class="mt-5 grid gap-4 sm:grid-cols-3"><div><dt class="text-xs text-gray-500">{{ t('organization.admin.members') }}</dt><dd class="mt-1">{{ organizationDetail.organization.member_count }}/{{ organizationDetail.organization.member_limit }}</dd></div><div><dt class="text-xs text-gray-500">{{ t('organization.admin.balance') }}</dt><dd class="mt-1 font-mono">${{ organizationDetail.organization.balance }}</dd></div><div><dt class="text-xs text-gray-500">{{ t('common.status') }}</dt><dd class="mt-1">{{ t(`organization.status.${organizationDetail.organization.status}`) }}</dd></div></dl>
+			<div class="mt-6 grid gap-4 rounded-md border border-gray-200 p-4 dark:border-dark-700 sm:grid-cols-2" @click.stop>
+				<label class="text-sm"><span class="mb-1 block text-xs text-gray-500">{{ t('organization.admin.memberLimit') }}</span><input v-model.number="memberLimitDraft" class="input" type="number" min="1" step="1"><button class="btn btn-secondary btn-sm mt-2" :disabled="savingOrganization" @click="saveMemberLimit">{{ t('organization.admin.saveMemberLimit') }}</button></label>
+				<div class="text-sm"><span class="mb-1 block text-xs text-gray-500">{{ t('organization.admin.adjustBalance') }}</span><div class="flex gap-2"><input v-model.trim="balanceAmount" class="input min-w-0 flex-1" type="number" min="0.00000001" step="0.00000001" :placeholder="t('organization.admin.amount')"><button class="btn btn-primary btn-sm" :disabled="savingOrganization || !balanceAmount" @click="adjustBalance('add')">{{ t('organization.admin.addBalance') }}</button><button class="btn btn-secondary btn-sm" :disabled="savingOrganization || !balanceAmount" @click="adjustBalance('subtract')">{{ t('organization.admin.subtractBalance') }}</button></div><p class="mt-1 text-xs text-gray-500">{{ t('organization.admin.balanceHint') }}</p></div>
+			</div>
 			<h4 class="mt-6 text-sm font-medium">{{ t('organization.admin.audit') }}</h4>
 			<ol class="mt-2 divide-y divide-gray-100 text-sm dark:divide-dark-700"><li v-for="event in organizationDetail.audit" :key="event.id" class="py-3"><div class="flex justify-between gap-3"><span>{{ event.action }} · {{ event.result }}</span><time class="text-xs text-gray-500">{{ new Date(event.created_at).toLocaleString() }}</time></div><div v-if="event.correlation_id" class="mt-1 font-mono text-xs text-gray-500">{{ event.correlation_id }}</div></li></ol>
 		</section>
@@ -130,6 +134,9 @@ const organizations = ref<AdminOrganization[]>([])
 const status = ref('pending')
 const detail = ref<CompanyApplicationDetail>()
 const organizationDetail = ref<AdminOrganizationDetail>()
+const memberLimitDraft = ref(1)
+const balanceAmount = ref('')
+const savingOrganization = ref(false)
 const rejecting = ref<CompanyApplication | OrganizationNameChangeRequest>()
 const reason = ref('')
 const error = ref('')
@@ -164,7 +171,32 @@ async function load() {
 function manageOrganization(organization: AdminOrganization) { void router.push(`/admin/organizations/${organization.id}/finance`) }
 function selectQueue(value: 'applications' | 'names' | 'organizations') { queue.value = value; status.value = value === 'organizations' ? '' : 'pending'; void load() }
 async function openApplication(app: CompanyApplication) { detail.value = await organizationAPI.getApplication(app.id) }
-async function openOrganization(organization: AdminOrganization) { organizationDetail.value = await organizationAPI.getOrganization(organization.id) }
+async function openOrganization(organization: AdminOrganization) {
+  organizationDetail.value = await organizationAPI.getOrganization(organization.id)
+  memberLimitDraft.value = organizationDetail.value.organization.member_limit
+  balanceAmount.value = ''
+}
+async function saveMemberLimit() {
+  if (!organizationDetail.value || !Number.isInteger(memberLimitDraft.value) || memberLimitDraft.value < 1) return
+  savingOrganization.value = true
+  error.value = ''
+  try {
+    await organizationAPI.setOrganizationMemberLimit(organizationDetail.value.organization.id, memberLimitDraft.value)
+    organizationDetail.value = await organizationAPI.getOrganization(organizationDetail.value.organization.id)
+    await load()
+  } catch (cause) { error.value = (cause as { message?: string }).message || t('common.error') } finally { savingOrganization.value = false }
+}
+async function adjustBalance(operation: 'add' | 'subtract') {
+  if (!organizationDetail.value || !balanceAmount.value) return
+  savingOrganization.value = true
+  error.value = ''
+  try {
+    await organizationAPI.adjustOrganizationBalance(organizationDetail.value.organization.id, balanceAmount.value, operation)
+    organizationDetail.value = await organizationAPI.getOrganization(organizationDetail.value.organization.id)
+    balanceAmount.value = ''
+    await load()
+  } catch (cause) { error.value = (cause as { message?: string }).message || t('common.error') } finally { savingOrganization.value = false }
+}
 async function setOrganizationStatus(organization: AdminOrganization, nextStatus: 'active' | 'suspended') { error.value = ''; try { await organizationAPI.setOrganizationStatus(organization.id, nextStatus); await load() } catch (cause) { error.value = (cause as { message?: string }).message || t('common.error') } }
 async function decideApplication(app: CompanyApplication, decision: 'approve' | 'reject', reviewReason = '') { error.value = ''; try { await organizationAPI.decideApplication(app.id, decision, reviewReason); await load() } catch (cause) { error.value = (cause as { message?: string }).message || t('common.error') } }
 async function decideName(request: OrganizationNameChangeRequest, decision: 'approve' | 'reject', reviewReason = '') { error.value = ''; try { await organizationAPI.decideNameChange(request.id, decision, reviewReason); await load() } catch (cause) { error.value = (cause as { message?: string }).message || t('common.error') } }

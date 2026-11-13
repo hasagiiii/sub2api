@@ -22,6 +22,15 @@ import (
 
 // --- Order Creation ---
 
+func shouldBlockIAMFinancialOperation(user *User, req CreateOrderRequest) bool {
+	if user == nil || !user.IsIAM() {
+		return false
+	}
+	// OrganizationService has already checked the organization membership and
+	// organization.subscription.manage permission before creating this order.
+	return req.OrderType != payment.OrderTypeSubscription || req.OrganizationID <= 0
+}
+
 func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest) (*CreateOrderResponse, error) {
 	if req.OrderType == "" {
 		req.OrderType = payment.OrderTypeBalance
@@ -53,8 +62,13 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if user.Status != payment.EntityStatusActive {
 		return nil, infraerrors.Forbidden("USER_INACTIVE", "user account is disabled")
 	}
-	if err := GuardIAMFinancialOperation(user); err != nil {
-		return nil, err
+	// 企业订阅订单已经由 OrganizationService 校验了组织状态和
+	// organization.subscription.manage 权限。该订单仍走个人支付网关，
+	// 但履约主体是企业，因此不能再被个人财务操作的 IAM 守卫拦截。
+	if shouldBlockIAMFinancialOperation(user, req) {
+		if err := GuardIAMFinancialOperation(user); err != nil {
+			return nil, err
+		}
 	}
 	if s.notificationEmailService != nil {
 		s.notificationEmailService.RememberRecipientLocale(ctx, req.UserID, user.Email, req.Locale)

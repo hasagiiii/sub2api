@@ -240,6 +240,7 @@ type AdminOrganization struct {
 	OwnerEmail  string    `json:"owner_email,omitempty"`
 	MemberCount int       `json:"member_count"`
 	MemberLimit int       `json:"member_limit"`
+	Balance     string    `json:"balance"`
 	EffectiveAt time.Time `json:"effective_at"`
 	CreatedAt   time.Time `json:"created_at"`
 }
@@ -673,6 +674,8 @@ type OrganizationRepository interface {
 	RequestNameChange(ctx context.Context, userID int64, name, normalizedName string) error
 	DecideNameChange(ctx context.Context, reviewerID, requestID int64, approve bool, reason string) error
 	SetOrganizationStatus(ctx context.Context, actorID, organizationID int64, status string) error
+	AdminSetMemberLimit(ctx context.Context, actorID, organizationID int64, memberLimit int) error
+	AdminAdjustOrganizationBalance(ctx context.Context, actorID, organizationID int64, amount, operation, idempotencyKey string) error
 	CreateIAMMember(ctx context.Context, ownerID int64, user *User, memberLimit int) (*IAMMember, error)
 	ListIAMMembers(ctx context.Context, actorID int64) ([]IAMMember, int, error)
 	GetIAMMember(ctx context.Context, actorID, memberUserID int64) (*IAMMember, error)
@@ -1090,6 +1093,28 @@ func (s *OrganizationService) DecideNameChange(ctx context.Context, reviewerID, 
 		return ErrReasonRequired
 	}
 	return s.repo.DecideNameChange(ctx, reviewerID, requestID, approve, strings.TrimSpace(reason))
+}
+
+func (s *OrganizationService) AdminSetMemberLimit(ctx context.Context, actorID, organizationID int64, memberLimit int) error {
+	if memberLimit < 1 {
+		return infraerrors.BadRequest("MEMBER_LIMIT_INVALID", "member limit must be at least 1")
+	}
+	return s.repo.AdminSetMemberLimit(ctx, actorID, organizationID, memberLimit)
+}
+
+func (s *OrganizationService) AdminAdjustOrganizationBalance(ctx context.Context, actorID, organizationID int64, amount, operation, idempotencyKey string) error {
+	d, err := decimal.NewFromString(strings.TrimSpace(amount))
+	if err != nil || !d.IsPositive() {
+		return infraerrors.BadRequest("AMOUNT_INVALID", "amount must be positive")
+	}
+	if operation != "add" && operation != "subtract" {
+		return infraerrors.BadRequest("BALANCE_OPERATION_INVALID", "operation must be add or subtract")
+	}
+	idempotencyKey = strings.TrimSpace(idempotencyKey)
+	if idempotencyKey == "" || len(idempotencyKey) > 96 {
+		return infraerrors.BadRequest("IDEMPOTENCY_KEY_REQUIRED", "an idempotency key is required")
+	}
+	return s.repo.AdminAdjustOrganizationBalance(ctx, actorID, organizationID, d.StringFixed(8), operation, idempotencyKey)
 }
 
 func (s *OrganizationService) SetOrganizationStatus(ctx context.Context, actorID, organizationID int64, status string) error {
@@ -1651,7 +1676,8 @@ func (s *OrganizationService) ListSubscriptionGroups(ctx context.Context, userID
 // an organization_subscriptions row for the company instead of a personal
 // user_subscriptions row.
 //
-// Authorization: only an active owner of an active company may place the order.
+// Authorization: an active owner or an active member with
+// organization.subscription.manage may place the order.
 func (s *OrganizationService) CreateSubscriptionOrder(ctx context.Context, userID int64, input OrganizationSubscriptionOrderInput) (*CreateOrderResponse, error) {
 	if input.PlanID <= 0 {
 		return nil, ErrOrgSubscriptionNotFound

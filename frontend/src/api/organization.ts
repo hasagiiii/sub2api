@@ -350,6 +350,16 @@ export const organizationAPI = {
 	async setOrganizationStatus(id: number, status: 'active' | 'suspended'): Promise<void> {
 		await apiClient.patch(`/admin/organizations/${id}/status`, { status })
 	},
+	async setOrganizationMemberLimit(id: number, memberLimit: number): Promise<void> {
+		await apiClient.patch(`/admin/organizations/${id}/member-limit`, { member_limit: memberLimit })
+	},
+	async adjustOrganizationBalance(id: number, amount: string, operation: 'add' | 'subtract'): Promise<void> {
+		await apiClient.post(`/admin/organizations/${id}/balance`, {
+			amount,
+			operation,
+			idempotency_key: randomIdempotencyKey(),
+		})
+	},
 	async assignOrganizationSubscription(
 		id: number,
 		target: { group_id: number } | { plan_id: number },

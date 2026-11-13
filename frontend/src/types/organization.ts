@@ -84,6 +84,7 @@ export interface AdminOrganization {
 	owner_email?: string
 	member_count: number
 	member_limit: number
+	balance: string
 	effective_at: string
 	created_at: string
 }

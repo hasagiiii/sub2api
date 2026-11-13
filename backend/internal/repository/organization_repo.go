@@ -445,7 +445,7 @@ func (r *organizationRepository) GetNameChangeRequest(ctx context.Context, reque
 
 const adminOrganizationSelect = `SELECT o.id,o.account_id,COALESCE(o.company_id,''),o.name,o.status,o.owner_user_id,COALESCE(u.email,''),
 	(SELECT count(*) FROM organization_memberships m WHERE m.organization_id=o.id AND m.role='member' AND m.status<>'archived'),
-	o.member_limit,o.effective_at,o.created_at FROM organizations o JOIN users u ON u.id=o.owner_user_id`
+	o.member_limit,o.balance::text,o.effective_at,o.created_at FROM organizations o JOIN users u ON u.id=o.owner_user_id`
 
 type organizationQueryRower interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -494,7 +494,7 @@ func scanAdminOrganization(scanner interface{ Scan(...any) error }) (*service.Ad
 	var organization service.AdminOrganization
 	if err := scanner.Scan(&organization.ID, &organization.AccountID, &organization.CompanyID, &organization.Name, &organization.Status,
 		&organization.OwnerUserID, &organization.OwnerEmail, &organization.MemberCount, &organization.MemberLimit,
-		&organization.EffectiveAt, &organization.CreatedAt); err != nil {
+		&organization.Balance, &organization.EffectiveAt, &organization.CreatedAt); err != nil {
 		return nil, err
 	}
 	return &organization, nil
@@ -750,6 +750,84 @@ func (r *organizationRepository) DecideNameChange(ctx context.Context, reviewerI
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO organization_audit_events(organization_id,actor_user_id,subject_user_id,action,result,correlation_id,metadata) VALUES($1,$2,$3,'company.name.review','success',$4,jsonb_build_object('request_id',$5::bigint,'decision',$6::text))`, orgID, reviewerID, applicantID, organizationCorrelationID(ctx), requestID, decision); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *organizationRepository) AdminSetMemberLimit(ctx context.Context, actorID, organizationID int64, memberLimit int) (err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := requireActiveAdmin(ctx, tx, actorID); err != nil {
+		return err
+	}
+	var memberCount int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM organization_memberships WHERE organization_id=$1 AND role='member' AND status<>'archived'`, organizationID).Scan(&memberCount); err != nil {
+		return err
+	}
+	if memberCount > memberLimit {
+		return infraerrors.Conflict("MEMBER_LIMIT_BELOW_USAGE", "member limit cannot be lower than current member count")
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE organizations SET member_limit=$2,updated_at=NOW() WHERE id=$1`, organizationID, memberLimit)
+	if err != nil {
+		return err
+	}
+	if count, _ := result.RowsAffected(); count != 1 {
+		return service.ErrCompanyNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO organization_audit_events(organization_id,actor_user_id,action,result,correlation_id,metadata) VALUES($1,$2,'organization.member_limit.update','success',$3,jsonb_build_object('member_limit',$4::int))`, organizationID, actorID, organizationCorrelationID(ctx), memberLimit); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (r *organizationRepository) AdminAdjustOrganizationBalance(ctx context.Context, actorID, organizationID int64, amount, operation, idempotencyKey string) (err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := requireActiveAdmin(ctx, tx, actorID); err != nil {
+		return err
+	}
+	var existingKind, existingAmount string
+	ledgerKey := fmt.Sprintf("organization:admin-balance:%s", idempotencyKey)
+	replayErr := tx.QueryRowContext(ctx, `SELECT kind,amount::text FROM organization_financial_ledger WHERE idempotency_key=$1`, ledgerKey).Scan(&existingKind, &existingAmount)
+	if replayErr == nil {
+		if existingKind != "admin_adjustment" || existingAmount != amount {
+			return infraerrors.Conflict("IDEMPOTENCY_KEY_CONFLICT", "idempotency key was already used for another balance adjustment")
+		}
+		return nil
+	}
+	if !errors.Is(replayErr, sql.ErrNoRows) {
+		return replayErr
+	}
+	var balanceAfter string
+	operator := "+"
+	kind := "admin_adjustment"
+	if operation == "subtract" {
+		operator = "-"
+	}
+	query := fmt.Sprintf(`UPDATE organizations SET balance=balance%s$2::numeric,updated_at=NOW() WHERE id=$1 AND balance%s$2::numeric >= 0 RETURNING balance::text`, operator, operator)
+	if err := tx.QueryRowContext(ctx, query, organizationID, amount).Scan(&balanceAfter); errors.Is(err, sql.ErrNoRows) {
+		var exists bool
+		if scanErr := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM organizations WHERE id=$1)`, organizationID).Scan(&exists); scanErr != nil {
+			return scanErr
+		}
+		if !exists {
+			return service.ErrCompanyNotFound
+		}
+		return service.ErrInsufficientBalance
+	} else if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO organization_financial_ledger(idempotency_key,kind,organization_id,actor_user_id,amount,currency,source_balance_after) VALUES($1,$2,$3,$4,$5::numeric,'USD',$6::numeric)`, ledgerKey, kind, organizationID, actorID, amount, balanceAfter); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO organization_audit_events(organization_id,actor_user_id,action,result,correlation_id,metadata) VALUES($1,$2,'organization.balance.admin_adjust','success',$3,jsonb_build_object('operation',$4::text,'amount',$5::numeric,'balance_after',$6::numeric))`, organizationID, actorID, organizationCorrelationID(ctx), operation, amount, balanceAfter); err != nil {
 		return err
 	}
 	return tx.Commit()
