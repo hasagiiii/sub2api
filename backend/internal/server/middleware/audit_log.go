@@ -54,6 +54,7 @@ func SkipAudit(c *gin.Context) {
 var auditExtraAllowedKeys = map[string]struct{}{
 	"admin_key_id": {}, "full_access": {}, "full_access_before": {},
 	"mcp_grant_id": {}, "mcp_tool": {},
+	"organization_id": {}, "acting_owner_user_id": {},
 	"result": {}, "error_code": {}, "enabled": {}, "blocking_enabled": {},
 	"config_version": {}, "endpoint_count": {}, "scanner_count": {},
 	"all_groups": {}, "group_count": {}, "guard_endpoint_id": {},

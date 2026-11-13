@@ -77,7 +77,7 @@
 				</td>
 				<td class="p-3">{{ organization.member_count }}/{{ organization.member_limit }}</td>
 				<td class="p-3">{{ t(`organization.status.${organization.status}`) }}</td>
-				<td class="p-3" @click.stop><button v-if="organization.status === 'active'" class="btn btn-ghost btn-sm text-red-600" @click="setOrganizationStatus(organization, 'suspended')">{{ t('organization.admin.suspend') }}</button><button v-else class="btn btn-primary btn-sm" @click="setOrganizationStatus(organization, 'active')">{{ t('organization.admin.reactivate') }}</button></td>
+				<td class="p-3" @click.stop><div class="flex flex-wrap items-center gap-1"><button v-if="organization.status === 'active'" class="btn btn-secondary btn-sm" data-testid="manage-organization" @click="manageOrganization(organization)">{{ t('organization.admin.manage') }}</button><button v-if="organization.status === 'active'" class="btn btn-ghost btn-sm text-red-600" @click="setOrganizationStatus(organization, 'suspended')">{{ t('organization.admin.suspend') }}</button><button v-else class="btn btn-primary btn-sm" @click="setOrganizationStatus(organization, 'active')">{{ t('organization.admin.reactivate') }}</button></div></td>
 			</tr></tbody>
 		</table>
 	</div>
@@ -109,6 +109,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import { organizationAPI } from '@/api'
 import Select from '@/components/common/Select.vue'
 import { useClipboard } from '@/composables/useClipboard'
@@ -117,6 +118,8 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import type { AdminOrganization, AdminOrganizationDetail, CompanyApplication, CompanyApplicationDetail, OrganizationNameChangeRequest } from '@/types'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const { copyToClipboard } = useClipboard()
 const selectedClass = 'bg-white font-medium shadow-sm dark:bg-dark-700'
 const mutedClass = 'text-gray-600 dark:text-dark-300'
@@ -158,6 +161,7 @@ async function load() {
 	else organizations.value = (await organizationAPI.listOrganizations({ status: status.value || undefined })).items
   } catch (cause) { error.value = (cause as { message?: string }).message || t('common.error') }
 }
+function manageOrganization(organization: AdminOrganization) { void router.push(`/admin/organizations/${organization.id}/finance`) }
 function selectQueue(value: 'applications' | 'names' | 'organizations') { queue.value = value; status.value = value === 'organizations' ? '' : 'pending'; void load() }
 async function openApplication(app: CompanyApplication) { detail.value = await organizationAPI.getApplication(app.id) }
 async function openOrganization(organization: AdminOrganization) { organizationDetail.value = await organizationAPI.getOrganization(organization.id) }
@@ -166,5 +170,9 @@ async function decideApplication(app: CompanyApplication, decision: 'approve' | 
 async function decideName(request: OrganizationNameChangeRequest, decision: 'approve' | 'reject', reviewReason = '') { error.value = ''; try { await organizationAPI.decideNameChange(request.id, decision, reviewReason); await load() } catch (cause) { error.value = (cause as { message?: string }).message || t('common.error') } }
 function openReject(item: CompanyApplication | OrganizationNameChangeRequest) { rejecting.value = item; reason.value = '' }
 async function submitReject() { if (!rejecting.value || !reason.value) return; if ('requested_name' in rejecting.value) await decideApplication(rejecting.value, 'reject', reason.value); else await decideName(rejecting.value, 'reject', reason.value); rejecting.value = undefined }
-onMounted(load)
+onMounted(() => {
+  // 从企业管理页面返回时直接回到「企业组织」列表。
+  if (route.query.queue === 'organizations') selectQueue('organizations')
+  else void load()
+})
 </script>

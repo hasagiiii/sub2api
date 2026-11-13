@@ -88,13 +88,192 @@ export interface SubscriptionFallbackView {
   candidates: OrganizationSubscription[]
 }
 
-export const organizationAPI = {
-  async loginIAM(payload: IAMLoginRequest): Promise<IAMLoginResponse> {
-    const { data } = await apiClient.post<IAMLoginResponse>('/auth/iam/login', payload)
+/**
+ * Enterprise console API rooted at `base`. Members use `/organization`; system
+ * administrators manage a specific company through
+ * `/admin/organizations/:id/console`, which runs the same handlers as that
+ * company's owner. Both entry points share this single definition.
+ */
+export function createOrganizationConsoleAPI(base = '/organization') {
+  return {
+  async getContext(): Promise<{ organization: OrganizationContext; finance?: FinanceSummary }> {
+    const { data } = await apiClient.get(`${base}/context`)
     return data
   },
-  async getContext(): Promise<{ organization: OrganizationContext; finance?: FinanceSummary }> {
-    const { data } = await apiClient.get('/organization/context')
+  async listMembers(): Promise<{ items: IAMMember[]; member_limit: number; used_slots: number }> {
+    const { data } = await apiClient.get(`${base}/members`)
+    return data
+  },
+  async getMember(id: number): Promise<IAMMember> {
+    const { data } = await apiClient.get<IAMMember>(`${base}/members/${id}`)
+    return data
+  },
+  async createMember(loginName: string, password: string, mustChangePassword = true, recoveryEmail?: string, username?: string): Promise<{ member: IAMMember; initial_password: string }> {
+    const { data } = await apiClient.post(`${base}/members`, {
+      login_name: loginName,
+      password,
+      must_change_password: mustChangePassword,
+      recovery_email: recoveryEmail,
+      username,
+    })
+    return data
+  },
+  async setMemberStatus(id: number, status: IAMMember['status']): Promise<void> {
+    await apiClient.patch(`${base}/members/${id}/status`, { status })
+  },
+  async deleteArchivedMember(id: number): Promise<void> {
+    await apiClient.delete(`${base}/members/${id}`)
+  },
+  async resetMemberPassword(id: number): Promise<{ initial_password: string }> {
+    const { data } = await apiClient.post(`${base}/members/${id}/reset-password`)
+    return data
+  },
+  async listPolicies(): Promise<ManagedPolicy[]> {
+    const { data } = await apiClient.get<{ items: ManagedPolicy[] }>(`${base}/policies`)
+    return data.items
+  },
+  async listMemberPolicies(memberID: number): Promise<ManagedPolicy[]> {
+    const { data } = await apiClient.get<{ items: ManagedPolicy[] }>(`${base}/members/${memberID}/policies`)
+    return data.items
+  },
+  async setPolicy(memberID: number, policyKey: string, attached: boolean): Promise<void> {
+    await apiClient.put(`${base}/members/${memberID}/policies`, { policy_key: policyKey, attached })
+  },
+  async transferBalance(memberID: number, amount: string, operation: 'allocate' | 'reclaim'): Promise<void> {
+    await apiClient.post(`${base}/members/${memberID}/balance`, { amount: String(amount), operation, idempotency_key: randomIdempotencyKey() })
+  },
+  async transferCompanyBalance(amount: string, operation: 'deposit' | 'withdraw'): Promise<void> {
+    await apiClient.post(`${base}/company-balance`, { amount: String(amount), operation, idempotency_key: randomIdempotencyKey() })
+  },
+  async getFinance(): Promise<FinanceSummary> {
+    const { data } = await apiClient.get(`${base}/finance`)
+    return data
+  },
+	async getDashboard(): Promise<DashboardStats> {
+		const { data } = await apiClient.get<DashboardStats>(`${base}/dashboard`)
+		return data
+	},
+	async getDashboardSpendingRanking(params: OrganizationUsageParams & { limit?: number } = {}): Promise<UserSpendingRankingResponse> {
+		const { data } = await apiClient.get<UserSpendingRankingResponse>(`${base}/dashboard/spending-ranking`, { params })
+		return data
+	},
+	async getDashboardUserBreakdown(params: OrganizationUsageParams & { limit?: number } = {}): Promise<{ users: UserBreakdownItem[] }> {
+		const { data } = await apiClient.get<{ users: UserBreakdownItem[] }>(`${base}/dashboard/user-breakdown`, { params })
+		return data
+	},
+	async getDashboardUsersTrend(params: OrganizationUsageParams & { limit?: number } = {}): Promise<UserUsageTrendPoint[]> {
+		const { data } = await apiClient.get<{ trend: UserUsageTrendPoint[] }>(`${base}/dashboard/users-trend`, { params })
+		return data.trend
+	},
+  async listSubscriptions(): Promise<OrganizationSubscription[]> {
+    const { data } = await apiClient.get<{ subscriptions: OrganizationSubscription[] }>(`${base}/subscriptions`)
+    return data.subscriptions
+  },
+  async listSubscriptionGroups(): Promise<Group[]> {
+    const { data } = await apiClient.get<Group[]>(`${base}/subscription-groups`)
+    return data
+  },
+  async createSubscription(groupID: number, validityDays: number, notes: string): Promise<OrganizationSubscription> {
+    const { data } = await apiClient.post<OrganizationSubscription>(`${base}/subscriptions`, { group_id: groupID, validity_days: validityDays, notes })
+    return data
+  },
+  async cancelSubscription(id: number): Promise<void> {
+    await apiClient.delete(`${base}/subscriptions/${id}`)
+  },
+  async listSpendLimits(): Promise<OrganizationSpendLimitRule[]> {
+    const { data } = await apiClient.get<{ items: OrganizationSpendLimitRule[] }>(`${base}/spend-limits`)
+    return data.items
+  },
+  async upsertSpendLimits(payload: {
+    target: 'all' | 'members'
+    member_ids?: number[]
+    daily_limit_usd?: string | number
+    monthly_limit_usd?: string | number
+    alert_enabled: boolean
+    alert_threshold_pct: number
+    additional_recipients: string[]
+  }): Promise<OrganizationSpendLimitRule[]> {
+    const { data } = await apiClient.put<{ items: OrganizationSpendLimitRule[] }>(`${base}/spend-limits`, payload)
+    return data.items
+  },
+  async deleteSpendLimit(memberID?: number): Promise<void> {
+    await apiClient.delete(`${base}/spend-limits`, { params: { member_id: memberID } })
+  },
+  async getSpendLimitUsage(): Promise<OrganizationSpendUsage[]> {
+    const { data } = await apiClient.get<{ items: OrganizationSpendUsage[] }>(`${base}/spend-limits/usage`)
+    return data.items
+  },
+  async getUsage(params: OrganizationUsageParams = {}): Promise<PaginatedOrganizationUsage> {
+    const { data } = await apiClient.get(`${base}/usage`, { params })
+    return data
+  },
+	async getUsageVideoTask(usageID: number): Promise<VideoTaskItem> {
+		const { data } = await apiClient.get<VideoTaskItem>(`${base}/usage/${usageID}/video-task`)
+		return data
+	},
+	async searchUsageAPIKeys(query = '', memberID?: number): Promise<Array<{ id: number; name: string }>> {
+		const { data } = await apiClient.get<{ items: Array<{ id: number; name: string }> }>(`${base}/usage/api-keys/search`, {
+			params: { q: query || undefined, member_id: memberID },
+		})
+		return data.items
+	},
+  async getUsageStats(params: OrganizationUsageParams = {}): Promise<OrganizationUsageStats> {
+    const { data } = await apiClient.get<OrganizationUsageStats>(`${base}/usage/stats`, { params })
+    return data
+  },
+  async getUsageTrend(params: OrganizationUsageParams = {}): Promise<OrganizationUsageTrendPoint[]> {
+    const { data } = await apiClient.get<{ items: OrganizationUsageTrendPoint[] }>(`${base}/usage/trend`, { params })
+    return data.items
+  },
+  async getUsageCharts(params: OrganizationUsageParams = {}): Promise<{
+    trend: OrganizationUsageTrendPoint[]
+    models: ModelStat[]
+    groups: GroupStat[]
+    endpoints: EndpointStat[]
+  }> {
+    const { data } = await apiClient.get(`${base}/usage/charts`, { params })
+    return data
+  },
+	async getUsageErrors(params: UserErrorListParams & { member_id?: number; start?: string; end?: string }): Promise<{ items: UserErrorRequest[]; total: number; page: number; page_size: number; pages: number }> {
+		const { data } = await apiClient.get(`${base}/usage/errors`, { params })
+		return data
+	},
+	async getUsageErrorDetail(id: number): Promise<UserErrorRequestDetail> {
+		const { data } = await apiClient.get<UserErrorRequestDetail>(`${base}/usage/errors/${id}`)
+		return data
+	},
+	async listAuditEvents(params: { category?: string; start?: string; end?: string; page?: number; page_size?: number } = {}): Promise<{ items: OrganizationAuditEntry[]; total: number; page: number; page_size: number; pages: number }> {
+		const { data } = await apiClient.get(`${base}/audit-events`, { params })
+		return data
+	},
+	async getSettings(): Promise<OrganizationSettings> {
+		const { data } = await apiClient.get<OrganizationSettings>(`${base}/settings`)
+		return data
+	},
+	async updateSettings(payload: { auto_switch_subscription: boolean }): Promise<OrganizationSettings> {
+		const { data } = await apiClient.put<OrganizationSettings>(`${base}/settings`, payload)
+		return data
+	},
+	async getSubscriptionFallback(subscriptionID: number): Promise<SubscriptionFallbackView> {
+		const { data } = await apiClient.get<SubscriptionFallbackView>(`${base}/subscriptions/fallback`, {
+			params: { subscription_id: subscriptionID },
+		})
+		return data
+	},
+  }
+}
+
+export type OrganizationConsoleAPI = ReturnType<typeof createOrganizationConsoleAPI>
+
+/** Builds the console API used by a system administrator for one company. */
+export function createAdminOrganizationConsoleAPI(organizationID: number): OrganizationConsoleAPI {
+  return createOrganizationConsoleAPI(`/admin/organizations/${organizationID}/console`)
+}
+
+export const organizationAPI = {
+  ...createOrganizationConsoleAPI(),
+  async loginIAM(payload: IAMLoginRequest): Promise<IAMLoginResponse> {
+    const { data } = await apiClient.post<IAMLoginResponse>('/auth/iam/login', payload)
     return data
   },
   async getCurrentApplication(): Promise<CompanyApplication | null> {
@@ -116,34 +295,6 @@ export const organizationAPI = {
 	async requestNameChange(companyName: string): Promise<void> {
 		await apiClient.post('/organization/name-change-requests', { company_name: companyName })
 	},
-  async listMembers(): Promise<{ items: IAMMember[]; member_limit: number; used_slots: number }> {
-    const { data } = await apiClient.get('/organization/members')
-    return data
-  },
-  async getMember(id: number): Promise<IAMMember> {
-    const { data } = await apiClient.get<IAMMember>(`/organization/members/${id}`)
-    return data
-  },
-  async createMember(loginName: string, password: string, mustChangePassword = true, recoveryEmail?: string, username?: string): Promise<{ member: IAMMember; initial_password: string }> {
-    const { data } = await apiClient.post('/organization/members', {
-      login_name: loginName,
-      password,
-      must_change_password: mustChangePassword,
-      recovery_email: recoveryEmail,
-      username,
-    })
-    return data
-  },
-  async setMemberStatus(id: number, status: IAMMember['status']): Promise<void> {
-    await apiClient.patch(`/organization/members/${id}/status`, { status })
-  },
-  async deleteArchivedMember(id: number): Promise<void> {
-    await apiClient.delete(`/organization/members/${id}`)
-  },
-  async resetMemberPassword(id: number): Promise<{ initial_password: string }> {
-    const { data } = await apiClient.post(`/organization/members/${id}/reset-password`)
-    return data
-  },
   async changePassword(newPassword: string): Promise<AuthResponse> {
 	const { data } = await apiClient.put<AuthResponse>('/organization/password', { new_password: newPassword })
 	return data
@@ -154,55 +305,6 @@ export const organizationAPI = {
 	async verifyRecoveryEmail(email: string, code: string): Promise<void> {
 		await apiClient.post('/organization/recovery-email/verify', { email, code })
 	},
-  async listPolicies(): Promise<ManagedPolicy[]> {
-    const { data } = await apiClient.get<{ items: ManagedPolicy[] }>('/organization/policies')
-    return data.items
-  },
-  async listMemberPolicies(memberID: number): Promise<ManagedPolicy[]> {
-    const { data } = await apiClient.get<{ items: ManagedPolicy[] }>(`/organization/members/${memberID}/policies`)
-    return data.items
-  },
-  async setPolicy(memberID: number, policyKey: string, attached: boolean): Promise<void> {
-    await apiClient.put(`/organization/members/${memberID}/policies`, { policy_key: policyKey, attached })
-  },
-  async transferBalance(memberID: number, amount: string, operation: 'allocate' | 'reclaim'): Promise<void> {
-    await apiClient.post(`/organization/members/${memberID}/balance`, { amount: String(amount), operation, idempotency_key: randomIdempotencyKey() })
-  },
-  async transferCompanyBalance(amount: string, operation: 'deposit' | 'withdraw'): Promise<void> {
-    await apiClient.post('/organization/company-balance', { amount: String(amount), operation, idempotency_key: randomIdempotencyKey() })
-  },
-  async getFinance(): Promise<FinanceSummary> {
-    const { data } = await apiClient.get('/organization/finance')
-    return data
-  },
-	async getDashboard(): Promise<DashboardStats> {
-		const { data } = await apiClient.get<DashboardStats>('/organization/dashboard')
-		return data
-	},
-	async getDashboardSpendingRanking(params: OrganizationUsageParams & { limit?: number } = {}): Promise<UserSpendingRankingResponse> {
-		const { data } = await apiClient.get<UserSpendingRankingResponse>('/organization/dashboard/spending-ranking', { params })
-		return data
-	},
-	async getDashboardUserBreakdown(params: OrganizationUsageParams & { limit?: number } = {}): Promise<{ users: UserBreakdownItem[] }> {
-		const { data } = await apiClient.get<{ users: UserBreakdownItem[] }>('/organization/dashboard/user-breakdown', { params })
-		return data
-	},
-	async getDashboardUsersTrend(params: OrganizationUsageParams & { limit?: number } = {}): Promise<UserUsageTrendPoint[]> {
-		const { data } = await apiClient.get<{ trend: UserUsageTrendPoint[] }>('/organization/dashboard/users-trend', { params })
-		return data.trend
-	},
-  async listSubscriptions(): Promise<OrganizationSubscription[]> {
-    const { data } = await apiClient.get<{ subscriptions: OrganizationSubscription[] }>('/organization/subscriptions')
-    return data.subscriptions
-  },
-  async listSubscriptionGroups(): Promise<Group[]> {
-    const { data } = await apiClient.get<Group[]>('/organization/subscription-groups')
-    return data
-  },
-  async createSubscription(groupID: number, validityDays: number, notes: string): Promise<OrganizationSubscription> {
-    const { data } = await apiClient.post<OrganizationSubscription>('/organization/subscriptions', { group_id: groupID, validity_days: validityDays, notes })
-    return data
-  },
   async createSubscriptionOrder(payload: {
     plan_id: number
     payment_type: string
@@ -212,63 +314,6 @@ export const organizationAPI = {
     is_mobile?: boolean
   }): Promise<CreateOrderResult> {
     const { data } = await apiClient.post<CreateOrderResult>('/organization/subscription-orders', payload)
-    return data
-  },
-  async cancelSubscription(id: number): Promise<void> {
-    await apiClient.delete(`/organization/subscriptions/${id}`)
-  },
-  async listSpendLimits(): Promise<OrganizationSpendLimitRule[]> {
-    const { data } = await apiClient.get<{ items: OrganizationSpendLimitRule[] }>('/organization/spend-limits')
-    return data.items
-  },
-  async upsertSpendLimits(payload: {
-    target: 'all' | 'members'
-    member_ids?: number[]
-    daily_limit_usd?: string | number
-    monthly_limit_usd?: string | number
-    alert_enabled: boolean
-    alert_threshold_pct: number
-    additional_recipients: string[]
-  }): Promise<OrganizationSpendLimitRule[]> {
-    const { data } = await apiClient.put<{ items: OrganizationSpendLimitRule[] }>('/organization/spend-limits', payload)
-    return data.items
-  },
-  async deleteSpendLimit(memberID?: number): Promise<void> {
-    await apiClient.delete('/organization/spend-limits', { params: { member_id: memberID } })
-  },
-  async getSpendLimitUsage(): Promise<OrganizationSpendUsage[]> {
-    const { data } = await apiClient.get<{ items: OrganizationSpendUsage[] }>('/organization/spend-limits/usage')
-    return data.items
-  },
-  async getUsage(params: OrganizationUsageParams = {}): Promise<PaginatedOrganizationUsage> {
-    const { data } = await apiClient.get('/organization/usage', { params })
-    return data
-  },
-	async getUsageVideoTask(usageID: number): Promise<VideoTaskItem> {
-		const { data } = await apiClient.get<VideoTaskItem>(`/organization/usage/${usageID}/video-task`)
-		return data
-	},
-	async searchUsageAPIKeys(query = '', memberID?: number): Promise<Array<{ id: number; name: string }>> {
-		const { data } = await apiClient.get<{ items: Array<{ id: number; name: string }> }>('/organization/usage/api-keys/search', {
-			params: { q: query || undefined, member_id: memberID },
-		})
-		return data.items
-	},
-  async getUsageStats(params: OrganizationUsageParams = {}): Promise<OrganizationUsageStats> {
-    const { data } = await apiClient.get<OrganizationUsageStats>('/organization/usage/stats', { params })
-    return data
-  },
-  async getUsageTrend(params: OrganizationUsageParams = {}): Promise<OrganizationUsageTrendPoint[]> {
-    const { data } = await apiClient.get<{ items: OrganizationUsageTrendPoint[] }>('/organization/usage/trend', { params })
-    return data.items
-  },
-  async getUsageCharts(params: OrganizationUsageParams = {}): Promise<{
-    trend: OrganizationUsageTrendPoint[]
-    models: ModelStat[]
-    groups: GroupStat[]
-    endpoints: EndpointStat[]
-  }> {
-    const { data } = await apiClient.get('/organization/usage/charts', { params })
     return data
   },
   async listApplications(params: { status?: string; page?: number; page_size?: number } = {}): Promise<{ items: CompanyApplication[]; total: number }> {
@@ -296,32 +341,6 @@ export const organizationAPI = {
   },
 	async listOrganizations(params: { status?: string; page?: number; page_size?: number } = {}): Promise<{ items: AdminOrganization[]; total: number }> {
 		const { data } = await apiClient.get('/admin/organizations', { params })
-		return data
-	},
-	async getUsageErrors(params: UserErrorListParams & { member_id?: number; start?: string; end?: string }): Promise<{ items: UserErrorRequest[]; total: number; page: number; page_size: number; pages: number }> {
-		const { data } = await apiClient.get('/organization/usage/errors', { params })
-		return data
-	},
-	async getUsageErrorDetail(id: number): Promise<UserErrorRequestDetail> {
-		const { data } = await apiClient.get<UserErrorRequestDetail>(`/organization/usage/errors/${id}`)
-		return data
-	},
-	async listAuditEvents(params: { category?: string; start?: string; end?: string; page?: number; page_size?: number } = {}): Promise<{ items: OrganizationAuditEntry[]; total: number; page: number; page_size: number; pages: number }> {
-		const { data } = await apiClient.get('/organization/audit-events', { params })
-		return data
-	},
-	async getSettings(): Promise<OrganizationSettings> {
-		const { data } = await apiClient.get<OrganizationSettings>('/organization/settings')
-		return data
-	},
-	async updateSettings(payload: { auto_switch_subscription: boolean }): Promise<OrganizationSettings> {
-		const { data } = await apiClient.put<OrganizationSettings>('/organization/settings', payload)
-		return data
-	},
-	async getSubscriptionFallback(subscriptionID: number): Promise<SubscriptionFallbackView> {
-		const { data } = await apiClient.get<SubscriptionFallbackView>('/organization/subscriptions/fallback', {
-			params: { subscription_id: subscriptionID },
-		})
 		return data
 	},
 	async getOrganization(id: number): Promise<AdminOrganizationDetail> {

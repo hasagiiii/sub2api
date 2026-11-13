@@ -1443,6 +1443,8 @@ function isNavItemActive(item: NavItem): boolean {
 }
 
 function isActive(path: string): boolean {
+  // 管理员进入的企业管理页面归属「企业账户审批」菜单。
+  if (path === '/admin/company-applications' && route.path.startsWith('/admin/organizations/')) return true
   return route.path === path || route.path.startsWith(path + '/')
 }
 

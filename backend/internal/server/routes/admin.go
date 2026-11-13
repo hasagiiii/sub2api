@@ -216,6 +216,10 @@ func registerOrganizationAdminRoutes(admin *gin.RouterGroup, h *handler.Handlers
 		organizations.GET("/:organization_id", h.Organization.AdminGetOrganization)
 		organizations.POST("/:organization_id/subscriptions", h.Organization.AdminCreateSubscription)
 		organizations.PATCH("/:organization_id/status", h.Organization.AdminSetOrganizationStatus)
+		// 系统管理员以企业所有者身份使用企业管理功能（审计记录仍为管理员本人）。
+		console := organizations.Group("/:organization_id/console")
+		console.Use(h.Organization.AdminActAsOrganizationOwner, h.Organization.RequireOrganization)
+		registerOrganizationConsoleRoutes(console, h, false)
 	}
 }
 

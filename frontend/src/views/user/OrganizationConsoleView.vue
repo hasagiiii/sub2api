@@ -2,9 +2,13 @@
   <AppLayout>
     <div class="space-y-5">
     <div class="card p-5" data-testid="organization-header">
+      <div v-if="adminMode" class="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300" data-testid="admin-console-banner">
+        <span>{{ t('organization.admin.consoleBanner') }}</span>
+        <button type="button" class="btn btn-ghost btn-sm" @click="router.push(adminReturnPath)">{{ t('organization.admin.backToList') }}</button>
+      </div>
       <div class="flex flex-wrap items-center gap-2">
         <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ organization?.company_name }}</h2>
-        <button v-if="isOwner" class="btn btn-ghost btn-sm" @click="showRename = true">
+        <button v-if="isOwner && !adminMode" class="btn btn-ghost btn-sm" @click="showRename = true">
           {{ t('organization.nameChange.action') }}
         </button>
       </div>
@@ -18,7 +22,7 @@
       从而消除页面顶部标题下方多出的空白间隔。
       activeTab 仍以派生形式控制下方内容区域。
     -->
-    <div v-if="visibleTabs.length" hidden class="settings-tabs-shell sr-only" aria-hidden="true">
+    <div v-if="visibleTabs.length" :hidden="!adminMode" :class="['settings-tabs-shell', !adminMode && 'sr-only']" :aria-hidden="adminMode ? undefined : 'true'" data-testid="organization-tabs">
       <nav class="settings-tabs-scroll" role="tablist" :aria-label="t('organization.console')">
         <div class="settings-tabs">
           <button
@@ -357,7 +361,7 @@
     <div v-else-if="activeTab === 'subscriptions'" class="space-y-6">
       <p class="card p-4 text-sm text-gray-500">{{ t('organization.subscriptions.description') }}</p>
 
-      <section v-if="canManageSubscriptions" class="card space-y-3 p-5">
+      <section v-if="canManageSubscriptions && !adminMode" class="card space-y-3 p-5">
         <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('organization.subscriptions.createTitle') }}</h3>
         <p class="text-xs text-gray-500">{{ t('organization.subscriptions.createHint') }}</p>
         <PlanPlazaCards :cards="planCards" :loading="plansLoading" emit-select @select="openPurchase" />
@@ -680,7 +684,7 @@
         :page="usageErrors.page"
         :page-size="usageErrors.page_size"
         :visible-column-keys="usageErrorVisibleColumnKeys"
-        :detail-loader="organizationAPI.getUsageErrorDetail"
+        :detail-loader="consoleAPI.getUsageErrorDetail"
         @sort="onUsageErrorSort"
         @update:page="loadUsageErrors"
         @update:pageSize="onUsageErrorPageSize"
@@ -1009,6 +1013,7 @@ import { useI18n } from 'vue-i18n'
 import { useTimestamp } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
 import { organizationAPI } from '@/api'
+import { createAdminOrganizationConsoleAPI } from '@/api/organization'
 import type { OrganizationAuditEntry } from '@/api/organization'
 import { plazaAPI } from '@/api/plaza'
 import { Icon } from '@/components/icons'
@@ -1041,10 +1046,22 @@ import type { DashboardStats, EndpointStat, FinanceSummary, GroupStat, IAMMember
 import type { PlazaPlanCard } from '@/api/plaza'
 import { useAuthStore } from '@/stores'
 
+// organizationId 由系统管理员入口传入：以该企业所有者身份复用全部企业管理功能，
+// 请求走 /admin/organizations/:id/console，子页面路径改为 /admin/organizations/:id/*。
+const props = defineProps<{ organizationId?: number | string }>()
+
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const adminOrganizationID = computed(() => {
+  const value = Number(props.organizationId)
+  return Number.isInteger(value) && value > 0 ? value : 0
+})
+const adminMode = computed(() => adminOrganizationID.value > 0)
+const consoleAPI = adminMode.value ? createAdminOrganizationConsoleAPI(adminOrganizationID.value) : organizationAPI
+const basePath = computed(() => adminMode.value ? `/admin/organizations/${adminOrganizationID.value}` : '/organization')
+const adminReturnPath = '/admin/company-applications?queue=organizations'
 const { copyToClipboard } = useClipboard()
 const usageCostTooltipRow = ref<OrganizationUsageRow | null>(null)
 const usageCostTooltipPosition = ref({ x: 0, y: 0 })
@@ -1052,26 +1069,13 @@ type Tab = 'finance' | 'limits' | 'dashboard' | 'subscriptions' | 'usage' | 'aud
 
 // Tab 与新增独立子路由的映射。旧的 /organization?tab=xxx 仍兼容，
 // 但新链接一律指向独立子路由。
-const tabToPath: Record<Tab, string> = {
-  finance: '/organization/finance',
-  limits: '/organization/limits',
-  dashboard: '/organization/dashboard',
-  subscriptions: '/organization/subscriptions',
-  usage: '/organization/usage',
-  audit: '/organization/audit',
-  settings: '/organization/settings',
-}
+const allTabs: Tab[] = ['finance', 'limits', 'dashboard', 'subscriptions', 'usage', 'audit', 'settings']
+const tabToPath = computed(() => Object.fromEntries(allTabs.map(tab => [tab, `${basePath.value}/${tab}`])) as Record<Tab, string>)
 function tabFromPath(path: string): Tab | null {
-  const map: Record<string, Tab> = {
-    '/organization/finance': 'finance',
-    '/organization/limits': 'limits',
-    '/organization/dashboard': 'dashboard',
-    '/organization/subscriptions': 'subscriptions',
-    '/organization/usage': 'usage',
-    '/organization/audit': 'audit',
-    '/organization/settings': 'settings',
-  }
-  return map[path] ?? null
+  const prefix = `${basePath.value}/`
+  if (!path.startsWith(prefix)) return null
+  const tab = path.slice(prefix.length) as Tab
+  return allTabs.includes(tab) ? tab : null
 }
 
 const activeTab = ref<Tab>('finance')
@@ -1368,8 +1372,8 @@ function selectTab(tab: Tab) {
   // 迁移策略：只有当前 URL 已经是"独立子路由"（/organization/xxx）时才切换到目标子路由；
   // 若当前是旧式 /organization?tab=xxx，则保留旧式 query 行为，避免向后不兼容。
   // 侧边栏子菜单直接使用独立 path 打开，路径判断也走这条分支进入新式行为。
-  const targetPath = tabToPath[tab]
-  const inSubRoute = route.path.startsWith('/organization/') && route.path !== '/organization'
+  const targetPath = tabToPath.value[tab]
+  const inSubRoute = route.path.startsWith(`${basePath.value}/`)
   if (inSubRoute && targetPath && route.path !== targetPath) {
     void router.push({ path: targetPath })
   } else if (route.query.tab !== tab) {
@@ -1417,7 +1421,7 @@ function restoreTabFromRoute() {
   activeTab.value = nextTab
   // 只有当前处于 /organization 根路径时才回写旧式 query；
   // 在子路由上不再保留 ?tab= 参数，保持 URL 整洁。
-  if (route.path === '/organization' && route.query.tab !== nextTab) {
+  if (route.path === basePath.value && route.query.tab !== nextTab) {
     void router.replace({ query: { ...route.query, tab: nextTab } })
   }
 }
@@ -1531,7 +1535,7 @@ async function saveSpendLimit() {
   operationKey.value = 'spend-limit-save'
   error.value = ''
   try {
-    spendLimitRules.value = await organizationAPI.upsertSpendLimits({
+    spendLimitRules.value = await consoleAPI.upsertSpendLimits({
       target: spendLimitForm.target,
       member_ids: spendLimitForm.target === 'members' ? spendLimitMemberIDs.value : undefined,
       daily_limit_usd: spendLimitForm.daily || undefined,
@@ -1540,7 +1544,7 @@ async function saveSpendLimit() {
       alert_threshold_pct: spendLimitForm.threshold,
       additional_recipients: parsedSpendLimitRecipients.value,
     })
-    spendLimitUsage.value = await organizationAPI.getSpendLimitUsage()
+    spendLimitUsage.value = await consoleAPI.getSpendLimitUsage()
     spendLimitMemberIDs.value = []
   } catch (cause) {
     error.value = errorMessage(cause)
@@ -1554,8 +1558,8 @@ async function deleteSpendLimit(rule: OrganizationSpendLimitRule) {
   operationKey.value = `spend-limit-delete-${rule.id}`
   error.value = ''
   try {
-    await organizationAPI.deleteSpendLimit(rule.member_user_id)
-    const [rules, usage] = await Promise.all([organizationAPI.listSpendLimits(), organizationAPI.getSpendLimitUsage()])
+    await consoleAPI.deleteSpendLimit(rule.member_user_id)
+    const [rules, usage] = await Promise.all([consoleAPI.listSpendLimits(), consoleAPI.getSpendLimitUsage()])
     spendLimitRules.value = rules
     spendLimitUsage.value = usage
   } catch (cause) {
@@ -1657,7 +1661,7 @@ function formatSubscriptionDate(value: string): string {
 
 async function loadSubscriptions() {
   try {
-    subscriptions.value = await organizationAPI.listSubscriptions()
+    subscriptions.value = await consoleAPI.listSubscriptions()
   } catch (cause) {
     error.value = errorMessage(cause)
   }
@@ -1671,7 +1675,7 @@ async function loadPlans() {
   try {
     const [resp, groups] = await Promise.all([
       plazaAPI.listPlans(),
-      organizationAPI.listSubscriptionGroups(),
+      consoleAPI.listSubscriptionGroups(),
     ])
     const groupsByID = new Map(groups.map(group => [group.id, group]))
     planCards.value = resp.cards.flatMap((card) => {
@@ -1793,7 +1797,7 @@ async function loadUsage(page = 1) {
   usageLoading.value = true
   error.value = ''
   try {
-    usagePage.value = await organizationAPI.getUsage(organizationUsageParams(page))
+    usagePage.value = await consoleAPI.getUsage(organizationUsageParams(page))
   } catch (cause) {
     error.value = errorMessage(cause)
   } finally {
@@ -1830,7 +1834,7 @@ async function loadAuditEvents(page = 1) {
   auditLoading.value = true
   error.value = ''
   try {
-    auditPage.value = await organizationAPI.listAuditEvents({
+    auditPage.value = await consoleAPI.listAuditEvents({
       category: auditCategory.value || undefined,
       page,
       page_size: auditPage.value.page_size || 20,
@@ -1910,7 +1914,7 @@ async function loadSettings() {
   settingsLoading.value = true
   settingsError.value = ''
   try {
-    const data = await organizationAPI.getSettings()
+    const data = await consoleAPI.getSettings()
     settingsState.value.auto_switch_subscription = !!data.auto_switch_subscription
   } catch (cause) {
     settingsError.value = errorMessage(cause)
@@ -1925,7 +1929,7 @@ async function saveSettings() {
   settingsSaved.value = false
   settingsError.value = ''
   try {
-    const data = await organizationAPI.updateSettings({
+    const data = await consoleAPI.updateSettings({
       auto_switch_subscription: settingsState.value.auto_switch_subscription,
     })
     settingsState.value.auto_switch_subscription = !!data.auto_switch_subscription
@@ -1944,9 +1948,9 @@ async function loadUsageAggregates() {
   try {
     const params = organizationUsageParams(1)
     const [stats, charts, ranking] = await Promise.all([
-      organizationAPI.getUsageStats(params),
-      organizationAPI.getUsageCharts(params),
-      organizationAPI.getDashboardSpendingRanking({ ...params, limit: 12 }),
+      consoleAPI.getUsageStats(params),
+      consoleAPI.getUsageCharts(params),
+      consoleAPI.getDashboardSpendingRanking({ ...params, limit: 12 }),
     ])
     usageStats.value = stats
     usageTrend.value = charts.trend
@@ -1970,9 +1974,9 @@ async function loadDashboardAggregates() {
   try {
     const params = organizationDashboardParams()
     const [charts, ranking, usersTrend] = await Promise.all([
-      organizationAPI.getUsageCharts(params),
-      organizationAPI.getDashboardSpendingRanking({ ...params, limit: 12 }),
-      organizationAPI.getDashboardUsersTrend({ ...params, limit: 12 }),
+      consoleAPI.getUsageCharts(params),
+      consoleAPI.getDashboardSpendingRanking({ ...params, limit: 12 }),
+      consoleAPI.getDashboardUsersTrend({ ...params, limit: 12 }),
     ])
     dashboardTrend.value = charts.trend
     dashboardModelStats.value = charts.models
@@ -1989,7 +1993,7 @@ async function loadDashboardAggregates() {
 }
 
 async function loadOrganizationBreakdown(params: Record<string, unknown>): Promise<{ users: UserBreakdownItem[] }> {
-  return organizationAPI.getDashboardUserBreakdown({
+  return consoleAPI.getDashboardUserBreakdown({
     ...organizationDashboardParams(),
     model: typeof params.model === 'string' ? params.model : undefined,
     limit: 50,
@@ -1997,7 +2001,7 @@ async function loadOrganizationBreakdown(params: Record<string, unknown>): Promi
 }
 
 async function loadOrganizationRankingModels(item: UserSpendingRankingItem): Promise<ModelStat[]> {
-  const charts = await organizationAPI.getUsageCharts({
+  const charts = await consoleAPI.getUsageCharts({
     ...organizationDashboardParams(),
     member_id: item.user_id,
   })
@@ -2024,7 +2028,7 @@ function debounceUsageFilterChange() {
 
 async function searchUsageAPIKeys() {
   try {
-    usageAPIKeyResults.value = await organizationAPI.searchUsageAPIKeys(
+    usageAPIKeyResults.value = await consoleAPI.searchUsageAPIKeys(
       usageAPIKeyKeyword.value.trim(),
       usageFilters.memberId ? Number(usageFilters.memberId) : undefined,
     )
@@ -2074,7 +2078,7 @@ async function loadUsageErrors(page = 1) {
 	if (!hasFinanceReadOnly.value) return
 	usageErrorsLoading.value = true
 	try {
-		usageErrors.value = await organizationAPI.getUsageErrors({
+		usageErrors.value = await consoleAPI.getUsageErrors({
 			page,
 			page_size: usageErrors.value.page_size,
 			member_id: usageFilters.memberId ? Number(usageFilters.memberId) : undefined,
@@ -2115,8 +2119,8 @@ async function loadCurrentTabData(tab: Tab) {
   if (tab === 'finance') {
     // 授权弹窗依赖策略列表；/organization/policies 仅 owner 可调用，与“授权”按钮的可见性一致。
     const [memberData, policyData] = await Promise.all([
-      organizationAPI.listMembers(),
-      isOwner.value ? organizationAPI.listPolicies() : Promise.resolve(null),
+      consoleAPI.listMembers(),
+      isOwner.value ? consoleAPI.listPolicies() : Promise.resolve(null),
     ])
     members.value = memberData.items
     memberLimit.value = memberData.member_limit
@@ -2125,29 +2129,29 @@ async function loadCurrentTabData(tab: Tab) {
     return
   }
   if (tab === 'limits') {
-    const memberData = await organizationAPI.listMembers()
+    const memberData = await consoleAPI.listMembers()
     members.value = memberData.items
     memberLimit.value = memberData.member_limit
     usedSlots.value = memberData.used_slots
-    spendLimitUsage.value = await organizationAPI.getSpendLimitUsage()
+    spendLimitUsage.value = await consoleAPI.getSpendLimitUsage()
     if (canManageSpendLimits.value) {
-      spendLimitRules.value = await organizationAPI.listSpendLimits()
+      spendLimitRules.value = await consoleAPI.listSpendLimits()
     }
     return
   }
   if (tab === 'dashboard') {
-    const [dashboard] = await Promise.all([organizationAPI.getDashboard(), loadDashboardAggregates()])
+    const [dashboard] = await Promise.all([consoleAPI.getDashboard(), loadDashboardAggregates()])
     dashboardStats.value = dashboard
     return
   }
   if (tab === 'subscriptions') {
     await loadSubscriptions()
-    if (canManageSubscriptions.value) void loadPlans()
+    if (canManageSubscriptions.value && !adminMode.value) void loadPlans()
     return
   }
   if (tab === 'usage') {
     const [memberData] = await Promise.all([
-      organizationAPI.listMembers(), loadUsage(usagePage.value.page || 1), loadUsageAggregates(),
+      consoleAPI.listMembers(), loadUsage(usagePage.value.page || 1), loadUsageAggregates(),
     ])
     members.value = memberData.items
     memberLimit.value = memberData.member_limit
@@ -2165,7 +2169,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const context = await organizationAPI.getContext()
+    const context = await consoleAPI.getContext()
     organization.value = context.organization
     finance.value = context.finance
     restoreTabFromRoute()
@@ -2187,7 +2191,7 @@ async function createMember() {
   operationKey.value = 'create'
   modalError.value = ''
   try {
-    const result = await organizationAPI.createMember(
+    const result = await consoleAPI.createMember(
       createForm.loginName,
       createForm.password,
       createForm.mustChangePassword,
@@ -2227,7 +2231,7 @@ async function setStatus(member: IAMMember, status: IAMMember['status']) {
   operationKey.value = `${member.user_id}:status`
   error.value = ''
   try {
-    await organizationAPI.setMemberStatus(member.user_id, status)
+    await consoleAPI.setMemberStatus(member.user_id, status)
     await load()
   } catch (cause) {
     error.value = errorMessage(cause)
@@ -2256,7 +2260,7 @@ async function confirmDeleteMember() {
   operationKey.value = `${deletingMember.value.user_id}:delete`
   error.value = ''
   try {
-    await organizationAPI.deleteArchivedMember(deletingMember.value.user_id)
+    await consoleAPI.deleteArchivedMember(deletingMember.value.user_id)
     closeDeleteMember()
     await load()
   } catch (cause) {
@@ -2270,7 +2274,7 @@ async function resetPassword(member: IAMMember) {
   operationKey.value = `${member.user_id}:reset`
   error.value = ''
   try {
-    const result = await organizationAPI.resetMemberPassword(member.user_id)
+    const result = await consoleAPI.resetMemberPassword(member.user_id)
     credential.value = { principal: member.principal, password: result.initial_password }
   } catch (cause) {
     error.value = errorMessage(cause)
@@ -2284,9 +2288,9 @@ async function togglePolicy(member: IAMMember, key: string, attached: boolean) {
   modalError.value = ''
   error.value = ''
   try {
-    await organizationAPI.setPolicy(member.user_id, key, attached)
+    await consoleAPI.setPolicy(member.user_id, key, attached)
     await load()
-    await auth.refreshUser()
+    if (!adminMode.value) await auth.refreshUser()
     if (authorizationTarget.value) {
       authorizationTarget.value = members.value.find(item => item.user_id === member.user_id) ?? null
     }
@@ -2336,7 +2340,7 @@ async function transferCompanyBalance(operation: 'deposit' | 'withdraw') {
   operationKey.value = 'company:balance'
   error.value = ''
   try {
-    await organizationAPI.transferCompanyBalance(companyBalanceAmount.value, operation)
+    await consoleAPI.transferCompanyBalance(companyBalanceAmount.value, operation)
     companyBalanceAmount.value = ''
     await load()
   } catch (cause) {
@@ -2365,7 +2369,7 @@ async function transferFromModal(operation: 'allocate' | 'reclaim') {
   operationKey.value = `${member.user_id}:balance`
   modalError.value = ''
   try {
-    await organizationAPI.transferBalance(member.user_id, amount, operation)
+    await consoleAPI.transferBalance(member.user_id, amount, operation)
     amounts[member.user_id] = ''
     closeAllocation()
     await load()

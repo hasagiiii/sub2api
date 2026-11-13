@@ -680,6 +680,15 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'organization.admin.title' }
   },
   {
+    // 系统管理员在「企业账户审批 → 企业组织」中进入指定企业的企业管理功能；
+    // 复用 OrganizationConsoleView，子页面与用户侧企业管理一一对应。
+    path: '/admin/organizations/:organizationId/:tab(finance|limits|dashboard|subscriptions|usage|audit|settings)?',
+    name: 'AdminOrganizationConsole',
+    component: () => import('@/views/user/OrganizationConsoleView.vue'),
+    props: route => ({ organizationId: Number(route.params.organizationId) }),
+    meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'organization.admin.manageConsole' }
+  },
+  {
     path: '/admin/groups',
     name: 'AdminGroups',
     component: () => import('@/views/admin/GroupsView.vue'),

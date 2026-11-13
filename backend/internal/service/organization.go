@@ -1012,6 +1012,24 @@ func (s *OrganizationService) GetOrganization(ctx context.Context, actorID, orga
 	return s.repo.GetOrganization(ctx, actorID, organizationID)
 }
 
+// AdminConsoleOwner resolves the owner account a system administrator acts as
+// when managing an enterprise from the admin console. It re-checks the actor's
+// admin status and requires the organization to be active, because every
+// enterprise console operation is defined relative to an active owner.
+func (s *OrganizationService) AdminConsoleOwner(ctx context.Context, actorID, organizationID int64) (int64, error) {
+	detail, err := s.repo.GetOrganization(ctx, actorID, organizationID)
+	if err != nil {
+		return 0, err
+	}
+	if detail == nil || detail.Organization.OwnerUserID <= 0 {
+		return 0, ErrCompanyNotFound
+	}
+	if detail.Organization.Status != OrganizationStatusActive {
+		return 0, infraerrors.Conflict("ORGANIZATION_NOT_ACTIVE", "organization is not active")
+	}
+	return detail.Organization.OwnerUserID, nil
+}
+
 func (s *OrganizationService) AdminCreateOrganizationSubscription(ctx context.Context, actorID, organizationID, groupID int64, validityDays int, notes string) (*OrganizationSubscription, error) {
 	if validityDays < 1 || validityDays > 36500 {
 		return nil, infraerrors.BadRequest("SUBSCRIPTION_VALIDITY_INVALID", "validity days must be between 1 and 36500")
