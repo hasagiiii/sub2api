@@ -86,6 +86,21 @@ describe('organization API', () => {
     }))
   })
 
+  it.each([
+    ['add', 100, '100'],
+    ['subtract', 12.5, '12.5'],
+    ['add', '0.00000001', '0.00000001'],
+    ['subtract', '123456789.12345678', '123456789.12345678'],
+  ] as const)('serializes balance adjustment %s %s as a decimal string', async (operation, amount, expected) => {
+    post.mockResolvedValue({ data: {} })
+    await organizationAPI.adjustOrganizationBalance(8, amount, operation)
+    expect(post).toHaveBeenCalledWith('/admin/organizations/8/balance', {
+      amount: expected,
+      operation,
+      idempotency_key: expect.any(String),
+    })
+  })
+
   it('provides member policy and organization usage query clients', async () => {
     get
       .mockResolvedValueOnce({ data: { user_id: 42, login_name: 'reader' } })

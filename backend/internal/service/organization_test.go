@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -60,7 +61,7 @@ func (s *organizationRepoStub) GetContextForUser(context.Context, int64) (*Organ
 func (s *organizationRepoStub) GetApplicationForUser(context.Context, int64) (*CompanyApplication, error) {
 	return s.applicationResult, s.applicationErr
 }
-func (s *organizationRepoStub) CreateIAMMember(_ context.Context, _ int64, user *User, _ int) (*IAMMember, error) {
+func (s *organizationRepoStub) CreateIAMMember(_ context.Context, _ int64, user *User) (*IAMMember, error) {
 	s.createdUser = user
 	if s.createErr != nil {
 		return nil, s.createErr
@@ -398,7 +399,7 @@ func TestBillingContextResolverPassesRequiredAmount(t *testing.T) {
 
 func TestBillingContextResolverHonorsAPIKeyCompanyBalancePreference(t *testing.T) {
 	organizationID := int64(8)
-	repo := &organizationRepoStub{resolved: &BillingContext{
+	repo := &organizationRepoStub{organizationBalance: 10, resolved: &BillingContext{
 		ConsumerUserID: 12, OrganizationID: &organizationID, PayerUserID: 12, BalanceSource: BalanceSourceSelf,
 	}}
 	resolver := NewBillingContextResolver(repo)
@@ -409,6 +410,58 @@ func TestBillingContextResolverHonorsAPIKeyCompanyBalancePreference(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, BalanceSourceCompany, resolved.BalanceSource)
 	require.Equal(t, int64(12), resolved.PayerUserID)
+}
+
+func TestCompanyBalancePreferenceLookupFailure(t *testing.T) {
+	organizationID := int64(8)
+	expected := errors.New("balance lookup unavailable")
+	repo := &organizationRepoStub{organizationBalanceErr: expected, resolved: &BillingContext{
+		ConsumerUserID: 12, OrganizationID: &organizationID, PayerUserID: 12, BalanceSource: BalanceSourceSelf,
+	}}
+	key := &APIKey{UserID: 12, PreferCompanyBalance: true}
+	ctx := WithBillingAPIKey(context.Background(), key)
+	result, err := NewBillingContextResolver(repo).Resolve(ctx, 12)
+	require.ErrorIs(t, err, expected)
+	require.Nil(t, result)
+	require.Nil(t, (&APIKeyService{organizationRepo: repo}).ResolveBillingContextForAPIKey(ctx, key))
+	key.PreferCompanyBalance = false
+	result, err = NewBillingContextResolver(repo).Resolve(ctx, 12)
+	require.NoError(t, err)
+	require.Equal(t, BalanceSourceSelf, result.BalanceSource)
+}
+
+func TestCompanyBalancePreferenceFallback(t *testing.T) {
+	for _, balance := range []float64{10, 0.01, 0, -1} {
+		for _, entry := range []string{"preflight", "settlement", "authentication"} {
+			t.Run(fmt.Sprintf("%s/balance=%g", entry, balance), func(t *testing.T) {
+				organizationID := int64(8)
+				repo := &organizationRepoStub{organizationBalance: balance, resolved: &BillingContext{
+					ConsumerUserID: 12, OrganizationID: &organizationID, PayerUserID: 12, BalanceSource: BalanceSourceSelf,
+				}}
+				key := &APIKey{UserID: 12, PreferCompanyBalance: true}
+				ctx := WithBillingAPIKey(context.Background(), key)
+				resolver := NewBillingContextResolver(repo)
+				var result *BillingContext
+				var err error
+				switch entry {
+				case "preflight":
+					result, err = resolver.Resolve(ctx, 12)
+				case "settlement":
+					result, err = resolver.ResolveForSettlement(ctx, 12, 1)
+				case "authentication":
+					result = (&APIKeyService{organizationRepo: repo}).ResolveBillingContextForAPIKey(ctx, key)
+				}
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				expected := BalanceSourceSelf
+				if balance > 0 {
+					expected = BalanceSourceCompany
+				}
+				require.Equal(t, expected, result.BalanceSource)
+				require.Equal(t, int64(12), result.PayerUserID)
+			})
+		}
+	}
 }
 
 func TestOrganizationServiceNormalizesSpendLimitBatch(t *testing.T) {

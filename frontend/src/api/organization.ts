@@ -353,9 +353,9 @@ export const organizationAPI = {
 	async setOrganizationMemberLimit(id: number, memberLimit: number): Promise<void> {
 		await apiClient.patch(`/admin/organizations/${id}/member-limit`, { member_limit: memberLimit })
 	},
-	async adjustOrganizationBalance(id: number, amount: string, operation: 'add' | 'subtract'): Promise<void> {
+	async adjustOrganizationBalance(id: number, amount: string | number, operation: 'add' | 'subtract'): Promise<void> {
 		await apiClient.post(`/admin/organizations/${id}/balance`, {
-			amount,
+			amount: String(amount),
 			operation,
 			idempotency_key: randomIdempotencyKey(),
 		})

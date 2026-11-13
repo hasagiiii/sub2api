@@ -676,7 +676,7 @@ type OrganizationRepository interface {
 	SetOrganizationStatus(ctx context.Context, actorID, organizationID int64, status string) error
 	AdminSetMemberLimit(ctx context.Context, actorID, organizationID int64, memberLimit int) error
 	AdminAdjustOrganizationBalance(ctx context.Context, actorID, organizationID int64, amount, operation, idempotencyKey string) error
-	CreateIAMMember(ctx context.Context, ownerID int64, user *User, memberLimit int) (*IAMMember, error)
+	CreateIAMMember(ctx context.Context, ownerID int64, user *User) (*IAMMember, error)
 	ListIAMMembers(ctx context.Context, actorID int64) ([]IAMMember, int, error)
 	GetIAMMember(ctx context.Context, actorID, memberUserID int64) (*IAMMember, error)
 	SetIAMMemberStatus(ctx context.Context, ownerID, memberUserID int64, status string) error
@@ -1166,11 +1166,10 @@ func (s *OrganizationService) CreateIAMMember(ctx context.Context, ownerID int64
 	if err != nil {
 		return nil, "", err
 	}
-	limit := s.cfg.Company.DefaultMemberLimit
 	member, err := s.repo.CreateIAMMember(ctx, ownerID, &User{
 		IdentityType: IdentityTypeIAM, LoginName: loginName, Username: username, PasswordHash: string(hash), Role: RoleUser,
 		Status: StatusActive, RecoveryEmail: recoveryEmail, MustChangePassword: mustChangePassword, AuthzGeneration: 1,
-	}, limit)
+	})
 	if err != nil {
 		return nil, "", err
 	}
@@ -1827,9 +1826,9 @@ func (r *BillingContextResolver) resolveForAmount(ctx context.Context, consumerU
 	if ctx != nil {
 		preferredKey, _ = ctx.Value(billingAPIKeyContextKey{}).(*APIKey)
 	}
-	if preferredKey != nil && preferredKey.PreferCompanyBalance && resolved != nil && resolved.OrganizationID != nil && resolved.BalanceSource == BalanceSourceSelf {
-		resolved.PayerUserID = resolved.ConsumerUserID
-		resolved.BalanceSource = BalanceSourceCompany
+	resolved, err = applyCompanyBalancePreference(ctx, r.repo, preferredKey, resolved)
+	if err != nil {
+		return nil, err
 	}
 	if enforceSpendLimit {
 		if err := r.CheckSpendLimit(ctx, resolved, requiredAmount); err != nil {
@@ -1837,6 +1836,30 @@ func (r *BillingContextResolver) resolveForAmount(ctx context.Context, consumerU
 		}
 	}
 	return resolved, nil
+}
+
+// applyCompanyBalancePreference only overrides a personal wallet while the
+// company wallet has positive balance. Exhausted wallets fall back to the
+// original personal source, whose balance is checked by the normal billing gate.
+func applyCompanyBalancePreference(ctx context.Context, repo OrganizationRepository, key *APIKey, billing *BillingContext) (*BillingContext, error) {
+	if key == nil || !key.PreferCompanyBalance || billing == nil || billing.OrganizationID == nil || billing.BalanceSource != BalanceSourceSelf {
+		return billing, nil
+	}
+	balanceRepo, ok := repo.(OrganizationBalanceRepository)
+	if !ok {
+		return nil, fmt.Errorf("organization balance repository is unavailable")
+	}
+	balance, err := balanceRepo.GetOrganizationBalance(ctx, *billing.OrganizationID)
+	if err != nil {
+		return nil, fmt.Errorf("resolve preferred company balance: %w", err)
+	}
+	if balance > 0 {
+		selected := *billing
+		selected.PayerUserID = selected.ConsumerUserID
+		selected.BalanceSource = BalanceSourceCompany
+		return &selected, nil
+	}
+	return billing, nil
 }
 
 func (r *BillingContextResolver) CheckSpendLimit(ctx context.Context, billing *BillingContext, amount float64) error {

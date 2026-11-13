@@ -862,7 +862,7 @@ func (r *organizationRepository) SetOrganizationStatus(ctx context.Context, acto
 	return tx.Commit()
 }
 
-func (r *organizationRepository) CreateIAMMember(ctx context.Context, ownerID int64, user *service.User, memberLimit int) (_ *service.IAMMember, err error) {
+func (r *organizationRepository) CreateIAMMember(ctx context.Context, ownerID int64, user *service.User) (_ *service.IAMMember, err error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -873,7 +873,9 @@ func (r *organizationRepository) CreateIAMMember(ctx context.Context, ownerID in
 		return nil, err
 	}
 	var companyID string
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(o.company_id,'') FROM organizations o WHERE o.id=$1`, orgID).Scan(&companyID); err != nil {
+	var memberLimit int
+	// The organization row is locked above; use its current limit, as displayed in the console.
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(o.company_id,''),o.member_limit FROM organizations o WHERE o.id=$1`, orgID).Scan(&companyID, &memberLimit); err != nil {
 		return nil, err
 	}
 	var count int

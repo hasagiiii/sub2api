@@ -354,7 +354,7 @@ func TestCompanyNameReviewAndOrganizationSuspensionLifecycle(t *testing.T) {
 func createIAMMemberForOrganizationTest(t *testing.T, ownerID int64, login string) int64 {
 	t.Helper()
 	repo := NewOrganizationRepository(integrationDB)
-	member, err := repo.CreateIAMMember(context.Background(), ownerID, &service.User{LoginName: login, PasswordHash: "hash", RecoveryEmail: ""}, 20)
+	member, err := repo.CreateIAMMember(context.Background(), ownerID, &service.User{LoginName: login, PasswordHash: "hash", RecoveryEmail: ""})
 	require.NoError(t, err)
 	return member.UserID
 }
@@ -376,7 +376,7 @@ func TestIAMMemberLimitConcurrentArchiveAndLoginReuse(t *testing.T) {
 		wg.Add(1)
 		go func(login string) {
 			defer wg.Done()
-			_, err := repo.CreateIAMMember(ctx, owner.ID, &service.User{LoginName: login, PasswordHash: "hash"}, 20)
+			_, err := repo.CreateIAMMember(ctx, owner.ID, &service.User{LoginName: login, PasswordHash: "hash"})
 			errs <- err
 		}(login)
 	}
@@ -395,11 +395,10 @@ func TestIAMMemberLimitConcurrentArchiveAndLoginReuse(t *testing.T) {
 	require.Equal(t, 1, successes)
 	require.Equal(t, 1, limitFailures)
 
-	_, err := repo.CreateIAMMember(ctx, owner.ID, &service.User{LoginName: "member-01", PasswordHash: "hash"}, 25)
-	require.ErrorIs(t, err, service.ErrIAMLoginName)
-
 	require.NoError(t, repo.SetIAMMemberStatus(ctx, owner.ID, memberIDs[0], service.MembershipStatusArchived))
-	replacement, err := repo.CreateIAMMember(ctx, owner.ID, &service.User{LoginName: "member-00", PasswordHash: "hash"}, 20)
+	_, err := repo.CreateIAMMember(ctx, owner.ID, &service.User{LoginName: "member-01", PasswordHash: "hash"})
+	require.ErrorIs(t, err, service.ErrIAMLoginName)
+	replacement, err := repo.CreateIAMMember(ctx, owner.ID, &service.User{LoginName: "member-00", PasswordHash: "hash"})
 	require.NoError(t, err)
 	require.NotEqual(t, memberIDs[0], replacement.UserID)
 	members, limit, err := repo.ListIAMMembers(ctx, owner.ID)
