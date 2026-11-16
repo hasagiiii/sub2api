@@ -187,118 +187,6 @@
                 <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
                   t('keys.noGroup')
                 }}</span>
-                <!--
-                  指定了订阅套餐时标出来：同一个分组可能被多个套餐覆盖，不标的话
-                  无法知道这把 Key 扣的是哪一份额度。
-                  徽标必须带"扣费"字样：只写分组名会和左边的路由分组混成一片，
-                  读起来像是这把 Key 还能用在别的分组上。
-                -->
-                <template v-if="row.organization_subscription_id">
-                  <!--
-                    需求：自动切换 badge 与右侧问号在视觉上"连在一起"。
-                    做法：外层用一个 inline-flex 包住两者去掉之间的 gap，
-                    badge 右边不圆角、问号左边不圆角，拼成一个胶囊。
-                    背景色需求：启用态从原来的 success 绿改成 purple，与其它
-                    绿色状态区分开；禁用（关闭自动切换）态保持 badge-gray。
-                  -->
-                  <span class="inline-flex items-center">
-                    <button
-                      type="button"
-                      class="badge whitespace-nowrap rounded-r-none text-xs"
-                      :class="getFallbackEntry(row.organization_subscription_id).loaded && !getFallbackEntry(row.organization_subscription_id).autoSwitchEnabled ? 'badge-gray' : 'badge-purple'"
-                      data-test="auto-switch-badge"
-                      @click.stop.prevent="toggleFallbackChain(row.id, row.organization_subscription_id)"
-                      @mouseenter="onFallbackHover(row.organization_subscription_id)"
-                    >
-                      {{
-                        getFallbackEntry(row.organization_subscription_id).loaded && !getFallbackEntry(row.organization_subscription_id).autoSwitchEnabled
-                          ? t('organization.settings.fallback.badgeOff')
-                          : t('organization.settings.fallback.badge')
-                      }}
-                    </button>
-                    <span
-                      class="relative inline-flex"
-                      data-test="auto-switch-help"
-                      @mouseenter="onFallbackHover(row.organization_subscription_id); fallbackTooltipKey = row.id"
-                      @mouseleave="fallbackTooltipKey = null"
-                      @click.stop.prevent
-                    >
-                      <span
-                        class="inline-flex h-[22px] cursor-help items-center justify-center rounded-l-none rounded-r-full px-1.5 text-[11px] font-semibold"
-                        :class="getFallbackEntry(row.organization_subscription_id).loaded && !getFallbackEntry(row.organization_subscription_id).autoSwitchEnabled
-                          ? 'bg-gray-200 text-gray-600 hover:bg-gray-300 dark:bg-dark-600 dark:text-dark-200'
-                          : 'bg-purple-200 text-purple-700 hover:bg-purple-300 dark:bg-purple-900/50 dark:text-purple-300'"
-                        :title="t('organization.settings.fallback.tooltipHelp')"
-                      >?</span>
-                    <div
-                      v-if="fallbackTooltipKey === row.id"
-                      class="pointer-events-none absolute left-1/2 top-full z-30 mt-1 w-80 max-w-[calc(100vw-2rem)] -translate-x-1/2 whitespace-normal break-words rounded-md border border-gray-200 bg-white p-2 text-xs leading-5 text-gray-600 shadow-lg dark:border-dark-600 dark:bg-dark-800 dark:text-dark-200"
-                      data-test="auto-switch-tooltip"
-                      role="tooltip"
-                    >
-                      <div class="whitespace-normal break-words text-gray-700 dark:text-dark-200">
-                        {{ t('organization.settings.autoSwitchSubscription.description') }}
-                      </div>
-                      <div class="mt-2 border-t border-gray-100 pt-2 dark:border-dark-700">
-                        <div class="mb-1 font-medium text-gray-800 dark:text-white">
-                          {{ t('organization.settings.fallback.chainTitle') }}
-                        </div>
-                        <div
-                          v-if="getFallbackEntry(row.organization_subscription_id).loading"
-                        >
-                          {{ t('organization.settings.fallback.loading') }}
-                        </div>
-                        <div
-                          v-else-if="getFallbackEntry(row.organization_subscription_id).error"
-                          class="text-red-600"
-                        >
-                          {{ t('organization.settings.fallback.loadFailed') }}
-                        </div>
-                        <ol v-else class="space-y-1">
-                          <li class="flex items-center gap-2">
-                            <span class="w-14 shrink-0 font-mono text-[10px] text-gray-400">
-                              {{ t('organization.settings.fallback.chainCurrent') }}
-                            </span>
-                            <span class="inline-flex min-w-0 items-center whitespace-nowrap">
-                              <GroupBadge
-                                v-if="row.group"
-                                :name="organizationFallbackLabel(row.organization_subscription_id, row.group.name)"
-                                :platform="row.group.platform"
-                                :subscription-type="row.group.subscription_type"
-                                :rate-multiplier="row.group.rate_multiplier"
-                                                              />
-                              <span v-else class="whitespace-nowrap">{{ organizationFallbackLabel(row.organization_subscription_id) }}</span>
-                            </span>
-                          </li>
-                          <li
-                            v-for="(candidate, cIndex) in getFallbackEntry(row.organization_subscription_id).candidates"
-                            :key="candidate.id"
-                            class="flex items-center gap-2"
-                          >
-                            <span class="w-14 shrink-0 font-mono text-[10px] text-gray-400">
-                              {{ t('organization.settings.fallback.chainNext', { index: cIndex + 1 }) }}
-                            </span>
-                            <span class="inline-flex min-w-0 items-center">
-                              <GroupBadge
-                                :name="candidate.plan_name || candidate.group_name || t('keys.orgSubscriptionLabel')"
-                                :platform="candidate.platform"
-                                :subscription-type="candidate.subscription_type"
-                                :rate-multiplier="candidate.rate_multiplier"
-                                                              />
-                            </span>
-                          </li>
-                          <li
-                            v-if="!getFallbackEntry(row.organization_subscription_id).candidates.length"
-                            class="text-gray-500"
-                          >
-                            {{ t('organization.settings.fallback.chainEmpty') }}
-                          </li>
-                        </ol>
-                      </div>
-                    </div>
-                  </span>
-                  </span>
-                </template>
                 <span v-if="!hasPlanRoute(row)" class="text-xs text-gray-500 dark:text-gray-400">{{ t('keys.selectGroup') }}</span>
                 <svg
                   v-if="!hasPlanRoute(row)"
@@ -315,6 +203,90 @@
                   />
                 </svg>
               </button>
+              <span v-if="row.organization_subscription_id" class="inline-flex shrink-0 items-center">
+                <HelpTooltip
+                  class="!ml-0"
+                  width-class="w-80 max-w-[calc(100vw-2rem)]"
+                  data-test="auto-switch-trigger"
+                  @mouseenter="onFallbackHover(row.organization_subscription_id)"
+                  @focusin="onFallbackHover(row.organization_subscription_id)"
+                >
+                  <template #trigger>
+                    <button
+                      type="button"
+                      class="badge whitespace-nowrap rounded-r-none text-xs"
+                      :class="getFallbackEntry(row.organization_subscription_id).loaded && !getFallbackEntry(row.organization_subscription_id).autoSwitchEnabled ? 'badge-gray' : 'badge-purple'"
+                      data-test="auto-switch-badge"
+                      @click.stop.prevent="onFallbackHover(row.organization_subscription_id)"
+                    >
+                      {{ getFallbackEntry(row.organization_subscription_id).loaded && !getFallbackEntry(row.organization_subscription_id).autoSwitchEnabled
+                        ? t('organization.settings.fallback.badgeOff')
+                        : t('organization.settings.fallback.badge') }}
+                    </button>
+                  </template>
+                  <div data-test="fallback-subscription-chain">
+                    <div class="mb-2 font-medium">{{ t('organization.settings.fallback.chainTitle') }}</div>
+                    <div v-if="getFallbackEntry(row.organization_subscription_id).loading">
+                      {{ t('organization.settings.fallback.loading') }}
+                    </div>
+                    <div v-else-if="getFallbackEntry(row.organization_subscription_id).error" class="text-red-300">
+                      {{ t('organization.settings.fallback.loadFailed') }}
+                    </div>
+                    <ol v-else class="space-y-1">
+                      <li class="flex items-center gap-2">
+                        <span class="w-14 shrink-0 font-mono text-[10px] text-gray-400">
+                          {{ t('organization.settings.fallback.chainCurrent') }}
+                        </span>
+                        <span class="inline-flex min-w-0 items-center whitespace-nowrap">
+                          <GroupBadge
+                            :name="organizationFallbackLabel(row.organization_subscription_id, row.group?.name)"
+                            :platform="row.group?.platform"
+                            :subscription-type="row.group?.subscription_type"
+                            :rate-multiplier="row.group?.rate_multiplier"
+                          />
+                        </span>
+                      </li>
+                      <li
+                        v-for="(candidate, cIndex) in getFallbackEntry(row.organization_subscription_id).candidates"
+                        :key="candidate.id"
+                        class="flex items-center gap-2"
+                      >
+                        <span class="w-14 shrink-0 font-mono text-[10px] text-gray-400">
+                          {{ t('organization.settings.fallback.chainNext', { index: cIndex + 1 }) }}
+                        </span>
+                        <span class="inline-flex min-w-0 items-center">
+                          <GroupBadge
+                            :name="candidate.plan_name || candidate.group_name || t('keys.orgSubscriptionLabel')"
+                            :platform="candidate.platform"
+                            :subscription-type="candidate.subscription_type"
+                            :rate-multiplier="candidate.rate_multiplier"
+                          />
+                        </span>
+                      </li>
+                      <li
+                        v-if="!getFallbackEntry(row.organization_subscription_id).candidates.length"
+                        class="text-gray-300"
+                      >
+                        {{ t('organization.settings.fallback.chainEmpty') }}
+                      </li>
+                    </ol>
+                  </div>
+                </HelpTooltip>
+                <HelpTooltip class="!ml-0" width-class="w-80 max-w-[calc(100vw-2rem)]" data-test="auto-switch-help">
+                  <template #trigger>
+                    <button
+                      type="button"
+                      class="inline-flex h-[22px] cursor-help items-center justify-center rounded-l-none rounded-r-full px-1.5 text-[11px] font-semibold"
+                      :class="getFallbackEntry(row.organization_subscription_id).loaded && !getFallbackEntry(row.organization_subscription_id).autoSwitchEnabled
+                        ? 'bg-gray-200 text-gray-600 hover:bg-gray-300 dark:bg-dark-600 dark:text-dark-200'
+                        : 'bg-purple-200 text-purple-700 hover:bg-purple-300 dark:bg-purple-900/50 dark:text-purple-300'"
+                      :aria-label="t('organization.settings.fallback.tooltipHelp')"
+                      @click.stop.prevent
+                    >?</button>
+                  </template>
+                  <div data-test="auto-switch-tooltip">{{ t('organization.settings.autoSwitchSubscription.description') }}</div>
+                </HelpTooltip>
+              </span>
               <Select
                 v-if="hasPlanRoute(row)"
                 class="plan-route-select w-20 shrink-0"
@@ -348,40 +320,6 @@
                 data-test="fallback-group-summary"
               >
                 {{ fallbackGroupSummary(row.fallback_group_ids) }}
-              </div>
-              <div
-                v-if="row.organization_subscription_id && isFallbackExpanded(row.id)"
-                class="max-w-md rounded-md border border-gray-200 bg-gray-50 p-2 text-xs leading-5 text-gray-600 dark:border-dark-600 dark:bg-dark-900/60 dark:text-dark-300"
-                data-test="fallback-subscription-chain"
-              >
-                <div class="font-medium text-gray-800 dark:text-white">{{ t('organization.settings.fallback.chainTitle') }}</div>
-                <div v-if="getFallbackEntry(row.organization_subscription_id).loading" class="mt-1">
-                  {{ t('organization.settings.fallback.loading') }}
-                </div>
-                <div v-else-if="getFallbackEntry(row.organization_subscription_id).error" class="mt-1 text-red-600">
-                  {{ t('organization.settings.fallback.loadFailed') }}
-                </div>
-                <ol v-else class="mt-1 space-y-0.5">
-                  <li>
-                    <span class="mr-2 font-mono text-[10px] text-gray-400">{{ t('organization.settings.fallback.chainCurrent') }}</span>
-                    <span>{{ row.group?.name || `#${row.organization_subscription_id}` }}</span>
-                  </li>
-                  <li
-                    v-for="(candidate, cIndex) in getFallbackEntry(row.organization_subscription_id).candidates"
-                    :key="candidate.id"
-                  >
-                    <span class="mr-2 font-mono text-[10px] text-gray-400">
-                      {{ t('organization.settings.fallback.chainNext', { index: cIndex + 1 }) }}
-                    </span>
-                    <span>{{ candidate.group_name || `#${candidate.id}` }}</span>
-                  </li>
-                  <li
-                    v-if="!getFallbackEntry(row.organization_subscription_id).candidates.length"
-                    class="text-gray-500"
-                  >
-                    {{ t('organization.settings.fallback.chainEmpty') }}
-                  </li>
-                </ol>
               </div>
             </div>
           </template>
@@ -2186,7 +2124,6 @@ type SubscriptionFallbackEntry = {
   error: string
 }
 const subscriptionFallbackCache = ref<Record<number, SubscriptionFallbackEntry>>({})
-const expandedFallbackKeys = ref<Set<number>>(new Set())
 
 function getFallbackEntry(subscriptionId: number): SubscriptionFallbackEntry {
   return subscriptionFallbackCache.value[subscriptionId] || {
@@ -2198,34 +2135,13 @@ function getFallbackEntry(subscriptionId: number): SubscriptionFallbackEntry {
   }
 }
 
-function isFallbackExpanded(apiKeyId: number): boolean {
-  return expandedFallbackKeys.value.has(apiKeyId)
-}
-
-async function toggleFallbackChain(apiKeyId: number, subscriptionId: number | null | undefined) {
-  if (!subscriptionId) return
-  const next = new Set(expandedFallbackKeys.value)
-  if (next.has(apiKeyId)) {
-    next.delete(apiKeyId)
-  } else {
-    next.add(apiKeyId)
-    await ensureFallbackLoaded(subscriptionId)
-  }
-  expandedFallbackKeys.value = next
-}
-
-// hover 展示悬浮气泡时的当前订阅 ID；null 表示无悬浮。
-// 与展开面板互相独立：点击 badge 用 toggleFallbackChain 展开内联链条，
-// hover 问号则用 fallbackTooltipKey 展示浮层，两者共用同一份缓存。
-const fallbackTooltipKey = ref<number | null>(null)
-
 function onFallbackHover(subscriptionId: number | null | undefined) {
   if (!subscriptionId) return
   // 触发懒加载，避免在鼠标移入的瞬间显示"加载中"占位太久。
   void ensureFallbackLoaded(subscriptionId)
 }
 
-// 抽出为独立函数供 hover / 点击展开 / 编辑弹窗共用；重复调用是安全的
+// 供悬停、键盘聚焦与编辑弹窗共用；重复调用是安全的
 // （已有缓存或正在加载时直接返回，不会重复发起请求）。
 async function ensureFallbackLoaded(subscriptionId: number) {
   const cached = subscriptionFallbackCache.value[subscriptionId]

@@ -328,7 +328,7 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
-const mountView = async () => {
+const mountView = async (stubTeleport = true) => {
   const wrapper = mount(KeysView, {
     global: {
       stubs: {
@@ -347,7 +347,7 @@ const mountView = async () => {
         EndpointPopover: true,
         GroupBadge: true,
         GroupOptionItem: true,
-        Teleport: true,
+        Teleport: stubTeleport,
       },
     },
   })
@@ -578,23 +578,45 @@ describe('user KeysView column settings', () => {
       }],
     })
 
-    const wrapper = await mountView()
+    const wrapper = await mountView(false)
+    const triggers = wrapper.findAll('[data-test="auto-switch-trigger"]')
     const helpCells = wrapper.findAll('[data-test="auto-switch-help"]')
     expect(helpCells).toHaveLength(2)
+    const visiblePopovers = (selector: string) => Array.from(document.querySelectorAll(selector))
+      .filter(element => (element.closest('[role="tooltip"]') as HTMLElement).style.display !== 'none')
 
-    await helpCells[0].trigger('mouseenter')
+    expect(visiblePopovers('[data-test="fallback-subscription-chain"]')).toHaveLength(0)
+    await triggers[0].trigger('mouseenter')
     await flushPromises()
     await nextTick()
 
-    expect(wrapper.findAll('[data-test="auto-switch-tooltip"]')).toHaveLength(1)
-    const tooltip = wrapper.get('[data-test="auto-switch-tooltip"]')
-    const badgeNames = tooltip.findAll('group-badge-stub').map(badge => badge.attributes('name'))
-    expect(badgeNames).toContain('企业套餐')
-    expect(badgeNames).toContain('备用套餐')
+    const chains = visiblePopovers('[data-test="fallback-subscription-chain"]')
+    expect(chains).toHaveLength(1)
+    // The popup escapes the clipped group cell and uses the same tags as the edit form.
+    expect(wrapper.element.contains(chains[0])).toBe(false)
+    expect(chains[0].closest('[role="tooltip"]')?.classList.contains('fixed')).toBe(true)
+    const badgeNames = Array.from(chains[0].querySelectorAll('group-badge-stub')).map(badge => badge.getAttribute('name'))
+    expect(badgeNames).toEqual(['企业套餐', '备用套餐'])
+    expect(getSubscriptionFallback).toHaveBeenCalledWith(90)
+    expect(wrapper.get('[data-test="auto-switch-badge"]').element.closest('[data-test="group-selector-trigger"]')).toBeNull()
 
+    await triggers[0].trigger('mouseleave')
+    expect(visiblePopovers('[data-test="fallback-subscription-chain"]')).toHaveLength(0)
+    await helpCells[0].trigger('mouseenter')
+    const help = visiblePopovers('[data-test="auto-switch-tooltip"]')
+    expect(help).toHaveLength(1)
+    expect(help[0].textContent).toBe('organization.settings.autoSwitchSubscription.description')
+    expect(wrapper.element.contains(help[0])).toBe(false)
     await helpCells[0].trigger('mouseleave')
-    await nextTick()
-    expect(wrapper.findAll('[data-test="auto-switch-tooltip"]')).toHaveLength(0)
+    expect(visiblePopovers('[data-test="auto-switch-tooltip"]')).toHaveLength(0)
+
+    await triggers[1].trigger('focusin')
+    await flushPromises()
+    expect(visiblePopovers('[data-test="fallback-subscription-chain"]')).toHaveLength(1)
+    expect(getSubscriptionFallback).toHaveBeenCalledTimes(1)
+    await triggers[1].trigger('focusout')
+    expect(visiblePopovers('[data-test="fallback-subscription-chain"]')).toHaveLength(0)
+    wrapper.unmount()
   })
 
   it('groups the selector into enterprise, plan and group sections', async () => {
