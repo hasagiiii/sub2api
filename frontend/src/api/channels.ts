@@ -26,6 +26,9 @@ export interface UserPricingInterval {
   min_tokens: number
   max_tokens: number | null
   tier_label?: string
+  resolution?: string
+  max_pixels?: number | null
+  quality?: string
   input_price: number | null
   output_price: number | null
   cache_write_price: number | null

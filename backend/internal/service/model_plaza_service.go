@@ -311,6 +311,14 @@ func plazaImageDisplayPricing(p *ChannelModelPricing, g *Group) *ChannelModelPri
 	if g.ImagePrice1K == nil && g.ImagePrice2K == nil && g.ImagePrice4K == nil {
 		return p
 	}
+	// Pixel-tier pricing is a separate image pricing scheme from the legacy
+	// 1K/2K/4K group fallback. Keep the channel intervals intact so the model
+	// plaza can show each configured pixel threshold and price.
+	for _, interval := range p.Intervals {
+		if isImagePixelPricingInterval(interval) {
+			return p
+		}
+	}
 	channelTierPrice := func(label string) *float64 {
 		for i := range p.Intervals {
 			if p.Intervals[i].TierLabel == label && p.Intervals[i].PerRequestPrice != nil {

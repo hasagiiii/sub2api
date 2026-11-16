@@ -210,6 +210,33 @@ func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {
 	require.Contains(t, first, "cache_write_price", "区间 DTO 字段齐全（nil 输出 null）")
 }
 
+func TestToModelPlazaGroupDTO_PixelTierMetadata(t *testing.T) {
+	maxPixels := int64(2_000_000)
+	g := service.PlazaGroup{
+		ID: 5, Name: "pixels", Platform: "openai", RateMultiplier: 1,
+		Models: []service.PlazaModel{{
+			Name: "pixel-image", Platform: "openai",
+			Pricing: &service.ChannelModelPricing{
+				BillingMode: service.BillingModeImage,
+				Intervals: []service.PricingInterval{{
+					TierLabel: "P1", MaxPixels: &maxPixels, Quality: "high", PerRequestPrice: testPtr(0.12),
+				}},
+			},
+		}},
+	}
+
+	raw, err := json.Marshal(toModelPlazaGroupDTO(&g, nil, nil))
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	pricing := decoded["models"].([]any)[0].(map[string]any)["pricing"].(map[string]any)
+	interval := pricing["intervals"].([]any)[0].(map[string]any)
+	require.Equal(t, "P1", interval["tier_label"])
+	require.Equal(t, float64(2_000_000), interval["max_pixels"])
+	require.Equal(t, "high", interval["quality"])
+	require.Equal(t, float64(0.12), interval["per_request_price"])
+}
+
 func testPtr(v float64) *float64 { return &v }
 
 func TestToModelPlazaGroupDTO_TimePricing(t *testing.T) {

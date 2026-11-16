@@ -558,8 +558,16 @@ function requestIntervals(m: PlazaModel): UserPricingInterval[] {
  */
 function tierLabel(iv: UserPricingInterval): string {
   if (iv.tier_label) return iv.tier_label
+  if (iv.resolution) return iv.resolution
+  if (iv.max_pixels != null) return `≤${formatPixelCount(iv.max_pixels)}`
   const { min_tokens: min, max_tokens: max } = iv
   return max == null ? `>${formatTokenCount(min)}` : `≤${formatTokenCount(max)}`
+}
+
+function formatPixelCount(n: number): string {
+  if (n >= 1_000_000) return `${trimZero(n / 1_000_000)}MP`
+  if (n >= 1_000) return `${trimZero(n / 1_000)}K`
+  return String(n)
 }
 
 function formatTokenCount(n: number): string {

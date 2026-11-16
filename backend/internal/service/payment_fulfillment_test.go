@@ -1488,5 +1488,71 @@ func TestExecuteSubscriptionFulfillmentDoesNotDuplicateWorkAfterLegacySuccessAud
 	require.Equal(t, inviterID, *rebateExpense.UserID)
 }
 
+func TestApplyAffiliateRebateForOrganizationOrderUsesOwnerAsInvitee(t *testing.T) {
+	ctx := context.Background()
+	client := newPaymentConfigServiceTestClient(t)
+	ensurePaymentAuditOrderActionUniqueIndex(t, ctx, client)
+
+	owner, err := client.User.Create().
+		SetEmail("organization-owner-affiliate@example.com").
+		SetPasswordHash("hash").
+		SetUsername("organization-owner-affiliate").
+		Save(ctx)
+	require.NoError(t, err)
+	member, err := client.User.Create().
+		SetEmail("organization-member-payer@example.com").
+		SetPasswordHash("hash").
+		SetUsername("organization-member-payer").
+		Save(ctx)
+	require.NoError(t, err)
+	org, err := client.Organization.Create().
+		SetAccountID("org-aff-owner").
+		SetOwnerUserID(owner.ID).
+		SetName("Affiliate Organization").
+		SetNormalizedName("affiliate organization").
+		SetEffectiveAt(time.Now()).
+		Save(ctx)
+	require.NoError(t, err)
+	order, err := client.PaymentOrder.Create().
+		SetUserID(member.ID).
+		SetUserEmail(member.Email).
+		SetUserName(member.Username).
+		SetAmount(100).
+		SetPayAmount(100).
+		SetFeeRate(0).
+		SetRechargeCode("PAY-ORG-AFFILIATE").
+		SetOutTradeNo("org-affiliate-order").
+		SetPaymentType(payment.TypeAlipay).
+		SetPaymentTradeNo("trade-org-affiliate").
+		SetOrderType(payment.OrderTypeSubscription).
+		SetOrganizationID(org.ID).
+		SetStatus(OrderStatusPaid).
+		SetExpiresAt(time.Now().Add(time.Hour)).
+		SetClientIP("127.0.0.1").
+		SetSrcHost("api.example.com").
+		Save(ctx)
+	require.NoError(t, err)
+
+	inviterID := int64(9002)
+	affiliateRepo := &paymentFulfillmentAffiliateRepoStub{
+		inviteeSummary: &AffiliateSummary{UserID: owner.ID, InviterID: &inviterID, CreatedAt: time.Now().Add(-24 * time.Hour)},
+		inviterSummary: &AffiliateSummary{UserID: inviterID, CreatedAt: time.Now().Add(-48 * time.Hour)},
+	}
+	settingSvc := NewSettingService(&paymentFulfillmentSettingRepoStub{values: map[string]string{
+		SettingKeyAffiliateEnabled:    "true",
+		SettingKeyAffiliateRebateRate: "10",
+	}}, nil)
+	svc := &PaymentService{
+		entClient:        client,
+		affiliateService: NewAffiliateService(affiliateRepo, settingSvc, nil, nil, nil),
+	}
+
+	require.NoError(t, svc.applyAffiliateRebateForOrder(ctx, order))
+	require.Len(t, affiliateRepo.accrueCalls, 1)
+	require.Equal(t, owner.ID, affiliateRepo.accrueCalls[0].inviteeUserID)
+	require.Equal(t, inviterID, affiliateRepo.accrueCalls[0].inviterID)
+	require.InDelta(t, 10, affiliateRepo.accrueCalls[0].amount, 1e-9)
+}
+
 var _ AffiliateRepository = (*paymentFulfillmentAffiliateRepoStub)(nil)
 var _ SettingRepository = (*paymentFulfillmentSettingRepoStub)(nil)

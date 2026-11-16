@@ -309,6 +309,35 @@ func TestListPlazaGroups_GroupImagePriceOverridesChannelPricing(t *testing.T) {
 	require.Len(t, channels[0].ModelPricing[0].Intervals, 1)
 }
 
+func TestListPlazaGroups_PreservesPixelImagePricingWithGroupImageFallback(t *testing.T) {
+	pixel2, pixel4 := int64(2_000_000), int64(4_000_000)
+	pixelPrice1, pixelPrice2 := 0.11, 0.22
+	groupPrice := 0.02
+	channels := []Channel{{
+		ID: 1, Name: "pixel-ch", Status: StatusActive, GroupIDs: []int64{10},
+		ModelPricing: []ChannelModelPricing{{
+			Platform: "openai", Models: []string{"pixel-image"}, BillingMode: BillingModeImage,
+			Intervals: []PricingInterval{
+				{TierLabel: "P1", MaxPixels: &pixel2, PerRequestPrice: &pixelPrice1},
+				{TierLabel: "P2", MaxPixels: &pixel4, PerRequestPrice: &pixelPrice2},
+			},
+		}},
+	}}
+	groups := []Group{{ID: 10, Name: "g", Platform: "openai", RateMultiplier: 1, ImagePrice1K: &groupPrice}}
+
+	out, err := newPlazaService(channels, groups, nil).ListGroups(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	intervals := out[0].Models[0].Pricing.Intervals
+	require.Len(t, intervals, 2, "legacy group image tiers must not erase pixel tiers")
+	require.Equal(t, "P1", intervals[0].TierLabel)
+	require.Equal(t, pixel2, *intervals[0].MaxPixels)
+	require.InDelta(t, pixelPrice1, *intervals[0].PerRequestPrice, 1e-9)
+	require.Equal(t, "P2", intervals[1].TierLabel)
+	require.Equal(t, pixel4, *intervals[1].MaxPixels)
+	require.InDelta(t, pixelPrice2, *intervals[1].PerRequestPrice, 1e-9)
+}
+
 func TestListPlazaGroups_GroupModelImagePricingWinsOverGroupImageTiers(t *testing.T) {
 	groupImage1K, groupImage2K, groupImage4K := 0.05, 0.055, 0.06
 	model1K, model2K, model4K := 0.05, 0.075, 0.1

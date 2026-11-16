@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/dialect"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/organization"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
@@ -899,6 +900,30 @@ func (s *PaymentService) hasAuditLog(ctx context.Context, orderID int64, action 
 	return c > 0
 }
 
+func (s *PaymentService) affiliateRebateInviteeUserID(ctx context.Context, o *dbent.PaymentOrder) (int64, error) {
+	if o == nil || o.OrganizationID == nil || *o.OrganizationID <= 0 {
+		if o == nil {
+			return 0, nil
+		}
+		return o.UserID, nil
+	}
+	org, err := s.entClient.Organization.Query().
+		Where(organization.IDEQ(*o.OrganizationID)).
+		Only(ctx)
+	if err != nil {
+		// Keep legacy payer-based behavior for stale orders whose organization
+		// has been deleted; an affiliate rebate must not make fulfillment fail.
+		if dbent.IsNotFound(err) {
+			return o.UserID, nil
+		}
+		return 0, fmt.Errorf("resolve organization owner for affiliate rebate: %w", err)
+	}
+	if org.OwnerUserID <= 0 {
+		return o.UserID, nil
+	}
+	return org.OwnerUserID, nil
+}
+
 func (s *PaymentService) applyAffiliateRebateForOrder(ctx context.Context, o *dbent.PaymentOrder) error {
 	baseAmount := affiliateRebateBaseAmount(o)
 	if o == nil || baseAmount <= 0 {
@@ -912,6 +937,10 @@ func (s *PaymentService) applyAffiliateRebateForOrder(ctx context.Context, o *db
 		// eligible
 	default:
 		return nil
+	}
+	inviteeUserID, err := s.affiliateRebateInviteeUserID(ctx, o)
+	if err != nil {
+		return err
 	}
 
 	tx, err := s.entClient.Tx(ctx)
@@ -940,7 +969,7 @@ func (s *PaymentService) applyAffiliateRebateForOrder(ctx context.Context, o *db
 	}
 
 	sourceOrderID := o.ID
-	rebateAmount, inviterID, err := s.affiliateService.AccrueInviteRebateForOrder(txCtx, o.UserID, baseAmount, &sourceOrderID)
+	rebateAmount, inviterID, err := s.affiliateService.AccrueInviteRebateForOrder(txCtx, inviteeUserID, baseAmount, &sourceOrderID)
 	if err != nil {
 		s.writeAuditLog(ctx, o.ID, "AFFILIATE_REBATE_FAILED", "system", map[string]any{
 			"error": err.Error(),
@@ -985,22 +1014,22 @@ func (s *PaymentService) applyAffiliateRebateForOrder(ctx context.Context, o *db
 		return fmt.Errorf("commit affiliate rebate tx: %w", err)
 	}
 
-	s.recordAffiliateRebateCostCenterExpense(ctx, o, inviterID, baseAmount, rebateAmount)
+	s.recordAffiliateRebateCostCenterExpense(ctx, o, inviteeUserID, inviterID, baseAmount, rebateAmount)
 
 	// 返利入账成功后，给邀请人发一条通用信箱通知（被邀请人有新充值）。
 	// 用外层 ctx（事务已提交）；fail-open，不影响充值主流程。
-	s.affiliateService.publishInviteeRechargeToInviter(ctx, inviterID, o.UserID, o.ID, baseAmount, rebateAmount)
+	s.affiliateService.publishInviteeRechargeToInviter(ctx, inviterID, inviteeUserID, o.ID, baseAmount, rebateAmount)
 	return nil
 }
 
-func (s *PaymentService) recordAffiliateRebateCostCenterExpense(ctx context.Context, o *dbent.PaymentOrder, inviterID int64, baseAmount, rebateAmount float64) {
+func (s *PaymentService) recordAffiliateRebateCostCenterExpense(ctx context.Context, o *dbent.PaymentOrder, inviteeUserID, inviterID int64, baseAmount, rebateAmount float64) {
 	if s.costCenter == nil || o == nil || rebateAmount <= 0 {
 		return
 	}
 	key := fmt.Sprintf("payment-order:%d:affiliate-rebate-expense", o.ID)
 	metadata := map[string]any{
 		"base_amount":     baseAmount,
-		"invitee_user_id": o.UserID,
+		"invitee_user_id": inviteeUserID,
 		"order_type":      o.OrderType,
 	}
 	var userID *int64
@@ -1047,7 +1076,11 @@ func (s *PaymentService) recoverAffiliateRebateCostCenterExpense(ctx context.Con
 		slog.Warn("decode affiliate rebate audit for cost center", "orderID", o.ID, "error", err)
 		return
 	}
-	s.recordAffiliateRebateCostCenterExpense(ctx, o, detail.InviterID, detail.BaseAmount, detail.RebateAmount)
+	inviteeUserID, err := s.affiliateRebateInviteeUserID(ctx, o)
+	if err != nil {
+		return
+	}
+	s.recordAffiliateRebateCostCenterExpense(ctx, o, inviteeUserID, detail.InviterID, detail.BaseAmount, detail.RebateAmount)
 }
 
 func affiliateRebateBaseAmount(o *dbent.PaymentOrder) float64 {
