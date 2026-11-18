@@ -133,7 +133,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	accountOpsRepository := repository.NewAccountOpsRepository(db)
 	accountOpsService := service.ProvideAccountOpsService(settingRepository, accountOpsRepository, emailService, accountRepository, groupRepository, configConfig)
 	opsRepository := repository.NewOpsRepository(db)
-	usageBillingRepository := repository.NewUsageBillingRepository(client, db)
+	usageBillingBatchRepository := repository.NewUsageBillingRepository(client, db)
+	usageBillingLaneCombiner := service.NewUsageBillingLaneCombiner(usageBillingBatchRepository)
+	usageBillingRepository := service.ProvideUsageBillingRepository(usageBillingLaneCombiner)
 	gatewayCache := repository.NewGatewayCache(redisClient)
 	schedulerOutboxRepository := repository.NewSchedulerOutboxRepository(db)
 	schedulerSnapshotService := service.ProvideSchedulerSnapshotService(schedulerCache, schedulerOutboxRepository, accountRepository, groupRepository, configConfig)
@@ -531,7 +533,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
 	supportChatLegacyDetector := service.ProvideSupportChatLegacyDetector(settingService)
 	asyncVideoReconciler := service.ProvideAsyncVideoReconciler(asyncVideoTaskRepository, asyncVideoService, accountRepository, configConfig)
-	v := provideCleanup(configConfig, manager, client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, geminiCachedContentService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, notificationOutboxWorker, companyOperationsMonitor, billingCacheService, usageRecordWorkerPool, balanceNotifyService, digestSessionStore, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, kiroOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, accountOpsService, accountTokenGuardService, accountTokenGuardV2Service, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, supportChatLegacyDetector, asyncMediaReconciler, asyncVideoReconciler, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
+	v := provideCleanup(configConfig, manager, client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, geminiCachedContentService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, notificationOutboxWorker, companyOperationsMonitor, billingCacheService, usageRecordWorkerPool, usageBillingLaneCombiner, balanceNotifyService, digestSessionStore, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, kiroOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, accountOpsService, accountTokenGuardService, accountTokenGuardV2Service, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, supportChatLegacyDetector, asyncMediaReconciler, asyncVideoReconciler, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
 	application := &Application{
 		Server:        httpServer,
 		InnerAPIRPC:   innerAPIRPCServer,
@@ -606,6 +608,7 @@ func provideCleanup(
 	companyOperations *service.CompanyOperationsMonitor,
 	billingCache *service.BillingCacheService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
+	usageBillingLanes *service.UsageBillingLaneCombiner,
 	balanceNotify *service.BalanceNotifyService,
 	digestSessions *service.DigestSessionStore,
 	subscriptionService *service.SubscriptionService,
@@ -866,6 +869,10 @@ func provideCleanup(
 				if usageRecordWorkerPool != nil {
 					usageRecordWorkerPool.Stop()
 				}
+				return nil
+			}},
+			{"UsageBillingLaneCombiner", func() error {
+				usageBillingLanes.Stop()
 				return nil
 			}},
 			{"OAuthService", func() error {

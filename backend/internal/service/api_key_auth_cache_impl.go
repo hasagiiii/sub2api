@@ -14,9 +14,8 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-// v31 combines local v30 routing/restrictions with upstream v27 require_privacy_set
-// and user-group RPM override group tracking.
-const apiKeyAuthSnapshotVersion = 31
+// v32 combines enterprise routing and upstream forced Ultrafast billing.
+const apiKeyAuthSnapshotVersion = 32
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -461,6 +460,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			AllowMessagesDispatch:           apiKey.Group.AllowMessagesDispatch,
 			AllowLive:                       apiKey.Group.AllowLive,
 			ForceOpenAIFast:                 apiKey.Group.ForceOpenAIFast,
+			ForceOpenAIUltrafast:            apiKey.Group.ForceOpenAIUltrafast,
 			FreeOpenAIFast:                  apiKey.Group.FreeOpenAIFast,
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
@@ -589,6 +589,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			AllowMessagesDispatch:           snapshot.Group.AllowMessagesDispatch,
 			AllowLive:                       snapshot.Group.AllowLive,
 			ForceOpenAIFast:                 snapshot.Group.ForceOpenAIFast,
+			ForceOpenAIUltrafast:            snapshot.Group.ForceOpenAIUltrafast,
 			FreeOpenAIFast:                  snapshot.Group.FreeOpenAIFast,
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,

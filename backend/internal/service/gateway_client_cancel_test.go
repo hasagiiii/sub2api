@@ -253,6 +253,11 @@ type claudeNotifyWriter struct {
 	observed chan struct{}
 }
 
+// Keep string writes observable after the streaming fast path switched to io.WriteString.
+func (w *claudeNotifyWriter) WriteString(s string) (int, error) {
+	return w.Write([]byte(s))
+}
+
 func (w *claudeNotifyWriter) Write(p []byte) (int, error) {
 	n, err := w.ResponseRecorder.Write(p)
 	if strings.Contains(string(p), "message_start") {
