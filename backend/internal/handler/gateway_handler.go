@@ -1305,6 +1305,22 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		zap.Int("leonardo_model_count", len(leonardoModels)),
 		zap.Strings("leonardo_models", leonardoModels),
 	)
+	if platform == service.PlatformAnthropic {
+		var group *service.Group
+		if apiKey != nil {
+			group = apiKey.Group
+		}
+		source := availableModels
+		if group != nil && group.ModelAllowlistEnabled() {
+			source = modelListingSource(platform, availableModels, defaultModelIDsForPlatform(platform))
+		} else if len(source) == 0 {
+			source = defaultModelIDsForPlatform(platform)
+		}
+		expanded := h.gatewayService.ExpandAnthropicLongContextModels(c.Request.Context(), group, source)
+		if len(availableModels) > 0 || len(expanded) > len(source) || (group != nil && group.ModelAllowlistEnabled()) {
+			availableModels = expanded
+		}
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		availableModels = apiKey.Group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, defaultModelIDsForPlatform(platform)))
 		reqLog.Info("gateway.models.response", zap.Bool("model_allowlist", true), zap.Int("model_count", len(availableModels)), zap.Strings("models", availableModels))
