@@ -126,14 +126,7 @@ func accountCodexToolCapabilities(account *Account, modelID string) map[string]j
 			capabilities["use_responses_lite"] = json.RawMessage("false")
 		}
 	}
-	// This function receives the mapped upstream model. A BPS relay does not
-	// implement Codex's native encrypted multi-agent message contract, even
-	// when the underlying ChatGPT model advertises it. Explicit nulls override
-	// synced/bundled declarations without disabling ordinary plaintext tools.
-	if account.isExcelBPSUpstreamModelEnabled(modelID) {
-		capabilities["multi_agent_version"] = json.RawMessage("null")
-		capabilities["multi_agent_reasoning_effort"] = json.RawMessage("null")
-	}
+
 	// Preserve declared tiers (including their provider-specific fields). An older
 	// OAuth snapshot can list only Fast even for a newly entitled subscription.
 	base := openai.GPT62ModelID(modelID)

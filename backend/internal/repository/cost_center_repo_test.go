@@ -120,9 +120,11 @@ func TestReverseEventAppendsCompensatingEvent(t *testing.T) {
 	repo := NewCostCenterRepository(db)
 	occurred := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	eventColumns := []string{"id", "event_type", "status", "source_type", "source_id", "account_id", "user_id", "plan_id", "platform", "group_id", "model", "category", "amount_usd", "original_amount", "original_currency", "fx_rate", "occurred_at", "note", "metadata", "operator_id", "reversal_of", "created_at"}
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at FROM cost_center_events WHERE id=$1")).
+	mock.ExpectBegin()
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at FROM cost_center_events WHERE id=$1 FOR UPDATE")).
 		WithArgs(int64(9)).WillReturnRows(sqlmock.NewRows(eventColumns).AddRow(9, "expense", "settled", "manual", "source-9", nil, nil, nil, "", nil, "", "proxy", 5.0, nil, nil, nil, occurred, "", []byte(`{}`), nil, nil, occurred))
 	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO cost_center_events")).WillReturnRows(sqlmock.NewRows(eventColumns).AddRow(10, "reversal", "settled", "reversal", "reversal:9", nil, nil, nil, "", nil, "", "proxy", 5.0, nil, nil, nil, occurred, "bad", []byte(`{"reason":"bad"}`), nil, 9, occurred))
+	mock.ExpectCommit()
 	_, err = repo.ReverseEvent(context.Background(), 9, "bad", nil)
 	if err != nil {
 		t.Fatal(err)

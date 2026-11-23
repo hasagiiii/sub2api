@@ -585,9 +585,6 @@ func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Acc
 		return false
 	}
 	requireCompact := len(requireCompactOpt) > 0 && requireCompactOpt[0]
-	if s.isExcelBPSCoolingDown(account, requestedModel) {
-		return true
-	}
 	outboundModel := s.openAICodexTicketOutboundModel(account, requestedModel, requireCompact)
 	if s.openAICodexTicketBlocksAccount(account, outboundModel) {
 		return true

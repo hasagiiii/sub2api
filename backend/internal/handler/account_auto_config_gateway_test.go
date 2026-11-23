@@ -27,15 +27,14 @@ func (u *autoConfigStreamUpstream) Do(_ *http.Request, _ string, _ int64, _ int)
 }
 
 func TestAutoConfigGatewayLargeCompletedStream(t *testing.T) {
-	for _, name := range []string{"native", "passthrough", "oauth", "bps"} {
+	for _, name := range []string{"native", "passthrough", "oauth"} {
 		t.Run(name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			groupID := int64(7)
 			accounts := []service.Account{{ID: 71, Name: "mock-account", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 10, GroupIDs: []int64{groupID}, Credentials: map[string]any{"api_key": "mock-key", "base_url": "https://api.example.test"}, Extra: map[string]any{"openai_passthrough": name == "passthrough"}}}
-			if name == "oauth" || name == "bps" {
+			if name == "oauth" {
 				accounts[0].Type = service.AccountTypeOAuth
 				accounts[0].Credentials = map[string]any{"access_token": "mock-access-token", "chatgpt_account_id": "mock-account"}
-				accounts[0].Extra["openai_excel_bps"] = name == "bps"
 			}
 
 			cfg := &config.Config{RunMode: config.RunModeSimple}

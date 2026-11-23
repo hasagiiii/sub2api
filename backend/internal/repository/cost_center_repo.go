@@ -17,6 +17,14 @@ func NewCostCenterRepository(db *sql.DB) service.CostCenterRepository {
 }
 
 func (r *costCenterRepository) CreateEvent(ctx context.Context, in *service.CreateCostCenterEventInput) (*service.CostCenterEvent, error) {
+	return createCostEvent(ctx, r.db, in)
+}
+
+type costCenterQuerier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func createCostEvent(ctx context.Context, db costCenterQuerier, in *service.CreateCostCenterEventInput) (*service.CostCenterEvent, error) {
 	occurred := time.Now().UTC()
 	if in.OccurredAt != nil {
 		occurred = in.OccurredAt.UTC()
@@ -29,7 +37,7 @@ func (r *costCenterRepository) CreateEvent(ctx context.Context, in *service.Crea
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
 ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO UPDATE SET updated_at=NOW()
 	RETURNING id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at`
-	row := r.db.QueryRowContext(ctx, q, in.EventType, in.Status, in.SourceType, in.SourceID, in.IdempotencyKey, in.AccountID, in.UserID, in.PlanID, in.Platform, in.GroupID, in.Model, in.Category, in.AmountUSD, in.OriginalAmount, in.OriginalCurrency, in.FXRate, occurred, in.Note, metadata, in.OperatorID, in.ReversalOf)
+	row := db.QueryRowContext(ctx, q, in.EventType, in.Status, in.SourceType, in.SourceID, in.IdempotencyKey, in.AccountID, in.UserID, in.PlanID, in.Platform, in.GroupID, in.Model, in.Category, in.AmountUSD, in.OriginalAmount, in.OriginalCurrency, in.FXRate, occurred, in.Note, metadata, in.OperatorID, in.ReversalOf)
 	return scanCostEvent(row)
 }
 
@@ -218,20 +226,68 @@ func (r *costCenterRepository) MaterializeExpensePlans(ctx context.Context, at t
 	return count, rows.Err()
 }
 
-func (r *costCenterRepository) UpdateEventStatus(ctx context.Context, id int64, status, reason string, operator *int64) (*service.CostCenterEvent, error) {
-	row := r.db.QueryRowContext(ctx, `UPDATE cost_center_events SET status=$1,note=CASE WHEN $2='' THEN note ELSE note || ' [' || $2 || ']' END,operator_id=COALESCE($3,operator_id),updated_at=NOW() WHERE id=$4 RETURNING id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at`, status, reason, operator, id)
-	return scanCostEvent(row)
+// Both mutations lock the original row until commit. Check reversals in a
+// separate statement after acquiring the lock to see prior committed writers.
+func lockCostEvent(ctx context.Context, tx *sql.Tx, id int64) (*service.CostCenterEvent, error) {
+	e, err := scanCostEvent(tx.QueryRowContext(ctx, `SELECT id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at FROM cost_center_events WHERE id=$1 FOR UPDATE`, id))
+	if err == sql.ErrNoRows {
+		return nil, service.ErrCostCenterEventNotFound
+	}
+	return e, err
 }
-
-func (r *costCenterRepository) ReverseEvent(ctx context.Context, id int64, reason string, operator *int64) (*service.CostCenterEvent, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at FROM cost_center_events WHERE id=$1`, id)
-	original, err := scanCostEvent(row)
+func (r *costCenterRepository) UpdateEventStatus(ctx context.Context, id int64, status, reason string, operator *int64) (*service.CostCenterEvent, error) {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = tx.Rollback() }()
+	original, err := lockCostEvent(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if original.Status == "cancelled" || original.EventType == service.CostEventReversal || original.ReversalOf != nil || (status == "cancelled" && (original.EventType != service.CostEventExpense || (original.Status != "pending" && original.Status != "settled"))) {
+		return nil, service.ErrCostCenterEventConflict
+	}
+	var reversed bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM cost_center_events WHERE reversal_of=$1)`, id).Scan(&reversed); err != nil {
+		return nil, err
+	}
+	if reversed {
+		return nil, service.ErrCostCenterEventConflict
+	}
+	e, err := scanCostEvent(tx.QueryRowContext(ctx, `UPDATE cost_center_events SET status=$1,note=CASE WHEN $2='' THEN note ELSE note || ' [' || $2 || ']' END,operator_id=COALESCE($3,operator_id),updated_at=NOW() WHERE id=$4 RETURNING id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at`, status, reason, operator, id))
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return e, nil
+}
+
+func (r *costCenterRepository) ReverseEvent(ctx context.Context, id int64, reason string, operator *int64) (*service.CostCenterEvent, error) {
+	tx, err := r.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	original, err := lockCostEvent(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if original.Status != "settled" || original.EventType == service.CostEventReversal || original.ReversalOf != nil {
+		return nil, service.ErrCostCenterEventConflict
+	}
 	key := fmt.Sprintf("reversal:%d", id)
 	meta := map[string]any{"reason": reason, "reversal_of": id}
-	return r.CreateEvent(ctx, &service.CreateCostCenterEventInput{EventType: service.CostEventReversal, Status: "settled", SourceType: "reversal", SourceID: &key, IdempotencyKey: &key, AccountID: original.AccountID, UserID: original.UserID, PlanID: original.PlanID, Platform: original.Platform, GroupID: original.GroupID, Model: original.Model, Category: original.Category, AmountUSD: original.AmountUSD, OccurredAt: &original.OccurredAt, Note: reason, Metadata: meta, OperatorID: operator, ReversalOf: &original.ID})
+	e, err := createCostEvent(ctx, tx, &service.CreateCostCenterEventInput{EventType: service.CostEventReversal, Status: "settled", SourceType: "reversal", SourceID: &key, IdempotencyKey: &key, AccountID: original.AccountID, UserID: original.UserID, PlanID: original.PlanID, Platform: original.Platform, GroupID: original.GroupID, Model: original.Model, Category: original.Category, AmountUSD: original.AmountUSD, OccurredAt: &original.OccurredAt, Note: reason, Metadata: meta, OperatorID: operator, ReversalOf: &original.ID})
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return e, nil
 }
 
 func (r *costCenterRepository) Reconcile(ctx context.Context, f service.CostCenterReportFilter) (*service.CostCenterReconciliation, error) {

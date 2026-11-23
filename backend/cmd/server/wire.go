@@ -160,12 +160,6 @@ func provideCleanup(
 	promptAudit *securityaudit.PromptService,
 	pluginManager *service.PluginManager,
 ) func() {
-	if openAIGateway != nil {
-		openAIGateway.StartBPSWarmPool()
-		if cfg.RunsBackgroundJobs() {
-			openAIGateway.StartBPS403Recovery()
-		}
-	}
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -191,13 +185,6 @@ func provideCleanup(
 				return nil
 			}},
 
-			{"BPSWarmPool", func() error {
-				if openAIGateway != nil {
-					openAIGateway.StopBPS403Recovery()
-					openAIGateway.StopBPSWarmPool()
-				}
-				return nil
-			}},
 			{"AccountTokenGuardService", func() error {
 				if accountTokenGuard != nil {
 					accountTokenGuard.Stop()
@@ -423,9 +410,6 @@ func provideCleanup(
 					grokOAuth.Stop()
 				}
 				return nil
-			}},
-			{"ExcelBPSImages", func() error {
-				return openAIGateway.CloseExcelBPSImages()
 			}},
 			{"OpenAIWSPool", func() error {
 				if openAIGateway != nil {

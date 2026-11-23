@@ -3788,8 +3788,6 @@
         />
       </div>
 
-      <AccountAutoBPSSection v-if="autoBPSAvailable" v-model:draft="autoBPS.draft.value" :groups="groups" />
-
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
         v-if="form.platform === 'openai'"
@@ -4803,7 +4801,6 @@ import {
 } from '@/composables/useModelWhitelist'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
-import { useAccountAutoBPS } from '@/composables/useAccountAutoBPS'
 import {
   useAccountOAuth,
   type AddMethod,
@@ -4822,7 +4819,6 @@ import type {
   CheckMixedChannelResponse,
   CreateAccountRequest,
   CodexSessionImportMessage,
-  CodexSessionImportResult,
   OpenAICompactMode,
   OpenAIResponsesMode,
   OpenAIEndpointCapability,
@@ -4845,7 +4841,6 @@ import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
-import AccountAutoBPSSection from '@/components/account/AccountAutoBPSSection.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import AccountRpmSettings from '@/components/account/AccountRpmSettings.vue'
@@ -5125,9 +5120,6 @@ const step = ref(1)
 const openaiTwoFA = ref(false)
 const twoFABusy = ref(false)
 const isOpenAITwoFA = computed(() => form.platform === 'openai' && accountCategory.value === 'oauth-based' && openaiTwoFA.value)
-// 「降智后自动开启 BPS」：OpenAI OAuth / 2FA 添加时可选，账号建好后按这里的设置给每个新账号建一条质量运维规则。
-const autoBPS = useAccountAutoBPS()
-const autoBPSAvailable = computed(() => form.platform === 'openai' && accountCategory.value === 'oauth-based')
 const submitting = ref(false)
 const accountCategory = ref<'oauth-based' | 'apikey' | 'apikey-relay' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
 const expenseCategoryOptions = computed(() => [
@@ -6548,7 +6540,6 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 const resetForm = () => {
   step.value = 1
   openaiTwoFA.value = false
-  autoBPS.reset()
   twoFABusy.value = false
   form.name = ''
   form.notes = ''
@@ -6970,11 +6961,6 @@ const handleSubmit = async () => {
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !isOpenAITwoFA.value && !form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
-      return
-    }
-    const autoBPSError = autoBPSAvailable.value ? autoBPS.validate() : ''
-    if (autoBPSError) {
-      appStore.showError(t(autoBPSError))
       return
     }
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
@@ -7775,22 +7761,6 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
   }
 }
 
-// 账号已建好后再建规则；规则失败只提示，不影响账号本身。
-const createAutoBPSRules = async (accountIds: number[]) => {
-  if (!autoBPSAvailable.value || accountIds.length === 0) return
-  const { failed, error } = await autoBPS.createFor(accountIds)
-  if (failed.length > 0) {
-    appStore.showWarning(t('admin.accounts.openai.autoBPSCreateFailed', { count: failed.length, error: error || t('common.error') }), 8000)
-  }
-}
-
-// Codex PAT、Agent Identity 账号不能开 BPS（后端 QualityBPSEligible），开关开着也不建规则。
-const skipAutoBPSRules = () => {
-  if (autoBPSAvailable.value && autoBPS.draft.value.enabled) appStore.showInfo(t('admin.accounts.openai.autoBPSUnsupportedSkipped'), 6000)
-}
-
-const createdImportAccountIds = (result: CodexSessionImportResult) =>
-  (result.items ?? []).flatMap(item => item.action === 'created' && item.account_id ? [item.account_id] : [])
 
 // OpenAI OAuth 授权码兑换
 const handleOpenAIExchange = async (authCode: string) => {
@@ -7841,7 +7811,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     }
 
     if (shouldCreateOpenAI) {
-      const account = await adminAPI.accounts.create({
+      await adminAPI.accounts.create({
         name: form.name,
         notes: form.notes,
         platform: 'openai',
@@ -7859,7 +7829,6 @@ const handleOpenAIExchange = async (authCode: string) => {
         ...initialExpenseFields()
       })
       appStore.showSuccess(t('admin.accounts.accountCreated'))
-      await createAutoBPSRules([account.id])
     }
 
     emit('created')
@@ -7951,9 +7920,6 @@ const importTwoFACredential = async (credential: Record<string, unknown>, email:
     skip_existing: true
   })
   if (result.failed > 0) throw new Error('import_failed')
-  if (result.created > 0) {
-    await createAutoBPSRules(createdImportAccountIds(result))
-  }
   const accountIds = [...new Set((result.items ?? [])
     .filter(item => item.action === 'created' || item.action === 'skipped')
     .map(item => item.account_id)
@@ -8014,10 +7980,6 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       update_existing: true,
       ...initialExpenseFields()
     })
-    // 只给这次新建的账号建规则；已有账号被更新时不动它原有的规则。
-    const createdIds = createdImportAccountIds(result)
-    if (createdIds.length > 0 && isAgentIdentityImportContent(trimmed)) skipAutoBPSRules()
-    else await createAutoBPSRules(createdIds)
 
     const successCount = result.created + result.updated
     const params = {
@@ -8098,7 +8060,6 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
     })
 
     appStore.showSuccess(t('admin.accounts.accountCreated'))
-    skipAutoBPSRules()
     emit('created')
     handleClose()
   } catch (error: any) {
@@ -8134,7 +8095,6 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
   let successCount = 0
   let failedCount = 0
   const errors: string[] = []
-  const createdIds: number[] = []
   const shouldCreateOpenAI = form.platform === 'openai'
 
   try {
@@ -8178,7 +8138,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         const accountName = refreshTokens.length > 1 ? `${baseName} #${i + 1}` : baseName
 
         if (shouldCreateOpenAI) {
-          const account = await adminAPI.accounts.create({
+          await adminAPI.accounts.create({
             name: accountName,
             notes: form.notes,
             platform: 'openai',
@@ -8195,7 +8155,6 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             auto_pause_on_expired: autoPauseOnExpired.value,
             ...initialExpenseFields()
           })
-          createdIds.push(account.id)
         }
 
         successCount++
@@ -8205,8 +8164,6 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
-
-    await createAutoBPSRules(createdIds)
 
     // Show results
     if (successCount > 0 && failedCount === 0) {

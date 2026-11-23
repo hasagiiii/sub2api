@@ -583,19 +583,6 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, nil
 	}
-	// A sticky binding created before BPS was enabled may still point at a
-	// native account. Do not let that old binding bypass the explicit BPS route
-	// while an eligible BPS account is available for this model.
-	if req.Platform == PlatformOpenAI && strings.TrimSpace(req.RequestedModel) != "" && !account.IsExcelBPSEnabledForModel(req.RequestedModel) && !s.service.balancesPriorityProtocols(req) {
-		if candidates, listErr := s.service.listSchedulableAccountsForRequest(ctx, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.ExcludedIDs); listErr == nil {
-			for i := range candidates {
-				if candidates[i].ID != account.ID && candidates[i].IsExcelBPSEnabledForModel(req.RequestedModel) {
-					clearBinding()
-					return nil, false, nil
-				}
-			}
-		}
-	}
 	if account.IsOpenAIOAuth() {
 		movable := req.PreviousResponseCanMove || strings.TrimSpace(req.PreviousResponseID) == ""
 		allowed, _, rpmErr := s.service.OpenAIRPMSchedulable(ctx, account, movable)
@@ -1219,37 +1206,6 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		return append(primary, overflow...)
 	}
 
-	// Excel/BPS is a per-account protocol. Once a request model has a BPS
-	// candidate, try those accounts before native Codex accounts so a pool of
-	// accounts does not randomly send the same model to /v1/responses. Native
-	// candidates remain as a last resort for pools where BPS accounts cannot be
-	// acquired; Forward still enforces BPS whenever the selected account has it
-	// enabled.
-	buildBPSPreferredOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
-		if s.service.balancesPriorityProtocols(req) {
-			return buildSelectionOrder(pool)
-		}
-		if req.Platform != PlatformOpenAI || strings.TrimSpace(req.RequestedModel) == "" || len(pool) < 2 {
-			return buildSelectionOrder(pool)
-		}
-		bps := make([]openAIAccountCandidateScore, 0, len(pool))
-		native := make([]openAIAccountCandidateScore, 0, len(pool))
-		for _, candidate := range pool {
-			if candidate.account != nil && candidate.account.IsExcelBPSEnabledForModel(req.RequestedModel) {
-				bps = append(bps, candidate)
-			} else {
-				native = append(native, candidate)
-			}
-		}
-		if len(bps) == 0 || len(native) == 0 {
-			return buildSelectionOrder(pool)
-		}
-		ordered := make([]openAIAccountCandidateScore, 0, len(pool))
-		ordered = append(ordered, buildSelectionOrder(bps)...)
-		ordered = append(ordered, buildSelectionOrder(native)...)
-		return ordered
-	}
-
 	if req.RequireCompact {
 		supported := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
 		unknown := make([]openAIAccountCandidateScore, 0, len(plan.candidates))
@@ -1262,15 +1218,15 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			}
 		}
 		selectionOrder := make([]openAIAccountCandidateScore, 0, len(plan.allCandidates))
-		selectionOrder = append(selectionOrder, buildBPSPreferredOrder(supported)...)
-		selectionOrder = append(selectionOrder, buildBPSPreferredOrder(unknown)...)
+		selectionOrder = append(selectionOrder, buildSelectionOrder(supported)...)
+		selectionOrder = append(selectionOrder, buildSelectionOrder(unknown)...)
 		if len(plan.staleSnapshotCompactRetry) > 0 && s.service.schedulerSnapshot != nil {
 			selectionOrder = append(selectionOrder, sortOpenAICompactRetryCandidates(plan.staleSnapshotCompactRetry)...)
 		}
 		return selectionOrder
 	}
 
-	return buildBPSPreferredOrder(plan.candidates)
+	return buildSelectionOrder(plan.candidates)
 }
 
 func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
@@ -1612,10 +1568,6 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("platform_mismatch")
 			continue
 		}
-		if s.service.isExcelBPSCoolingDown(account, req.RequestedModel) {
-			filterStats.exclude(excelBPSRateLimitedFilterReason)
-			continue
-		}
 		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel, req.RequireCompact) {
 			filterStats.exclude("runtime_blocked")
 			continue
@@ -1669,7 +1621,6 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}
 		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary(""))
 	}
-	// Keep native candidates available until BPS capacity has been checked.
 
 	loadMap := map[int64]*AccountLoadInfo{}
 	if s.service.concurrencyService != nil {
@@ -1678,38 +1629,6 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}
 	}
 
-	// Preserve BPS preference across subscription/compact priority partitions,
-	// but try native capacity before committing a request to a BPS wait plan.
-	if req.Platform == PlatformOpenAI && strings.TrimSpace(req.RequestedModel) != "" && !s.service.balancesPriorityProtocols(req) {
-		var bps, native []*Account
-		for _, account := range filtered {
-			if account.IsExcelBPSEnabledForModel(req.RequestedModel) {
-				bps = append(bps, account)
-			} else {
-				native = append(native, account)
-			}
-		}
-		if len(bps) > 0 && len(native) > 0 {
-			preferred, count, topK, skew, preferredErr := s.selectByLoadBalanceCandidates(ctx, req, bps, loadMap, budget, filterStats)
-			if preferred != nil && preferred.Acquired {
-				return preferred, count, topK, skew, preferredErr
-			}
-			if preferredErr != nil && !errors.Is(preferredErr, ErrNoAvailableAccounts) && !errors.Is(preferredErr, ErrNoAvailableCompactAccounts) {
-				return nil, count, topK, skew, preferredErr
-			}
-			fallback, fallbackCount, fallbackTopK, fallbackSkew, fallbackErr := s.selectByLoadBalanceCandidates(ctx, req, native, loadMap, budget, filterStats)
-			if fallback != nil && fallback.Acquired {
-				return fallback, fallbackCount, fallbackTopK, fallbackSkew, fallbackErr
-			}
-			if fallbackErr != nil && !errors.Is(fallbackErr, ErrNoAvailableAccounts) && !errors.Is(fallbackErr, ErrNoAvailableCompactAccounts) {
-				return nil, fallbackCount, fallbackTopK, fallbackSkew, fallbackErr
-			}
-			if preferred != nil {
-				return preferred, count, topK, skew, preferredErr
-			}
-			return fallback, fallbackCount, fallbackTopK, fallbackSkew, fallbackErr
-		}
-	}
 	return s.selectByLoadBalanceCandidates(ctx, req, filtered, loadMap, budget, filterStats)
 }
 
@@ -2942,12 +2861,6 @@ func accountSupportsOpenAICapabilities(account *Account, requiredCapability Open
 }
 
 func accountSupportsOpenAICapabilitiesForRequest(account *Account, requestedModel string, requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability) bool {
-	if account != nil && requiredImageCapability == "" && account.IsExcelBPSEnabledForModel(requestedModel) {
-		switch requiredCapability {
-		case OpenAIEndpointCapabilityChatCompletions, OpenAIEndpointCapabilityResponses, OpenAIEndpointCapabilityResponsesCompact:
-			return true
-		}
-	}
 	return accountSupportsOpenAICapabilities(account, requiredCapability, requiredImageCapability)
 }
 
@@ -2969,9 +2882,6 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 	if s == nil || account == nil {
 		return false
 	}
-	if len(requestedModels) > 0 && account.IsExcelBPSEnabledForModel(requestedModels[0]) {
-		return false
-	}
 	if requiredTransport == OpenAIUpstreamTransportResponsesWebsocketV2Ingress {
 		if s.cfg == nil || !s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled {
 			return s.getOpenAIWSProtocolResolver().Resolve(account).Transport == OpenAIUpstreamTransportResponsesWebsocketV2
@@ -2989,12 +2899,6 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 
 func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Account, model string, success bool, firstTokenMs *int, observedErr ...error) bool {
 	if account == nil {
-		return false
-	}
-	// A failed managed proxy acquisition says nothing about account health.
-	// Keep the existing error response and diagnostics, but do not turn a local
-	// pool outage into an account penalty (or a successful recovery sample).
-	if !success && len(observedErr) > 0 && errors.Is(observedErr[0], errExcelBPSProxyUnavailable) {
 		return false
 	}
 	accountID := account.ID

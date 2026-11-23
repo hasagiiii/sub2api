@@ -215,11 +215,26 @@ func NewOpenAIOAuthReauthService(
 		runtimeBlocker:          runtimeBlocker,
 		mihomoLeases:            make(map[int64]func()),
 		acquireMihomoProxy: func(ctx context.Context, scope string) (string, func(), error) {
-			lease, err := mihomo.AcquireBPSTransientLease(ctx, scope)
+			collection, err := mihomo.BeginCollection(ctx, mihomo.Endpoint)
 			if err != nil {
 				return "", nil, err
 			}
-			return lease.ProxyURL, lease.Release, nil
+			release := func() {
+				if err := collection.Close(); err != nil {
+					slog.Warn("close OAuth reauth proxy collection", "scope", scope, "error", err)
+				}
+			}
+			// Keep the dedicated lane pinned through login and token exchange.
+			_, proxyURL, err := collection.Next(ctx, 0)
+			if err != nil {
+				release()
+				return "", nil, err
+			}
+			if proxyURL == "" {
+				release()
+				return "", nil, errors.New("no eligible OAuth reauth proxy nodes")
+			}
+			return proxyURL, release, nil
 		},
 	}
 }

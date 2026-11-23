@@ -57,6 +57,7 @@
             <div class="flex items-center gap-2">
               <button v-if="row.status === 'pending'" class="btn btn-sm btn-primary" @click="review(row)">{{ t('admin.costCenter.confirm') }}</button>
               <button v-else-if="row.status === 'settled'" class="btn btn-sm btn-secondary" @click="reverse(row)">{{ t('admin.costCenter.reverse') }}</button>
+              <button v-if="canCancel(row)" class="btn btn-sm btn-secondary" :disabled="cancelSubmitting" @click="openCancel(row)">{{ t('admin.costCenter.cancelExpense') }}</button>
             </div>
           </template>
         </DataTable>
@@ -69,6 +70,19 @@
           @update:pageSize="handlePageSizeChange"
         />
       </div>
+      <BaseDialog :show="!!cancelEvent" :title="t('admin.costCenter.cancelExpense')" @close="closeCancel">
+        <form class="space-y-4" @submit.prevent="submitCancel">
+          <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('admin.costCenter.cancelExpenseHelp', { amount: cancelEvent?.amount_usd.toFixed(4) }) }}</p>
+          <label class="input-label">
+            {{ t('admin.costCenter.reasonPrompt') }}
+            <textarea v-model.trim="cancelReason" rows="3" required class="input mt-1" :disabled="cancelSubmitting" />
+          </label>
+          <div class="flex justify-end gap-2">
+            <button type="button" class="btn btn-secondary" :disabled="cancelSubmitting" @click="closeCancel">{{ t('common.cancel') }}</button>
+            <button type="submit" class="btn btn-primary" :disabled="cancelSubmitting || !cancelReason.trim()">{{ cancelSubmitting ? t('common.loading') : t('admin.costCenter.cancelExpense') }}</button>
+          </div>
+        </form>
+      </BaseDialog>
       <BaseDialog :show="showAppendCost" :title="t('admin.costCenter.appendCost')" @close="closeAppendCost">
         <form class="space-y-4" @submit.prevent="submitAppendCost">
           <label class="input-label">
@@ -282,6 +296,44 @@ function handlePageChange(page: number) { pagination.page = page; void load() }
 function handlePageSizeChange(size: number) { pagination.page_size = size; pagination.page = 1; void load() }
 async function review(event: CostCenterEvent) { const reason = window.prompt(t('admin.costCenter.reasonPrompt')); if (!reason) return; await adminAPI.costCenter.updateEventStatus(event.id, 'settled', reason); await load() }
 async function reverse(event: CostCenterEvent) { const reason = window.prompt(t('admin.costCenter.reasonPrompt')); if (!reason) return; await adminAPI.costCenter.reverseEvent(event.id, reason); await load() }
+const cancelEvent = ref<CostCenterEvent | null>(null)
+const cancelReason = ref('')
+const cancelSubmitting = ref(false)
+const reversedEventIds = computed(() => new Set(events.value.map(event => event.reversal_of).filter(Boolean)))
+function canCancel(event: CostCenterEvent) {
+  return event.event_type === 'expense' && ['pending', 'settled'].includes(event.status) && !reversedEventIds.value.has(event.id)
+}
+function openCancel(event: CostCenterEvent) {
+  if (cancelSubmitting.value || !canCancel(event)) return
+  cancelReason.value = ''
+  cancelEvent.value = event
+}
+function closeCancel() {
+  if (!cancelSubmitting.value) cancelEvent.value = null
+}
+async function submitCancel() {
+  const event = cancelEvent.value
+  const reason = cancelReason.value.trim()
+  if (cancelSubmitting.value || !event || !canCancel(event) || !reason) return
+  cancelSubmitting.value = true
+  try {
+    await adminAPI.costCenter.updateEventStatus(event.id, 'cancelled', reason)
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.costCenter.cancelExpenseFailed')))
+    cancelSubmitting.value = false
+    return
+  }
+  event.status = 'cancelled'
+  cancelEvent.value = null
+  appStore.showSuccess(t('admin.costCenter.expenseCancelled'))
+  try {
+    await load()
+  } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.costCenter.refreshFailed')))
+  } finally {
+    cancelSubmitting.value = false
+  }
+}
 async function loadAuditAccounts() {
   if (accountsLoading.value) return
   accountsLoading.value = true

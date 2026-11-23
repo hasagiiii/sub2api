@@ -68,8 +68,8 @@ func (c NodeCheck) clone() *NodeCheck {
 }
 
 // ProbeNode runs check through a private kernel that routes only the named
-// node, whether or not the managed kernel is running. Production groups, BPS
-// listeners and harvest lanes are untouched, so disabled, failed and
+// node, whether or not the managed kernel is running. Production groups and
+// harvest lanes are untouched, so disabled, failed and
 // region-excluded nodes can be checked without re-entering rotation. The
 // proxy URL carries a one-time credential and stops working when check returns.
 func (m *Manager) ProbeNode(ctx context.Context, name string, check func(ctx context.Context, proxyURL string)) error {

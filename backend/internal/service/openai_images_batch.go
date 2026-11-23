@@ -316,3 +316,13 @@ func validOpenAIImageBatchData(items []json.RawMessage) []json.RawMessage {
 	}
 	return valid
 }
+
+func addImagePolicyUsage(to *OpenAIUsage, from OpenAIUsage) {
+	to.InputTokens += from.InputTokens
+	to.OutputTokens += from.OutputTokens
+	to.ImageInputTokens += from.ImageInputTokens
+	to.ImageOutputTokens += from.ImageOutputTokens
+	to.ImageCacheReadTokens += from.ImageCacheReadTokens
+	to.CacheCreationInputTokens += from.CacheCreationInputTokens
+	to.CacheReadInputTokens += from.CacheReadInputTokens
+}

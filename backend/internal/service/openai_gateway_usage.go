@@ -271,13 +271,6 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// OpenAI input_tokens 是总输入，包含缓存读取和缓存写入明细。
 	// 将三类 token 拆成互斥桶，避免缓存写入同时按普通输入和 cache_write 重复计费。
 	billingUsage := result.Usage
-	if account.IsExcelBPSCacheCreationAsInputEnabled() && result.UpstreamEndpoint == "/basispoints/api/responses" {
-		billingUsage.CacheCreationInputTokens = 0
-		billingUsage.CacheCreation5mTokens = 0
-		billingUsage.CacheCreation1hTokens = 0
-		billingUsage.CacheCreation30mInputTokens = 0
-		billingUsage.CacheCreation12hInputTokens = 0
-	}
 	tokens := billingUsage.billingUsageTokens()
 	actualInputTokens := tokens.InputTokens
 

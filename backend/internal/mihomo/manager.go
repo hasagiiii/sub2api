@@ -60,8 +60,6 @@ type Status struct {
 	Endpoint          string                   `json:"endpoint"`
 	Supported         bool                     `json:"supported"`
 	NodeStates        []NodeStatus             `json:"node_states"`
-	BPSWarmPool       BPSWarmStatus            `json:"bps_warm_pool"`
-	BPSIPWarmPool     BPSWarmStatus            `json:"bps_ip_warm_pool"`
 }
 
 type NodeStatus struct {
@@ -94,17 +92,6 @@ type saved struct {
 }
 
 type Manager struct {
-	bpsWarmMu     sync.Mutex
-	bpsWarmTarget int
-	bpsMu         sync.Mutex
-	bpsPorts      map[string]int
-	bpsSessions   map[string]*bpsSession
-	bpsHealth     map[string]*bpsNodeHealth
-	bpsDynamic    map[string]bool                     // configured dynamic outbound identities; protected by bpsMu
-	bpsProbe      func(context.Context, string) error // isolated tests only
-	bpsStaticMode bool                                // dedicated static (IP 管理) pool: no kernel, no listeners
-	bpsStatic     map[string]string                   // static node key -> upstream proxy URL; protected by bpsMu
-
 	countryLookupURL     string // test-only override; administrators cannot change the lookup target
 	controllerURL        string // optional override for isolated controller tests
 	subscriptionProxyURL string // test-only override for subscription download proxy
@@ -141,8 +128,6 @@ func New(dir string) *Manager {
 
 func (m *Manager) Status() Status {
 	s := m.baseStatus()
-	s.BPSWarmPool = m.BPSWarmStatus()
-	s.BPSIPWarmPool = bpsStaticManager.BPSWarmStatus()
 	return s
 }
 func (m *Manager) baseStatus() Status {
@@ -749,11 +734,6 @@ func (m *Manager) config(s saved) ([]byte, error) {
 		groups = append(groups, map[string]any{"name": collectionGroup(lane), "type": "select", "proxies": laneNodes})
 		listeners = append(listeners, map[string]any{"name": collectionGroup(lane), "type": "mixed", "listen": "127.0.0.1", "port": collectPort + lane, "proxy": collectionGroup(lane)})
 	}
-	bpsListeners, err := m.bpsListeners(s)
-	if err != nil {
-		return nil, err
-	}
-	listeners = append(listeners, bpsListeners...)
 	return json.Marshal(map[string]any{"mixed-port": 3101, "allow-lan": false, "bind-address": "127.0.0.1", "mode": "rule", "log-level": "silent", "external-controller": "127.0.0.1:9098", "secret": s.Secret, "proxies": s.Nodes, "proxy-groups": groups, "listeners": listeners, "rules": []string{"MATCH,CODEX-ROTATE"}})
 }
 
@@ -790,11 +770,6 @@ func (m *Manager) start(ctx context.Context, path, secret string) error {
 	for lane := 0; lane < MaxCollectLanes; lane++ {
 		ports = append(ports, fmt.Sprintf("127.0.0.1:%d", collectPort+lane))
 	}
-	m.bpsMu.Lock()
-	for _, port := range m.bpsPorts {
-		ports = append(ports, fmt.Sprintf("127.0.0.1:%d", port))
-	}
-	m.bpsMu.Unlock()
 	for _, port := range ports {
 		ln, err := net.Listen("tcp", port)
 		if err != nil {

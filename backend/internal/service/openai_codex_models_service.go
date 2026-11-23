@@ -212,11 +212,6 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		}
 		changed = true
 	}
-	body, restricted, err := restrictExcelBPSCodexModelsManifest(body, catalog, group)
-	if err != nil {
-		return fmt.Errorf("restrict group BPS capabilities: %w", err)
-	}
-	changed = changed || restricted
 	filtered, retired, err := filterRetiredOpenAIPublicModelsBody(body, catalog, true)
 	if err != nil {
 		return fmt.Errorf("filter retired Codex models: %w", err)
@@ -1022,9 +1017,6 @@ func buildCodexModelsManifestForAccounts(
 	if err != nil || effectivePlatform != PlatformOpenAI {
 		return body, err
 	}
-	// Conflicting aliases can intentionally omit synced metadata. Do not let
-	// the bundled Astra defaults reintroduce v2 for a possible BPS route.
-	body, _, err = restrictExcelBPSCodexModelsManifest(body, accounts, group)
 	return body, err
 }
 

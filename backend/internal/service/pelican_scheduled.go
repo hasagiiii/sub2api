@@ -104,8 +104,7 @@ func (s *ScheduledTestRunnerService) runPelicanPlan(ctx context.Context, plan *S
 	// probe or recording a misleading inconclusive quality round.
 	if isOpenAICodexStateProbePlan(plan.PelicanConfig) && s.accountTestSvc != nil {
 		account, lookupErr := s.accountTestSvc.accountRepo.GetByID(ctx, plan.AccountID)
-		ignoreBPS := plan.PelicanConfig.Quality != nil && (plan.PelicanConfig.Quality.Action == QualityActionEnableBPS || plan.PelicanConfig.BPSRecoveryPending)
-		if lookupErr != nil || openAICodexStateProbeUnsupportedReason(account, plan.ModelID, ignoreBPS) != "" {
+		if lookupErr != nil || openAICodexStateProbeUnsupportedReason(account, plan.ModelID) != "" {
 			logger.LegacyPrintf("service.scheduled_test_runner", "state probe plan=%d account=%d skipped: account unavailable or unsupported", plan.ID, plan.AccountID)
 			finishCtx, stop := context.WithTimeout(context.Background(), 30*time.Second)
 			defer stop()

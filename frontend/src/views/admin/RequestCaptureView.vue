@@ -95,7 +95,7 @@ let poll: ReturnType<typeof setInterval> | undefined, debounce: ReturnType<typeo
 let searchAbort: AbortController | undefined, disposed = false, detailVersion = 0, contentVersion = 0
 function captureOutcome(record: CaptureRecord) {
   if (record.status >= 400) return t('admin.requestCapture.requestFailed')
-  if (record.client_outcome === 'failed' || (!record.client_outcome && record.error_code === 'basispoints_stream_incomplete')) return t('admin.requestCapture.streamFailed')
+  if (record.client_outcome === 'failed') return t('admin.requestCapture.streamFailed')
   if (record.client_outcome === 'completed') return t('admin.requestCapture.completedWithErrors')
   // Older exports do not distinguish final failure from a recovered attempt.
   return t('admin.requestCapture.containsErrors')

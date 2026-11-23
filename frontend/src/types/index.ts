@@ -2930,41 +2930,17 @@ export interface QualityJudgment {
   group_id?: number
   model_id?: string
 }
-// 「降智开 BPS」规则：何时开（连续降智次数 / 用量百分比，0 = 不按该条件）和开成什么样（与账号 BPS 选项一一对应）。
-export interface QualityBPSPolicy {
-  failure_threshold: number
-  usage_percent: number
-  require_all: boolean
-  all_models: boolean
-  models: string[]
-  omit_unsupported_tools: boolean
-  ignore_images: boolean
-  ignore_encrypted_content: boolean
-  auto_disable_on_403: boolean
-  auto_recover_on_403?: boolean
-  recovery_interval_minutes?: number
-  auto_move_on_403: boolean
-  target_group_id: number
-  session_proxy: boolean
-  proxy_source: 'mihomo' | 'ip_pool' | ''
-  cache_creation_as_input: boolean
-  // 规则开了 auto_restore 时：连续满血几轮才关 BPS；按用量开启时用量仍高是否先不关。
-  pass_threshold: number
-  hold_on_usage: boolean
-}
 export interface QualityPolicy {
   judge?: QualityJudgeConfig
   expected_answer: string
-  action: 'remove_groups' | 'disable_scheduling' | 'enable_bps' | 'observe_only'
+  action: 'remove_groups' | 'disable_scheduling' | 'observe_only'
   remove_group_ids: number[]
   auto_restore: boolean
-  bps?: QualityBPSPolicy
 }
 
 export interface PelicanTestConfig {
   quality?: QualityPolicy
   question_kind?: 'candy' | 'pelican' | 'state_probe'
-  test_channel?: 'account' | 'bps'
   prompt: string
   reasoning_effort: string
   parallel_count: number

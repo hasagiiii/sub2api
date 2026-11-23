@@ -763,7 +763,6 @@ func lockAndMergeAccountProbeExtra(
 		}
 	}
 	extra := service.MergeOpenAICodexTicketExtra(copyJSONMap(normalizeJSONMap(account.Extra)), currentExtra)
-	extra = service.MergeExcelBPS403Marker(extra, currentExtra)
 	// Omitted cost means an unrelated edit. Keep the value under the row lock,
 	// including a probe update committed after the edit form was loaded.
 	for _, key := range []string{service.AccountCostMultiplierExtraKey, service.AccountCostAutoSyncExtraKey} {
@@ -3565,34 +3564,6 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			extraExpression += " || $" + itoa(idx) + "::jsonb"
 			args = append(args, payload)
 			idx++
-			if enabled, exists := updates.Extra["openai_excel_bps"].(bool); exists && !enabled {
-				extraExpression = "(" + extraExpression + ") - 'openai_excel_bps' - 'openai_excel_bps_models' - 'openai_excel_bps_cache_creation_as_input' - 'openai_excel_bps_auto_disable_on_403' - 'openai_excel_bps_auto_recover_on_403' - 'openai_excel_bps_auto_move_on_403' - 'openai_excel_bps_403_target_group_id' - 'openai_excel_bps_mihomo'"
-			} else {
-				// Turning the protocol back on acknowledges an automatic 403 shutdown.
-				if enabled {
-					extraExpression = "(" + extraExpression + ") - 'openai_excel_bps_403_disabled_at'"
-					extraExpression = "(" + extraExpression + ") - 'openai_excel_bps_403_last_probe_at'"
-				}
-				// JSON null is a present scope and would disable every model.
-				// Remove the key to restore the all-models routing contract.
-				if scope, exists := updates.Extra["openai_excel_bps_models"]; exists && scope == nil {
-					extraExpression = "(" + extraExpression + ") - 'openai_excel_bps_models'"
-				}
-				if enabled, exists := updates.Extra["openai_excel_bps_cache_creation_as_input"].(bool); exists && !enabled {
-					extraExpression = "(" + extraExpression + ") - 'openai_excel_bps_cache_creation_as_input'"
-				}
-				if enabled, exists := updates.Extra["openai_excel_bps_auto_disable_on_403"].(bool); exists && !enabled {
-					extraExpression = "(" + extraExpression + ") - 'openai_excel_bps_auto_disable_on_403'"
-				}
-				if enabled, exists := updates.Extra[service.ExcelBPSAutoRecoverOn403Key].(bool); exists && !enabled {
-					extraExpression = "(" + extraExpression + ") - 'openai_excel_bps_auto_recover_on_403'"
-				}
-				if enabled, exists := updates.Extra[service.ExcelBPSAutoMoveOn403Key].(bool); exists && !enabled {
-					extraExpression = "(" + extraExpression + ") - 'openai_excel_bps_auto_move_on_403' - 'openai_excel_bps_403_target_group_id'"
-				} else if target, exists := updates.Extra[service.ExcelBPS403TargetGroupIDKey]; exists && target == nil {
-					extraExpression = "(" + extraExpression + ") - 'openai_excel_bps_403_target_group_id'"
-				}
-			}
 			if upstreamBillingProbeExplicitlyDisabled(updates.Extra) || upstreamBillingProbeSnapshotClearRequested(updates.Extra) {
 				extraExpression = "(" + extraExpression + ") - 'upstream_billing_probe'"
 			}
