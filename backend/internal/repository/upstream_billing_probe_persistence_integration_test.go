@@ -30,7 +30,7 @@ func TestAccountUpdatePreservesConcurrentProbeSnapshot(t *testing.T) {
 	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, stale, &service.UpstreamBillingProbeSnapshot{
 		Status:        service.UpstreamBillingProbeStatusOK,
 		LastAttemptAt: time.Now().UTC(),
-	}, nil))
+	}, nil, service.BillingGroupInfo{}))
 
 	stale.Name = "ordinary-edit"
 	require.NoError(t, repo.Update(ctx, stale))
@@ -72,10 +72,10 @@ func TestAdminAccountEditPreservesRateSynchronizedAfterLoad(t *testing.T) {
 	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, probeAccount, &service.UpstreamBillingProbeSnapshot{
 		Status:        service.UpstreamBillingProbeStatusOK,
 		LastAttemptAt: time.Now().UTC(),
-	}, &synchronizedRate))
+	}, &synchronizedRate, service.BillingGroupInfo{}))
 
 	staleAdminEdit.Name = "name-only-edit"
-	require.NoError(t, repo.UpdateWithAccountBillingSettings(ctx, staleAdminEdit, nil, nil, nil))
+	require.NoError(t, repo.UpdateWithAccountBillingSettings(ctx, staleAdminEdit, service.AccountBillingSettingsUpdate{SetName: true}))
 
 	got, err := repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestProbeSnapshotSyncsRateOnlyForSuccessfulEnabledAccount(t *testing.T) {
 	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, &service.UpstreamBillingProbeSnapshot{
 		Status:        service.UpstreamBillingProbeStatusOK,
 		LastAttemptAt: time.Now().UTC(),
-	}, &syncedRate))
+	}, &syncedRate, service.BillingGroupInfo{}))
 
 	got, err := repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestProbeSnapshotSyncsRateOnlyForSuccessfulEnabledAccount(t *testing.T) {
 	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, got, &service.UpstreamBillingProbeSnapshot{
 		Status:        service.UpstreamBillingProbeStatusFailed,
 		LastAttemptAt: time.Now().UTC(),
-	}, &failedRate))
+	}, &failedRate, service.BillingGroupInfo{}))
 	got, err = repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got.RateMultiplier)
@@ -133,7 +133,7 @@ func TestProbeSnapshotSyncsRateOnlyForSuccessfulEnabledAccount(t *testing.T) {
 	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, manual, &service.UpstreamBillingProbeSnapshot{
 		Status:        service.UpstreamBillingProbeStatusOK,
 		LastAttemptAt: time.Now().UTC(),
-	}, &manualProbeRate))
+	}, &manualProbeRate, service.BillingGroupInfo{}))
 	got, err = repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got.RateMultiplier)
@@ -148,7 +148,7 @@ func TestProbeSnapshotSyncsRateOnlyForSuccessfulEnabledAccount(t *testing.T) {
 	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, disabled, &service.UpstreamBillingProbeSnapshot{
 		Status:        service.UpstreamBillingProbeStatusOK,
 		LastAttemptAt: time.Now().UTC(),
-	}, &manualProbeRate))
+	}, &manualProbeRate, service.BillingGroupInfo{}))
 	got, err = repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got.RateMultiplier)
@@ -275,7 +275,7 @@ func TestProbeSnapshotCASIncludesLoadedEnabledState(t *testing.T) {
 			err = repo.UpdateUpstreamBillingProbeSnapshot(ctx, inFlight, &service.UpstreamBillingProbeSnapshot{
 				Status:        service.UpstreamBillingProbeStatusOK,
 				LastAttemptAt: time.Now().UTC(),
-			}, nil)
+			}, nil, service.BillingGroupInfo{})
 			if tt.wantConflict {
 				require.ErrorIs(t, err, service.ErrUpstreamBillingProbeIdentityChanged)
 			} else {
@@ -315,13 +315,13 @@ func TestProbeSnapshotCASProtectsManualRateAfterSyncDisabled(t *testing.T) {
 	require.NoError(t, err)
 	manualRate := 0.8
 	syncDisabled := false
-	require.NoError(t, repo.UpdateWithAccountBillingSettings(ctx, manual, nil, &syncDisabled, &manualRate))
+	require.NoError(t, repo.UpdateWithAccountBillingSettings(ctx, manual, service.AccountBillingSettingsUpdate{RateSyncEnabled: &syncDisabled, RateMultiplier: &manualRate}))
 
 	probedRate := 0.1
 	err = repo.UpdateUpstreamBillingProbeSnapshot(ctx, inFlight, &service.UpstreamBillingProbeSnapshot{
 		Status:        service.UpstreamBillingProbeStatusOK,
 		LastAttemptAt: time.Now().UTC(),
-	}, &probedRate)
+	}, &probedRate, service.BillingGroupInfo{})
 	require.ErrorIs(t, err, service.ErrUpstreamBillingProbeIdentityChanged)
 
 	got, err := repo.GetByID(ctx, account.ID)
@@ -398,7 +398,7 @@ func TestProxyIdentityUpdateInvalidatesProbeAndRejectsInFlightSnapshot(t *testin
 			err = accountRepo.UpdateUpstreamBillingProbeSnapshot(ctx, inFlight, &service.UpstreamBillingProbeSnapshot{
 				Status:        service.UpstreamBillingProbeStatusOK,
 				LastAttemptAt: time.Now().UTC(),
-			}, nil)
+			}, nil, service.BillingGroupInfo{})
 			require.ErrorIs(t, err, service.ErrUpstreamBillingProbeIdentityChanged)
 
 			rows, err := tx.QueryContext(ctx, `
@@ -578,7 +578,7 @@ func TestProbeSnapshotBalanceRoundTripsThroughCASAndIdentityClear(t *testing.T) 
 
 	loaded, err := repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
-	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshotWithBalance(1084.44), nil))
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshotWithBalance(1084.44), nil, service.BillingGroupInfo{}))
 
 	// The next probe's CAS compares against the snapshot as read back from
 	// JSONB, nested balance included.
@@ -590,7 +590,7 @@ func TestProbeSnapshotBalanceRoundTripsThroughCASAndIdentityClear(t *testing.T) 
 	require.NotNil(t, items[0].Snapshot.Balance)
 	require.Equal(t, 1084.44, items[0].Snapshot.Balance.Data["remaining"])
 	require.Equal(t, []any{map[string]any{"window": "5h", "limit": 5.0, "used": 1.25}}, items[0].Snapshot.Balance.Data["windows"])
-	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, reloaded, snapshotWithBalance(12.5), nil))
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, reloaded, snapshotWithBalance(12.5), nil, service.BillingGroupInfo{}))
 
 	updated, err := repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
@@ -637,7 +637,7 @@ func TestProbeReplacesSavedCostMultiplier(t *testing.T) {
 			snapshot := &service.UpstreamBillingProbeSnapshot{Status: tt.status, LastAttemptAt: now, Data: map[string]any{
 				"billing_scope": "token", "resolved_rate_multiplier": tt.rate, "peak_rate_enabled": false,
 			}}
-			require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshot, nil))
+			require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshot, nil, service.BillingGroupInfo{}))
 			got, err := repo.GetByID(ctx, account.ID)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got.Extra[service.AccountCostMultiplierExtraKey])
@@ -654,7 +654,7 @@ func TestProbeReplacesSavedCostMultiplier(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.want, renamed.CostMultiplier())
 			snapshot.Status = service.UpstreamBillingProbeStatusFailed
-			require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, got, snapshot, nil))
+			require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, got, snapshot, nil, service.BillingGroupInfo{}))
 			afterFailure, err := repo.GetByID(ctx, account.ID)
 			require.NoError(t, err)
 			require.Equal(t, tt.want, afterFailure.CostMultiplier(), "failed probes preserve the saved value")
@@ -682,7 +682,7 @@ func TestProbePreservesManualCostWhenAutoSyncDisabledDuringProbe(t *testing.T) {
 	snapshot := &service.UpstreamBillingProbeSnapshot{Status: service.UpstreamBillingProbeStatusOK, LastAttemptAt: time.Now().UTC(), Data: map[string]any{
 		"billing_scope": "token", "resolved_rate_multiplier": 1.0, "peak_rate_enabled": false,
 	}}
-	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, inFlight, snapshot, nil))
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, inFlight, snapshot, nil, service.BillingGroupInfo{}))
 	manual, err := repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
 	require.Equal(t, 0.2, manual.CostMultiplier())
@@ -699,7 +699,7 @@ func TestProbePreservesManualCostWhenAutoSyncDisabledDuringProbe(t *testing.T) {
 	require.Equal(t, 0.2, renamed.CostMultiplier())
 	require.False(t, renamed.CostMultiplierAutoSyncEnabled())
 	// Subsequent manual probes remain read-only with respect to cost.
-	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, renamed, snapshot, nil))
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, renamed, snapshot, nil, service.BillingGroupInfo{}))
 	manual, err = repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
 	require.Equal(t, 0.2, manual.CostMultiplier())
@@ -708,8 +708,41 @@ func TestProbePreservesManualCostWhenAutoSyncDisabledDuringProbe(t *testing.T) {
 	enabled, err := repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
 	require.Equal(t, 0.2, enabled.CostMultiplier())
-	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, enabled, snapshot, nil))
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, enabled, snapshot, nil, service.BillingGroupInfo{}))
 	synced, err := repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
 	require.Equal(t, 1.0, synced.CostMultiplier())
+}
+
+func TestProbeGroupWriteHonorsDisableDuringRequest(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	rate, notes := 0.25, "local notes"
+	account := &service.Account{
+		Name: "local", Notes: &notes, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Credentials: map[string]any{"api_key": "test-key"}, RateMultiplier: &rate,
+		Extra: map[string]any{service.UpstreamBillingProbeEnabledExtraKey: true, service.UpstreamBillingGroupSyncEnabledExtraKey: true},
+	}
+	require.NoError(t, repo.Create(ctx, account))
+	loaded, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	group := service.BillingGroupInfo{Name: "Pro"}
+	snapshot := &service.UpstreamBillingProbeSnapshot{Status: service.UpstreamBillingProbeStatusOK}
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshot, nil, group))
+	inFlight, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, "Pro", inFlight.Name)
+	require.Equal(t, notes, *inFlight.Notes)
+	require.Equal(t, rate, *inFlight.RateMultiplier)
+
+	disabled := false
+	require.NoError(t, repo.UpdateWithAccountBillingSettings(ctx, loaded, service.AccountBillingSettingsUpdate{GroupSyncEnabled: &disabled}))
+	group.Name, group.Description = "too late", "too late"
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, inFlight, snapshot, nil, group))
+	after, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, "Pro", after.Name)
+	require.Equal(t, notes, *after.Notes)
+	require.Equal(t, false, after.Extra[service.UpstreamBillingGroupSyncEnabledExtraKey])
 }

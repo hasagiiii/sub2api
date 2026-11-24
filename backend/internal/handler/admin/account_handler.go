@@ -185,6 +185,7 @@ type CreateAccountRequest struct {
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ProbeEnabled            *bool          `json:"upstream_billing_probe_enabled"`
+	GroupSyncEnabled        *bool          `json:"upstream_billing_group_sync_enabled"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 	InitialExpenseUSD       float64        `json:"initial_expense_usd"`
 	InitialExpenseCategory  string         `json:"initial_expense_category"`
@@ -215,6 +216,7 @@ type UpdateAccountRequest struct {
 	ProbeEnabled            *bool              `json:"upstream_billing_probe_enabled"`
 	RateSyncEnabled         *bool              `json:"upstream_billing_rate_sync_enabled"`
 	ConfirmMixedChannelRisk *bool              `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
+	GroupSyncEnabled        *bool              `json:"upstream_billing_group_sync_enabled"`
 }
 
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
@@ -1180,6 +1182,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			InitialExpenseUSD:      req.InitialExpenseUSD,
 			InitialExpenseCategory: req.InitialExpenseCategory,
 			InitialExpenseNote:     req.InitialExpenseNote,
+			GroupSyncEnabled:       req.GroupSyncEnabled,
 		})
 		if execErr != nil {
 			return nil, execErr
@@ -1317,6 +1320,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		ExpiresAt:             req.ExpiresAt,
 		AutoPauseOnExpired:    req.AutoPauseOnExpired,
 		ProbeEnabled:          req.ProbeEnabled,
+		GroupSyncEnabled:      req.GroupSyncEnabled,
 		RateSyncEnabled:       req.RateSyncEnabled,
 		SkipMixedChannelCheck: skipCheck,
 	})

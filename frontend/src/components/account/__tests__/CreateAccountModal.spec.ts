@@ -17,6 +17,7 @@ enableAutoUnmount(afterEach)
 const {
   createAccountMock,
   probeUpstreamBillingMock,
+  previewUpstreamGroup,
   syncUpstreamModelsMock,
   showWarningMock,
   importCodexSessionMock,
@@ -26,6 +27,7 @@ const {
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
   probeUpstreamBillingMock: vi.fn(),
+  previewUpstreamGroup: vi.fn(),
   syncUpstreamModelsMock: vi.fn(),
   showWarningMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
@@ -56,6 +58,7 @@ vi.mock('@/api/admin', () => ({
       getManagementCapabilities: vi.fn().mockResolvedValue({ web_search_enabled: false, account_quota_notify_enabled: false }),
       create: createAccountMock,
       probeUpstreamBilling: probeUpstreamBillingMock,
+      previewUpstreamGroup,
       syncUpstreamModels: syncUpstreamModelsMock,
       checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
       importCodexSession: importCodexSessionMock,
@@ -289,6 +292,45 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createCredentialOperationsMock.mock.calls[1]?.[0]).toMatchObject({
       account_id: 42, password: login.password, totp_secret: login.mfa_secret, enabled: true, auto_relogin_enabled: true,
     })
+  })
+
+  it('fills the name and notes from the unsaved API key and its adaptive Chat URL', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kimi')
+    await wrapper.get('[data-testid="cn-adaptive-base-url-chat_completions"]').setValue('https://relay.example/v1')
+    await wrapper.get('form input[type="password"]').setValue('test-key')
+    previewUpstreamGroup.mockResolvedValue({ name: '标准组', notes: '共享账号' })
+
+    await selectButtonByText(wrapper, 'admin.accounts.upstreamBilling.syncGroup')
+    await flushPromises()
+
+    expect(previewUpstreamGroup).toHaveBeenCalledWith({
+      platform: 'kimi', base_url: 'https://relay.example/v1', api_key: 'test-key', proxy_id: null
+    }, expect.anything())
+    expect(wrapper.get<HTMLInputElement>('[data-tour="account-form-name"]').element.value).toBe('标准组')
+    expect(wrapper.get<HTMLTextAreaElement>('textarea').element.value).toBe('共享账号')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('creates an API key account with group sync only after opt-in', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('[data-tour="account-form-name"]').setValue('local')
+    await wrapper.get('form input[type="password"]').setValue('synthetic-key')
+    const group = wrapper.get('[data-testid="upstream-billing-group-sync"]')
+    const probe = wrapper.get('[data-testid="upstream-billing-auto-probe"]')
+    expect(group.attributes('aria-checked')).toBe('false')
+    await probe.trigger('click')
+    await group.trigger('click')
+    expect(probe.attributes('aria-checked')).toBe('true')
+    await wrapper.get('#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      upstream_billing_group_sync_enabled: true, upstream_billing_probe_enabled: true
+    })
+    wrapper.unmount()
   })
 
   it('can create a passthrough account with model filtering enabled', async () => {
@@ -930,6 +972,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'ByteDance')
     expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="upstream-billing-group-sync"]').exists()).toBe(false)
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Seedream')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('ark-test-key')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
@@ -939,6 +982,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       platform: 'bytedance', type: 'apikey',
       credentials: { api_key: 'ark-test-key', base_url: 'https://ark.cn-beijing.volces.com/api/v3' },
       upstream_billing_probe_enabled: false,
+      upstream_billing_group_sync_enabled: false,
     })
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
   })
