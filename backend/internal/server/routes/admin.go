@@ -189,7 +189,6 @@ func RegisterAdminRoutes(
 			cost.POST("/expense-plans", h.Admin.CostCenter.CreateExpensePlan)
 			cost.POST("/expense-plans/materialize", h.Admin.CostCenter.MaterializeExpensePlans)
 			cost.PATCH("/events/:id/status", h.Admin.CostCenter.UpdateEventStatus)
-			cost.POST("/events/:id/reverse", h.Admin.CostCenter.ReverseEvent)
 			cost.GET("/reconciliation", h.Admin.CostCenter.Reconcile)
 		}
 	}

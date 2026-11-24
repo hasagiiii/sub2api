@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"testing"
 	"time"
@@ -111,23 +112,110 @@ func TestSummarizeIncludesSettledRebateAmountNetOfReversals(t *testing.T) {
 	}
 }
 
-func TestReverseEventAppendsCompensatingEvent(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatal(err)
+func TestCostCenterCancellationTransaction(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, current    string
+		linked                 int64
+		failLinked, failTarget bool
+	}{
+		{name: "settled original with reversal", kind: "expense", current: "settled", linked: 1},
+		{name: "pending original", kind: "expense", current: "pending"},
+		{name: "historical reversal", kind: "reversal", current: "settled"},
+		{name: "repeat cancellation", kind: "expense", current: "cancelled"},
+		{name: "linked cancellation failure", kind: "expense", current: "settled", failLinked: true},
+		{name: "target failure rolls back linked cancellation", kind: "expense", current: "settled", linked: 1, failTarget: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			mock.ExpectBegin()
+			mock.ExpectExec(regexp.QuoteMeta("SELECT pg_advisory_xact_lock(200, 1)")).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectQuery(regexp.QuoteMeta("SELECT status,event_type FROM cost_center_events WHERE id=$1 FOR UPDATE")).WithArgs(int64(9)).WillReturnRows(sqlmock.NewRows([]string{"status", "event_type"}).AddRow(tc.current, tc.kind))
+			linked := mock.ExpectExec(`WITH RECURSIVE linked.*WHERE reversal_of=\$3.*UNION.*JOIN linked.*UPDATE cost_center_events.*WHERE id IN .*status <> 'cancelled'`).WithArgs("withdraw", int64(42), int64(9))
+			failure := errors.New("write failed")
+			if tc.failLinked {
+				linked.WillReturnError(failure)
+			} else {
+				linked.WillReturnResult(sqlmock.NewResult(0, tc.linked))
+				target := mock.ExpectQuery("UPDATE cost_center_events SET status=\\$1.*WHERE id=\\$4 RETURNING").WithArgs("cancelled", "withdraw", int64(42), int64(9))
+				if tc.failTarget {
+					target.WillReturnError(failure)
+				} else {
+					now := time.Now()
+					var original any
+					if tc.kind == "reversal" {
+						original = int64(8)
+					}
+					columns := []string{"id", "event_type", "status", "source_type", "source_id", "account_id", "user_id", "plan_id", "platform", "group_id", "model", "category", "amount_usd", "original_amount", "original_currency", "fx_rate", "occurred_at", "note", "metadata", "operator_id", "reversal_of", "created_at"}
+					target.WillReturnRows(sqlmock.NewRows(columns).AddRow(9, tc.kind, "cancelled", "manual", nil, nil, nil, nil, "", nil, "", "proxy", 5.0, nil, nil, nil, now, "withdraw", []byte(`{}`), 42, original, now))
+				}
+			}
+			if tc.failLinked || tc.failTarget {
+				mock.ExpectRollback()
+			} else {
+				mock.ExpectCommit()
+			}
+			operator := int64(42)
+			event, err := NewCostCenterRepository(db).UpdateEventStatus(context.Background(), 9, "cancelled", "withdraw", &operator)
+			if tc.failLinked || tc.failTarget {
+				if !errors.Is(err, failure) {
+					t.Fatalf("expected write failure, got %v", err)
+				}
+			} else if err != nil || event.Status != "cancelled" {
+				t.Fatalf("event=%+v err=%v", event, err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
-	defer func() { _ = db.Close() }()
-	repo := NewCostCenterRepository(db)
-	occurred := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	eventColumns := []string{"id", "event_type", "status", "source_type", "source_id", "account_id", "user_id", "plan_id", "platform", "group_id", "model", "category", "amount_usd", "original_amount", "original_currency", "fx_rate", "occurred_at", "note", "metadata", "operator_id", "reversal_of", "created_at"}
-	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at FROM cost_center_events WHERE id=$1")).
-		WithArgs(int64(9)).WillReturnRows(sqlmock.NewRows(eventColumns).AddRow(9, "expense", "settled", "manual", "source-9", nil, nil, nil, "", nil, "", "proxy", 5.0, nil, nil, nil, occurred, "", []byte(`{}`), nil, nil, occurred))
-	mock.ExpectQuery(regexp.QuoteMeta("INSERT INTO cost_center_events")).WillReturnRows(sqlmock.NewRows(eventColumns).AddRow(10, "reversal", "settled", "reversal", "reversal:9", nil, nil, nil, "", nil, "", "proxy", 5.0, nil, nil, nil, occurred, "bad", []byte(`{"reason":"bad"}`), nil, 9, occurred))
-	_, err = repo.ReverseEvent(context.Background(), 9, "bad", nil)
-	if err != nil {
-		t.Fatal(err)
+}
+
+func TestCostCenterRejectsUnsafeStatusTransitions(t *testing.T) {
+	for _, tc := range []struct{ current, kind, target string }{
+		{"cancelled", "expense", "settled"}, {"cancelled", "reversal", "settled"},
+		{"settled", "reversal", "pending"}, {"settled", "expense", "pending"},
+	} {
+		t.Run(tc.current+tc.kind+tc.target, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			mock.ExpectBegin()
+			mock.ExpectExec(regexp.QuoteMeta("SELECT pg_advisory_xact_lock(200, 1)")).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectQuery("SELECT status,event_type.*FOR UPDATE").WithArgs(int64(9)).WillReturnRows(sqlmock.NewRows([]string{"status", "event_type"}).AddRow(tc.current, tc.kind))
+			mock.ExpectRollback()
+			_, err = NewCostCenterRepository(db).UpdateEventStatus(context.Background(), 9, tc.target, "reason", nil)
+			if !errors.Is(err, service.ErrInvalidCostCenterStatus) {
+				t.Fatalf("unexpected error %v", err)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Fatal(err)
+}
+
+func TestCostCenterRepositoryRejectsReversalCreation(t *testing.T) {
+	original := int64(1)
+	for _, in := range []service.CreateCostCenterEventInput{
+		{EventType: "reversal"}, {EventType: "expense", SourceType: "reversal"}, {EventType: "expense", ReversalOf: &original},
+	} {
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = NewCostCenterRepository(db).CreateEvent(context.Background(), &in)
+		if !errors.Is(err, service.ErrCostCenterReversalDisabled) {
+			t.Fatalf("unexpected error %v", err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Fatal(err)
+		}
+		_ = db.Close()
 	}
 }

@@ -76,9 +76,6 @@ func (f *costCenterRepoFake) MaterializeExpensePlans(context.Context, time.Time)
 func (f *costCenterRepoFake) UpdateEventStatus(context.Context, int64, string, string, *int64) (*CostCenterEvent, error) {
 	return nil, nil
 }
-func (f *costCenterRepoFake) ReverseEvent(context.Context, int64, string, *int64) (*CostCenterEvent, error) {
-	return nil, nil
-}
 func (f *costCenterRepoFake) Reconcile(context.Context, CostCenterReportFilter) (*CostCenterReconciliation, error) {
 	return &CostCenterReconciliation{}, nil
 }
@@ -125,6 +122,22 @@ func TestCostCenterServiceClassifiesAccountTargetedExpense(t *testing.T) {
 	}
 	if event.SourceType != "account" {
 		t.Fatalf("expected account source type, got %q", event.SourceType)
+	}
+}
+
+func TestCostCenterServiceRejectsReversalCreation(t *testing.T) {
+	original := int64(1)
+	for _, in := range []CreateCostCenterEventInput{
+		{EventType: CostEventReversal, AmountUSD: 5},
+		{EventType: CostEventExpense, SourceType: "reversal", AmountUSD: 5},
+		{EventType: CostEventExpense, SourceType: "reversal", AccountID: &original, AmountUSD: 5},
+		{EventType: CostEventExpense, ReversalOf: &original, AmountUSD: 5},
+	} {
+		repo := &costCenterRepoFake{}
+		_, err := NewCostCenterService(repo).CreateEvent(context.Background(), &in)
+		if err != ErrCostCenterReversalDisabled || len(repo.events) != 0 {
+			t.Fatalf("creation not rejected: err=%v events=%+v", err, repo.events)
+		}
 	}
 }
 

@@ -56,7 +56,7 @@
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-2">
               <button v-if="row.status === 'pending'" class="btn btn-sm btn-primary" @click="review(row)">{{ t('admin.costCenter.confirm') }}</button>
-              <button v-else-if="row.status === 'settled'" class="btn btn-sm btn-secondary" @click="reverse(row)">{{ t('admin.costCenter.reverse') }}</button>
+              <button v-if="row.status !== 'cancelled'" class="btn btn-sm btn-secondary" :disabled="withdrawing.has(row.id)" @click="withdraw(row)">{{ t('admin.costCenter.withdraw') }}</button>
             </div>
           </template>
         </DataTable>
@@ -281,7 +281,22 @@ function onDateRangeChange(range: { startDate: string; endDate: string }) { filt
 function handlePageChange(page: number) { pagination.page = page; void load() }
 function handlePageSizeChange(size: number) { pagination.page_size = size; pagination.page = 1; void load() }
 async function review(event: CostCenterEvent) { const reason = window.prompt(t('admin.costCenter.reasonPrompt')); if (!reason) return; await adminAPI.costCenter.updateEventStatus(event.id, 'settled', reason); await load() }
-async function reverse(event: CostCenterEvent) { const reason = window.prompt(t('admin.costCenter.reasonPrompt')); if (!reason) return; await adminAPI.costCenter.reverseEvent(event.id, reason); await load() }
+const withdrawing = ref(new Set<number>())
+async function withdraw(event: CostCenterEvent) {
+  if (withdrawing.value.has(event.id)) return
+  const reason = window.prompt(t('admin.costCenter.withdrawPrompt'))?.trim()
+  if (!reason) return
+  withdrawing.value.add(event.id)
+  try {
+    await adminAPI.costCenter.updateEventStatus(event.id, 'cancelled', reason)
+    appStore.showSuccess(t('admin.costCenter.withdrawSuccess'))
+    await load()
+  } catch {
+    appStore.showError(t('admin.costCenter.withdrawFailed'))
+  } finally {
+    withdrawing.value.delete(event.id)
+  }
+}
 async function loadAuditAccounts() {
   if (accountsLoading.value) return
   accountsLoading.value = true

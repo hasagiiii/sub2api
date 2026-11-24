@@ -2,6 +2,7 @@ const apiMocks = vi.hoisted(() => ({
   getSummary: vi.fn(),
   getEvents: vi.fn(),
   createExpense: vi.fn(),
+  updateEventStatus: vi.fn(),
   listAccounts: vi.fn(),
 }))
 
@@ -16,8 +17,7 @@ vi.mock('@/api/admin', () => ({
       getSummary: apiMocks.getSummary,
       getEvents: apiMocks.getEvents,
       createExpense: apiMocks.createExpense,
-      updateEventStatus: vi.fn(),
-      reverseEvent: vi.fn(),
+      updateEventStatus: apiMocks.updateEventStatus,
     },
     accounts: { list: apiMocks.listAccounts },
   },
@@ -77,6 +77,32 @@ describe('CostCenterView account cost entry', () => {
       page_size: 1,
       pages: 2,
     }))
+  })
+
+  it.each(['expense', 'reversal'])('withdraws historical %s events and hides actions for withdrawn records', async (eventType) => {
+    apiMocks.getEvents.mockResolvedValue({ data: { items: [
+      { id: 7, event_type: eventType, status: 'settled' },
+      { id: 8, event_type: eventType, status: 'cancelled' },
+    ], total: 2 } })
+    apiMocks.updateEventStatus.mockResolvedValue({ data: { id: 7, status: 'cancelled' } })
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('  duplicate  ')
+    const wrapper = mount(CostCenterView, {
+      global: { stubs: {
+        AppLayout: { template: '<div><slot /></div>' },
+        BaseDialog: true, DateRangePicker: true, Icon: true, Select: SelectStub, Pagination: true,
+        DataTable: { props: ['data'], template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-actions" :row="row" /></div></div>' },
+      } },
+    })
+    await flushPromises()
+    const buttons = wrapper.findAll('button').filter(button => button.text() === 'admin.costCenter.withdraw')
+    expect(buttons).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('admin.costCenter.reverse')
+    await buttons[0]!.trigger('click')
+    await flushPromises()
+    expect(apiMocks.updateEventStatus).toHaveBeenCalledWith(7, 'cancelled', 'duplicate')
+    expect(apiMocks.getEvents).toHaveBeenCalledTimes(2)
+    prompt.mockRestore()
+    wrapper.unmount()
   })
 
   it('shows the rebate amount in the summary cards', async () => {

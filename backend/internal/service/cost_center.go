@@ -139,7 +139,6 @@ type CostCenterRepository interface {
 	CreateExpensePlan(context.Context, *CreateExpensePlanInput) (*ExpensePlan, error)
 	MaterializeExpensePlans(context.Context, time.Time) (int, error)
 	UpdateEventStatus(context.Context, int64, string, string, *int64) (*CostCenterEvent, error)
-	ReverseEvent(context.Context, int64, string, *int64) (*CostCenterEvent, error)
 	Reconcile(context.Context, CostCenterReportFilter) (*CostCenterReconciliation, error)
 	SnapshotSubscriptionEntitlement(context.Context, *SubscriptionEntitlementSnapshot) error
 	RecognizeSubscriptionUsage(context.Context, int64, string, int64, float64, time.Time) (*CostCenterEvent, error)
@@ -160,6 +159,9 @@ type CostCenterService struct{ repo CostCenterRepository }
 func (s *CostCenterService) CreateEvent(ctx context.Context, input *CreateCostCenterEventInput) (*CostCenterEvent, error) {
 	if input == nil || input.AmountUSD <= 0 {
 		return nil, ErrInvalidCostCenterAmount
+	}
+	if input.EventType == CostEventReversal || input.SourceType == "reversal" || input.ReversalOf != nil {
+		return nil, ErrCostCenterReversalDisabled
 	}
 	if input.Status == "" {
 		input.Status = "settled"
@@ -204,9 +206,6 @@ func (s *CostCenterService) UpdateEventStatus(ctx context.Context, id int64, sta
 		return nil, ErrInvalidCostCenterStatus
 	}
 	return s.repo.UpdateEventStatus(ctx, id, status, reason, operator)
-}
-func (s *CostCenterService) ReverseEvent(ctx context.Context, id int64, reason string, operator *int64) (*CostCenterEvent, error) {
-	return s.repo.ReverseEvent(ctx, id, reason, operator)
 }
 func (s *CostCenterService) Reconcile(ctx context.Context, f CostCenterReportFilter) (*CostCenterReconciliation, error) {
 	return s.repo.Reconcile(ctx, f)

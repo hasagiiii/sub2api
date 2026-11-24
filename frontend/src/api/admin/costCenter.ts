@@ -46,7 +46,6 @@ const costCenterAPI = {
   getEvents(filters: CostCenterFilters & { page?: number; page_size?: number }) { return apiClient.get<CostCenterEventPage>('/admin/cost-center/events', { params: filters }) },
   createExpense(data: { amount_usd: number; category: string; account_id?: number; occurred_at?: string; note?: string; status?: string }) { return apiClient.post<CostCenterEvent>('/admin/cost-center/expenses', data) },
   updateEventStatus(id: number, status: string, reason: string) { return apiClient.patch<CostCenterEvent>(`/admin/cost-center/events/${id}/status`, { status, reason }) },
-  reverseEvent(id: number, reason: string) { return apiClient.post<CostCenterEvent>(`/admin/cost-center/events/${id}/reverse`, { reason }) },
   reconcile(filters: CostCenterFilters) { return apiClient.get<{ unknown_events: number; pending_events: number; duplicate_keys: number }>('/admin/cost-center/reconciliation', { params: filters }) },
 }
 

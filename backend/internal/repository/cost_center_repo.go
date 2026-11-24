@@ -17,6 +17,9 @@ func NewCostCenterRepository(db *sql.DB) service.CostCenterRepository {
 }
 
 func (r *costCenterRepository) CreateEvent(ctx context.Context, in *service.CreateCostCenterEventInput) (*service.CostCenterEvent, error) {
+	if in.EventType == service.CostEventReversal || in.SourceType == "reversal" || in.ReversalOf != nil {
+		return nil, service.ErrCostCenterReversalDisabled
+	}
 	occurred := time.Now().UTC()
 	if in.OccurredAt != nil {
 		occurred = in.OccurredAt.UTC()
@@ -219,19 +222,50 @@ func (r *costCenterRepository) MaterializeExpensePlans(ctx context.Context, at t
 }
 
 func (r *costCenterRepository) UpdateEventStatus(ctx context.Context, id int64, status, reason string, operator *int64) (*service.CostCenterEvent, error) {
-	row := r.db.QueryRowContext(ctx, `UPDATE cost_center_events SET status=$1,note=CASE WHEN $2='' THEN note ELSE note || ' [' || $2 || ']' END,operator_id=COALESCE($3,operator_id),updated_at=NOW() WHERE id=$4 RETURNING id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at`, status, reason, operator, id)
-	return scanCostEvent(row)
-}
-
-func (r *costCenterRepository) ReverseEvent(ctx context.Context, id int64, reason string, operator *int64) (*service.CostCenterEvent, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at FROM cost_center_events WHERE id=$1`, id)
-	original, err := scanCostEvent(row)
+	if status != "settled" && status != "cancelled" && status != "pending" {
+		return nil, service.ErrInvalidCostCenterStatus
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	key := fmt.Sprintf("reversal:%d", id)
-	meta := map[string]any{"reason": reason, "reversal_of": id}
-	return r.CreateEvent(ctx, &service.CreateCostCenterEventInput{EventType: service.CostEventReversal, Status: "settled", SourceType: "reversal", SourceID: &key, IdempotencyKey: &key, AccountID: original.AccountID, UserID: original.UserID, PlanID: original.PlanID, Platform: original.Platform, GroupID: original.GroupID, Model: original.Model, Category: original.Category, AmountUSD: original.AmountUSD, OccurredAt: &original.OccurredAt, Note: reason, Metadata: meta, OperatorID: operator, ReversalOf: &original.ID})
+	defer func() { _ = tx.Rollback() }()
+	// Serialize administrative status changes, including historical reversal
+	// chains, before taking row locks to avoid opposite lock orders.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(200, 1)`); err != nil {
+		return nil, err
+	}
+	var current, eventType string
+	err = tx.QueryRowContext(ctx, `SELECT status,event_type FROM cost_center_events WHERE id=$1 FOR UPDATE`, id).Scan(&current, &eventType)
+	if err != nil {
+		return nil, err
+	}
+	// Cancellation is terminal. Historical reversals can only be cancelled;
+	// allowing reactivation could subtract from an already cancelled original.
+	if status != "cancelled" && (current == "cancelled" || eventType == service.CostEventReversal || (current != status && (current != "pending" || status != "settled"))) {
+		return nil, service.ErrInvalidCostCenterStatus
+	}
+	if status == "cancelled" {
+		// Commit the original and its compensating entries together so readers
+		// never observe a cancelled original with a still-effective negative entry.
+		_, err = tx.ExecContext(ctx, `WITH RECURSIVE linked(id) AS (
+ SELECT id FROM cost_center_events WHERE reversal_of=$3
+ UNION
+ SELECT e.id FROM cost_center_events e JOIN linked l ON e.reversal_of=l.id
+) UPDATE cost_center_events SET status='cancelled',note=CASE WHEN $1='' THEN note ELSE note || ' [' || $1 || ']' END,operator_id=COALESCE($2,operator_id),updated_at=NOW() WHERE id IN (SELECT id FROM linked) AND status <> 'cancelled'`, reason, operator, id)
+		if err != nil {
+			return nil, err
+		}
+	}
+	row := tx.QueryRowContext(ctx, `UPDATE cost_center_events SET status=$1,note=CASE WHEN $2='' THEN note ELSE note || ' [' || $2 || ']' END,operator_id=COALESCE($3,operator_id),updated_at=NOW() WHERE id=$4 RETURNING id,event_type,status,source_type,source_id,account_id,user_id,plan_id,platform,group_id,model,category,amount_usd,original_amount,original_currency,fx_rate,occurred_at,note,metadata,operator_id,reversal_of,created_at`, status, reason, operator, id)
+	event, err := scanCostEvent(row)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return event, nil
 }
 
 func (r *costCenterRepository) Reconcile(ctx context.Context, f service.CostCenterReportFilter) (*service.CostCenterReconciliation, error) {

@@ -152,30 +152,6 @@ func (h *CostCenterHandler) UpdateEventStatus(c *gin.Context) {
 	}
 	response.Success(c, v)
 }
-func (h *CostCenterHandler) ReverseEvent(c *gin.Context) {
-	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		response.Error(c, http.StatusBadRequest, "invalid event id")
-		return
-	}
-	var req struct {
-		Reason string `json:"reason"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.Reason == "" {
-		response.Error(c, http.StatusBadRequest, "reason is required")
-		return
-	}
-	var op *int64
-	if subject, ok := middleware.GetAuthSubjectFromContext(c); ok {
-		op = &subject.UserID
-	}
-	v, err := h.svc.ReverseEvent(c.Request.Context(), id, req.Reason, op)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Created(c, v)
-}
 func (h *CostCenterHandler) Reconcile(c *gin.Context) {
 	f, err := parseCostCenterFilter(c)
 	if err != nil {
