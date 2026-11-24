@@ -132,8 +132,6 @@ func qualityRuleScope(cfg *PelicanTestConfig) string {
 		return ""
 	}
 	switch cfg.Quality.Action {
-	case QualityActionEnableBPS:
-		return "bps"
 	case QualityActionObserveOnly:
 		return "observation"
 	}

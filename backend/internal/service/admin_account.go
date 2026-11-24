@@ -599,9 +599,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validateExcelBPS403GroupSettings(ctx, account); err != nil {
-		return nil, err
-	}
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
 	}
@@ -1003,9 +1000,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
-	if err := s.validateExcelBPS403GroupSettings(ctx, account); err != nil {
-		return nil, err
-	}
 	billingSettingsAppliedAtomically := false
 	updater := s.accountBillingRepo
 	if updater == nil {
@@ -1083,22 +1077,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
 	if err := ValidateAccountCostMultiplierExtra(updates); err != nil {
 		return err
-	}
-	_, moveChanged := updates[ExcelBPSAutoMoveOn403Key]
-	_, targetChanged := updates[ExcelBPS403TargetGroupIDKey]
-	_, bpsChanged := updates["openai_excel_bps"]
-	if moveChanged || targetChanged || bpsChanged {
-		account, err := s.accountRepo.GetByID(ctx, id)
-		if err != nil {
-			return err
-		}
-		merged := *account
-		merged.Extra = make(map[string]any, len(account.Extra)+len(updates))
-		maps.Copy(merged.Extra, account.Extra)
-		maps.Copy(merged.Extra, updates)
-		if err := s.validateExcelBPS403GroupSettings(ctx, &merged); err != nil {
-			return err
-		}
 	}
 	updates = MergeOpenAICodexTicketExtra(updates, nil)
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
@@ -1221,29 +1199,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			return nil, err
 		}
 		result.LongContextInheritedCount = inheritedCount
-	}
-	_, moveChanged := input.Extra[ExcelBPSAutoMoveOn403Key]
-	_, targetChanged := input.Extra[ExcelBPS403TargetGroupIDKey]
-	_, bpsChanged := input.Extra["openai_excel_bps"]
-	_, planChanged := input.Credentials["plan_type"]
-	if moveChanged || targetChanged || bpsChanged || planChanged {
-		for _, account := range cachedTargets {
-			if account == nil {
-				continue
-			}
-			merged := *account
-			merged.Credentials = maps.Clone(account.Credentials)
-			if merged.Credentials == nil {
-				merged.Credentials = make(map[string]any)
-			}
-			maps.Copy(merged.Credentials, input.Credentials)
-			merged.Extra = make(map[string]any, len(account.Extra)+len(input.Extra))
-			maps.Copy(merged.Extra, account.Extra)
-			maps.Copy(merged.Extra, input.Extra)
-			if err := s.validateExcelBPS403GroupSettings(ctx, &merged); err != nil {
-				return nil, err
-			}
-		}
 	}
 	if input.ProbeEnabled != nil {
 		for _, accountID := range input.AccountIDs {

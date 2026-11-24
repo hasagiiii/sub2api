@@ -81,27 +81,27 @@ describe('CostCenterView account cost entry', () => {
 
   it.each(['expense', 'reversal'])('withdraws historical %s events and hides actions for withdrawn records', async (eventType) => {
     apiMocks.getEvents.mockResolvedValue({ data: { items: [
-      { id: 7, event_type: eventType, status: 'settled' },
+      { id: 7, event_type: eventType, status: 'settled', amount_usd: 12 },
       { id: 8, event_type: eventType, status: 'cancelled' },
     ], total: 2 } })
     apiMocks.updateEventStatus.mockResolvedValue({ data: { id: 7, status: 'cancelled' } })
-    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('  duplicate  ')
     const wrapper = mount(CostCenterView, {
       global: { stubs: {
         AppLayout: { template: '<div><slot /></div>' },
-        BaseDialog: true, DateRangePicker: true, Icon: true, Select: SelectStub, Pagination: true,
+        BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /></div>' }, DateRangePicker: true, Icon: true, Select: SelectStub, Pagination: true,
         DataTable: { props: ['data'], template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-actions" :row="row" /></div></div>' },
       } },
     })
     await flushPromises()
-    const buttons = wrapper.findAll('button').filter(button => button.text() === 'admin.costCenter.withdraw')
+    const buttons = wrapper.findAll('button').filter(button => button.text() === 'admin.costCenter.cancelExpense')
     expect(buttons).toHaveLength(1)
     expect(wrapper.text()).not.toContain('admin.costCenter.reverse')
     await buttons[0]!.trigger('click')
+    await wrapper.get('textarea').setValue('  duplicate  ')
+    await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(apiMocks.updateEventStatus).toHaveBeenCalledWith(7, 'cancelled', 'duplicate')
     expect(apiMocks.getEvents).toHaveBeenCalledTimes(2)
-    prompt.mockRestore()
     wrapper.unmount()
   })
 
@@ -242,5 +242,119 @@ describe('CostCenterView account cost entry', () => {
     expect(appStoreMocks.showSuccess).toHaveBeenCalledWith('Cost appended')
     expect(apiMocks.getSummary).toHaveBeenCalledTimes(2)
     expect(apiMocks.getEvents).toHaveBeenCalledTimes(2)
+  })
+})
+
+
+describe('CostCenterView expense withdrawal', () => {
+  const event = (status = 'pending', extra = {}) => ({ id: 10, event_type: 'expense', status, source_type: 'manual', category: 'other', amount_usd: 12, occurred_at: '2026-01-01T00:00:00Z', note: '', ...extra })
+  const render = async (items = [event()]) => {
+    apiMocks.getEvents.mockResolvedValue({ data: { items, total: items.length } })
+    const wrapper = mount(CostCenterView, {
+      global: { stubs: {
+        AppLayout: { template: '<div><slot /></div>' },
+        BaseDialog: { props: ['show'], template: '<div v-if="show" data-testid="dialog"><slot /></div>' },
+        DataTable: { props: ['data'], template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-actions" :row="row" /></div></div>' },
+        DateRangePicker: true, Icon: true, Select: SelectStub, Pagination: true,
+      } },
+    })
+    await flushPromises()
+    return wrapper
+  }
+  const withdrawalButtons = (wrapper: Awaited<ReturnType<typeof render>>) => wrapper.findAll('button').filter(b => b.text() === 'admin.costCenter.cancelExpense')
+  beforeEach(() => {
+    vi.resetAllMocks()
+    apiMocks.getSummary.mockResolvedValue({ data: null })
+    apiMocks.updateEventStatus.mockResolvedValue({ data: {} })
+  })
+
+  it.each(['pending', 'settled'])('withdraws a %s expense and refreshes statistics', async status => {
+    const wrapper = await render([event(status)])
+    await withdrawalButtons(wrapper)[0]!.trigger('click')
+    expect(wrapper.text()).toContain('admin.costCenter.cancelExpenseHelp')
+    await wrapper.get('textarea').setValue('  duplicate expense  ')
+    apiMocks.getEvents.mockResolvedValue({ data: { items: [event('cancelled')], total: 1 } })
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(apiMocks.updateEventStatus).toHaveBeenCalledWith(10, 'cancelled', 'duplicate expense')
+    expect(apiMocks.getSummary).toHaveBeenCalledTimes(2)
+    expect(apiMocks.getEvents).toHaveBeenCalledTimes(2)
+    expect(appStoreMocks.showSuccess).toHaveBeenCalledWith('admin.costCenter.expenseCancelled')
+    expect(wrapper.find('[data-testid="dialog"]').exists()).toBe(false)
+    expect(withdrawalButtons(wrapper)).toHaveLength(0)
+  })
+
+  it('rejects empty and whitespace-only reasons', async () => {
+    const wrapper = await render()
+    await withdrawalButtons(wrapper)[0]!.trigger('click')
+    for (const reason of ['', '   ']) {
+      await wrapper.get('textarea').setValue(reason)
+      expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+      await wrapper.get('form').trigger('submit')
+    }
+    expect(apiMocks.updateEventStatus).not.toHaveBeenCalled()
+  })
+
+  it('keeps the reason and dialog after an API error', async () => {
+    apiMocks.updateEventStatus.mockRejectedValue(new Error('Request failed'))
+    const wrapper = await render()
+    await withdrawalButtons(wrapper)[0]!.trigger('click')
+    await wrapper.get('textarea').setValue('wrong entry')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('textarea').element.value).toBe('wrong entry')
+    expect(appStoreMocks.showError).toHaveBeenCalled()
+    expect(appStoreMocks.showSuccess).not.toHaveBeenCalled()
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    expect(apiMocks.getEvents).toHaveBeenCalledTimes(1)
+  })
+
+  it('prevents duplicate submissions while saving', async () => {
+    let resolve!: (value: unknown) => void
+    apiMocks.updateEventStatus.mockImplementation(() => new Promise(r => { resolve = r }))
+    const wrapper = await render()
+    await withdrawalButtons(wrapper)[0]!.trigger('click')
+    await wrapper.get('textarea').setValue('duplicate')
+    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+    expect(apiMocks.updateEventStatus).toHaveBeenCalledTimes(1)
+    resolve({ data: {} })
+    await flushPromises()
+  })
+
+  it('allows historical reversals, reversed originals and non-expense events to be withdrawn', async () => {
+    const wrapper = await render([
+      event('cancelled'), event('settled', { id: 11 }),
+      event('settled', { id: 12, event_type: 'reversal', reversal_of: 11 }),
+      event('pending', { id: 13, event_type: 'income' }),
+    ])
+    expect(withdrawalButtons(wrapper)).toHaveLength(3)
+    expect(wrapper.text()).not.toContain('admin.costCenter.reverse')
+  })
+
+  it('only confirms normal pending events', async () => {
+    const wrapper = await render([
+      event('pending'),
+      event('pending', { id: 11, event_type: 'reversal', reversal_of: 10 }),
+      event('pending', { id: 12, reversal_of: 10 }),
+      event('settled', { id: 13 }),
+    ])
+    expect(wrapper.findAll('button').filter(b => b.text() === 'admin.costCenter.confirm')).toHaveLength(1)
+    expect(withdrawalButtons(wrapper)).toHaveLength(4)
+  })
+
+  it('reports refresh failure separately after successful withdrawal', async () => {
+    const wrapper = await render()
+    await withdrawalButtons(wrapper)[0]!.trigger('click')
+    await wrapper.get('textarea').setValue('duplicate')
+    apiMocks.getSummary.mockRejectedValue(new Error('refresh unavailable'))
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(appStoreMocks.showSuccess).toHaveBeenCalledWith('admin.costCenter.expenseCancelled')
+    expect(appStoreMocks.showError).toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="dialog"]').exists()).toBe(false)
+    expect(withdrawalButtons(wrapper)).toHaveLength(0)
   })
 })

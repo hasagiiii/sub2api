@@ -38,10 +38,6 @@ func SafeURL(raw string) string {
 		}
 	}
 	u.RawQuery = q.Encode()
-	if i := strings.Index(u.Path, "/api/bps-images/"); i >= 0 {
-		u.Path = u.Path[:i] + "/api/bps-images/[REDACTED]"
-		u.RawPath = ""
-	}
 	return u.String()
 }
 

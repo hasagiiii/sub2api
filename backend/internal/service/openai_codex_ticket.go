@@ -784,9 +784,6 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 // （默认非空），此时若门控仍按客户端原始模型判定，就会把「实际出站是非门控
 // 模型、根本不需要票」的 compact 请求整片误拦成不可调度。
 func (s *OpenAIGatewayService) openAICodexTicketOutboundModel(account *Account, requestedModel string, requireCompact bool) string {
-	if account.IsExcelBPSEnabledForModel(requestedModel) {
-		return account.GetMappedModel(requestedModel)
-	}
 	model := strings.TrimSpace(requestedModel)
 	if account == nil || model == "" {
 		return model
@@ -1389,10 +1386,7 @@ func IsMaskedProxyURL(raw string) bool {
 // Credential shadows do not own tickets. Keep their existing forwarding policy
 // instead of imposing a gate for a key the harvester never populates.
 func isOpenAICodexTicketAccount(account *Account, upstreamModels ...string) bool {
-	if account == nil || !account.IsOpenAIOAuthLike() || account.IsShadow() || account.isExcelBPSAllModelsEnabled() {
-		return false
-	}
-	return len(upstreamModels) == 0 || !account.isExcelBPSUpstreamModelEnabled(upstreamModels[0])
+	return account != nil && account.IsOpenAIOAuthLike() && !account.IsShadow()
 }
 
 // IsOpenAICodexTicketPrivateExtraKey also covers the retired account-level proxy

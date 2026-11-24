@@ -237,6 +237,9 @@ func (r *costCenterRepository) UpdateEventStatus(ctx context.Context, id int64, 
 	}
 	var current, eventType string
 	err = tx.QueryRowContext(ctx, `SELECT status,event_type FROM cost_center_events WHERE id=$1 FOR UPDATE`, id).Scan(&current, &eventType)
+	if err == sql.ErrNoRows {
+		return nil, service.ErrCostCenterEventNotFound
+	}
 	if err != nil {
 		return nil, err
 	}

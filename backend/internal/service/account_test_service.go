@@ -175,8 +175,6 @@ type AccountTestService struct {
 
 	billingService *BillingService
 
-	bpsProbeMu         sync.Mutex
-	bpsProbeAccounts   map[int64]struct{}
 	stateProbeAccounts sync.Map
 
 	agentIdentityTaskMu sync.Mutex
@@ -414,18 +412,6 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		account: account,
 		model:   modelID,
 	})
-
-	if options, ok := pelicanTestOptionsFromContext(ctx); ok {
-		if options.testChannel == "bps" {
-			model := strings.TrimSpace(modelID)
-			if model == "" {
-				model = openai.DefaultTestModel
-			}
-			if !account.IsExcelBPSEnabledForModel(model) || s.openaiGatewayService == nil {
-				return s.sendErrorAndEnd(c, "BPS observation unavailable: BPS must be enabled for this model; native fallback is disabled")
-			}
-		}
-	}
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
@@ -1030,19 +1016,6 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	ctx := c.Request.Context()
 	mode = normalizeAccountTestMode(mode)
 
-	// Excel/BPS accounts must use the same gateway path as user Responses
-	// requests. The legacy account-test probe hard-codes ChatGPT Codex and
-	// silently bypasses the account's protocol toggle, producing misleading
-	// quality-test results.
-	if mode == AccountTestModeBPSTools {
-		return s.testExcelBPSToolRoundtrip(c, account, modelID)
-	}
-	// Image models use the image test below, which applies the gateway's BPS
-	// image routing; the text BPS test would send them to /responses.
-	if account.IsExcelBPSEnabled() && s.openaiGatewayService != nil && !isOpenAIImageModel(account.GetMappedModel(strings.TrimSpace(modelID))) {
-		return s.testExcelBPSAccountConnection(c, account, modelID, prompt)
-	}
-
 	// Default to openai.DefaultTestModel for OpenAI testing
 	testModelID := modelID
 	if testModelID == "" {
@@ -1233,86 +1206,6 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 
 	// Process SSE stream
 	return s.processOpenAIStream(c, resp.Body)
-}
-
-func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
-	model := strings.TrimSpace(modelID)
-	if model == "" {
-		model = openai.DefaultTestModel
-	}
-	model = account.GetMappedModel(model)
-	prompt = promptOrDefault(prompt)
-	s.sendEvent(c, TestEvent{Type: "test_start", Model: model})
-
-	body, err := buildExcelBPSAccountTestBody(model, prompt)
-	if err != nil {
-		return s.sendErrorAndEnd(c, "Failed to create Excel BPS test payload")
-	}
-
-	probe := httptest.NewRecorder()
-	probeCtx, _ := gin.CreateTestContext(probe)
-	probeCtx.Request = c.Request.Clone(c.Request.Context())
-	if probeCtx.Request.Header == nil {
-		probeCtx.Request.Header = make(http.Header)
-	}
-	// Manual one-shot tests have no client conversation. Give them a scoped
-	// identity so enabling the session proxy does not break the test button.
-	// Explicit identities (including load-test sessions) remain unchanged.
-	if scope, _ := resolveOpenAIWSExecutionScope(probeCtx, body, 0); scope == "" {
-		probeCtx.Request.Header.Set("Session-Id", "account-test-"+uuid.NewString())
-	}
-	result, err := s.openaiGatewayService.Forward(probeCtx.Request.Context(), probeCtx, account, body)
-	recordPelicanTestSSE(c.Request.Context(), "openai", model, probe.Body.Bytes())
-	if err != nil {
-		// A single-account test has no other account to fail over to.
-		var failover *UpstreamFailoverError
-		if errors.As(err, &failover) && failover.ClientMessage != "" {
-			return s.sendErrorAndEnd(c, failover.ClientMessage)
-		}
-		return s.sendErrorAndEnd(c, err.Error())
-	}
-
-	answer := strings.Builder{}
-	completed := false
-	for _, line := range strings.Split(probe.Body.String(), "\n") {
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-		var event map[string]any
-		if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event) != nil {
-			continue
-		}
-		switch event["type"] {
-		case "response.output_text.delta":
-			if delta, ok := event["delta"].(string); ok {
-				_, _ = answer.WriteString(delta)
-				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
-			}
-		case "response.completed":
-			completed = true
-		}
-	}
-	if result == nil || result.ClientDisconnect {
-		return s.sendErrorAndEnd(c, "Excel BPS test response was interrupted")
-	}
-	if !completed {
-		return s.sendErrorAndEnd(c, "Excel BPS test response ended before completion")
-	}
-	if strings.TrimSpace(answer.String()) == "" {
-		return s.sendErrorAndEnd(c, "Excel BPS returned empty output")
-	}
-	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-	return nil
-}
-
-func buildExcelBPSAccountTestBody(model, prompt string) ([]byte, error) {
-	return json.Marshal(map[string]any{
-		"model": model, "stream": true, "store": false,
-		"input": []any{map[string]any{"type": "message", "role": "user", "content": []any{
-			map[string]any{"type": "input_text", "text": promptOrDefault(prompt)},
-		}}},
-		"reasoning": map[string]any{"effort": "medium"},
-	})
 }
 
 // testGrokAccountConnection routes Grok admin connectivity tests by explicit mode first,
@@ -3571,11 +3464,6 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	applyOpenAIImagesDefaults(parsed)
 
 	upstreamModel := account.GetMappedModel(parsed.Model)
-	if s.openaiGatewayService != nil && account.IsExcelBPSImagesEnabledForModel(parsed.Model) {
-		if handled, err := s.testExcelBPSImages(c, ctx, account, parsed, upstreamModel); handled {
-			return err
-		}
-	}
 	responsesBody, targetURL, err := buildOpenAIImagesOAuthPayload(parsed, upstreamModel)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to build image request: %s", err.Error()))
@@ -3690,52 +3578,6 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
-}
-
-// testExcelBPSImages runs the gateway's BPS image route. handled=false means
-// BPS rejected the request format, so the caller tests Codex like user traffic.
-func (s *AccountTestService) testExcelBPSImages(c *gin.Context, ctx context.Context, account *Account, parsed *OpenAIImagesRequest, upstreamModel string) (bool, error) {
-	if excelBPSImagesUnsupportedReason(parsed) != "" {
-		return false, nil
-	}
-	s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("Calling Excel BPS /images/generations; image model: %s\n", upstreamModel)})
-	probe := httptest.NewRecorder()
-	probeCtx, _ := gin.CreateTestContext(probe)
-	probeCtx.Request = c.Request.Clone(ctx)
-	_, fallback, err := s.openaiGatewayService.forwardExcelBPSImages(ctx, probeCtx, account, parsed, parsed.Model, upstreamModel, time.Now())
-	if fallback {
-		s.sendEvent(c, TestEvent{Type: "content", Text: "Excel BPS rejected this request format; user requests fall back to Codex, testing Codex\n"})
-		return false, nil
-	}
-	if err != nil {
-		// A single-account test has no other account to fail over to.
-		var upErr *OpenAIImagesUpstreamError
-		if errors.As(err, &upErr) {
-			return true, s.sendErrorAndEnd(c, upErr.clientMessage())
-		}
-		var failover *UpstreamFailoverError
-		if errors.As(err, &failover) && failover.ClientMessage != "" {
-			return true, s.sendErrorAndEnd(c, failover.ClientMessage)
-		}
-		return true, s.sendErrorAndEnd(c, err.Error())
-	}
-	results, err := parseCodexDirectImagesResponse(probe.Body.Bytes())
-	if err != nil {
-		return true, s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse Excel BPS image response: %s", err.Error()))
-	}
-	for _, item := range results {
-		if item.RevisedPrompt != "" {
-			s.sendEvent(c, TestEvent{Type: "content", Text: item.RevisedPrompt})
-		}
-		mimeType := openAIImageOutputMIMEType(item.OutputFormat)
-		s.sendEvent(c, TestEvent{
-			Type:     "image",
-			ImageURL: "data:" + mimeType + ";base64," + item.Result,
-			MimeType: mimeType,
-		})
-	}
-	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-	return true, nil
 }
 
 func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {

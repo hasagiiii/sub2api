@@ -276,7 +276,7 @@ func TestTokenGuardRecoveryRefreshesPlanFromNewIDToken(t *testing.T) {
 			account := guardRecoveryAccount(1, StatusError)
 			account.ErrorMessage = "Token revoked (401): token_revoked"
 			account.Credentials["plan_type"] = businessPlan
-			account.Extra = map[string]any{"openai_excel_bps": true, "privacy_mode": PrivacyModeTrainingOff}
+			account.Extra = map[string]any{"privacy_mode": PrivacyModeTrainingOff}
 			accounts := &guardRecoveryAccounts{items: []Account{account}}
 			admin := &guardRecoveryAdmin{accounts: accounts}
 			svc := NewAccountTokenGuardService(nil, &guardMemoryRepo{}, accounts, admin, nil)
@@ -291,9 +291,7 @@ func TestTokenGuardRecoveryRefreshesPlanFromNewIDToken(t *testing.T) {
 			require.Equal(t, "new-refresh", updated.GetCredential("refresh_token"))
 			require.Equal(t, account.Credentials["model_mapping"], updated.Credentials["model_mapping"])
 			require.Equal(t, businessPlan, account.GetCredential("plan_type"), "do not mutate the old snapshot")
-			require.Equal(t, tc.wantPlan != "free", updated.Extra["openai_excel_bps"])
 			require.Equal(t, PrivacyModeTrainingOff, updated.Extra["privacy_mode"])
-			require.Equal(t, true, account.Extra["openai_excel_bps"], "do not mutate the old settings")
 			require.Equal(t, StatusActive, updated.Status)
 			require.True(t, updated.Schedulable)
 			require.Equal(t, tc.wantPlan != "free", updated.IsOpenAIChatGPTSubscription())

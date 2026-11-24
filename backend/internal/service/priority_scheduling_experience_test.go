@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -52,60 +51,6 @@ func TestPriorityCapacityPrecedesSmallProfitDifference(t *testing.T) {
 	require.Zero(t, counts[1], "43%% occupied must not beat idle peers for a small score advantage: %v", counts)
 	require.Greater(t, counts[2], 300)
 	require.Greater(t, counts[3], 300)
-}
-
-func TestPriorityColdGatewayBalancesCompatibleProtocols(t *testing.T) {
-	for _, tc := range []struct {
-		name                                         string
-		balance, nativeSlot, bpsSlot, restrictNative bool
-		want                                         int64
-		wait                                         bool
-	}{
-		{"idle_native_before_busy_bps", true, true, true, false, 51002, false},
-		{"explicit_bps_preference", false, true, true, false, 51001, false},
-		{"lost_native_slot_uses_bps_without_wait", true, false, true, false, 51001, false},
-		{"both_slots_lost_waits_only_after_alternatives", true, false, false, false, 51002, true},
-		{"explicit_model_allowlist_is_not_bypassed", true, true, true, true, 51001, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg := DefaultPrioritySchedulingConfig()
-			cfg.Enabled = true
-			cfg.BalanceProtocols = tc.balance
-			gateway := priorityGateway(cfg, &priorityReaderStub{})
-			groupID := int64(11)
-			input := &CreateAccountInput{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
-			applyOAuthModelMappings(input, []OAuthModelMappingRule{{From: "gpt-5.4", To: "gpt-5.6-sol"}})
-			if tc.restrictNative {
-				delete(input.Credentials, OpenAIModelMappingModeKey)
-			}
-			accounts := []Account{
-				{ID: 51001, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 100, Priority: 1, GroupIDs: []int64{groupID}, Extra: map[string]any{"openai_excel_bps": true}},
-				{ID: 51002, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 20, Priority: 1, GroupIDs: []int64{groupID}, Credentials: input.Credentials},
-			}
-			acquired := []int64{}
-			gateway.accountRepo = schedulerTestOpenAIAccountRepo{accounts: accounts}
-			gateway.cfg = newSchedulerTestOpenAIWSV2Config()
-			gateway.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{acquiredIDs: &acquired, loadMap: map[int64]*AccountLoadInfo{51001: {AccountID: 51001, CurrentConcurrency: 43}, 51002: {AccountID: 51002}}, acquireResults: map[int64]bool{51001: tc.bpsSlot, 51002: tc.nativeSlot}})
-			scheduler := newDefaultOpenAIAccountScheduler(gateway, nil)
-			selection, _, err := scheduler.Select(context.Background(), OpenAIAccountScheduleRequest{GroupID: &groupID, Platform: PlatformOpenAI, RequestedModel: "gpt-6-sol", UseUpstreamTokenCost: true})
-			require.NoError(t, err)
-			require.NotNil(t, selection)
-			require.Equal(t, tc.want, selection.Account.ID)
-			if tc.wait {
-				require.NotNil(t, selection.WaitPlan)
-				require.Contains(t, acquired, int64(51001))
-				require.Contains(t, acquired, int64(51002))
-			} else {
-				require.True(t, selection.Acquired)
-				require.Nil(t, selection.WaitPlan)
-				selection.ReleaseFunc()
-			}
-			if tc.restrictNative {
-				require.NotContains(t, acquired, int64(51002))
-			}
-			require.False(t, accounts[1].IsExcelBPSEnabled(), "balancing must never enable another account protocol")
-		})
-	}
 }
 
 func TestPriorityRPMAndQualityRemainAuthoritative(t *testing.T) {

@@ -197,7 +197,7 @@ const adminMappedLog = {
   account: { name: 'codex-wang' },
   upstream_reasoning_effort: 'xhigh',
   inbound_endpoint: '/v1/responses',
-  upstream_endpoint: '/basispoints/api/responses',
+  upstream_endpoint: '/v1/responses',
 }
 
 const sharedPageStubs = {
@@ -278,7 +278,7 @@ describe('usage reasoning effort page display', () => {
     expect(wrapper.text()).not.toContain('XHigh')
   })
 
-  it('admin usage page shows BPS requested and forwarded effort by default', async () => {
+  it('admin usage page shows requested and forwarded effort by default', async () => {
     const wrapper = mountAdminUsage()
     await flushPromises()
 
@@ -286,10 +286,10 @@ describe('usage reasoning effort page display', () => {
     expect(cell).toContain('Max')
     expect(cell).toContain('XHigh')
     expect(cell).toContain('↳')
-    expect(wrapper.text()).toContain('/basispoints/api/responses')
+    expect(wrapper.text()).toContain('/v1/responses')
   })
 
-  it('retains a saved hidden reasoning column and allows re-enabling the BPS mapping', async () => {
+  it('retains a saved hidden reasoning column and allows re-enabling the reasoning mapping', async () => {
     const wrapper = mountAdminUsage()
     await flushPromises()
     await wrapper.get('[data-testid="usage-column-settings"]').trigger('click')

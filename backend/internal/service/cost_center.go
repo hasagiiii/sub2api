@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -204,6 +205,10 @@ func (s *CostCenterService) MaterializeExpensePlans(ctx context.Context, at time
 func (s *CostCenterService) UpdateEventStatus(ctx context.Context, id int64, status, reason string, operator *int64) (*CostCenterEvent, error) {
 	if status != "settled" && status != "cancelled" && status != "pending" {
 		return nil, ErrInvalidCostCenterStatus
+	}
+	reason = strings.TrimSpace(reason)
+	if status == "cancelled" && reason == "" {
+		return nil, ErrCostCenterReasonRequired
 	}
 	return s.repo.UpdateEventStatus(ctx, id, status, reason, operator)
 }

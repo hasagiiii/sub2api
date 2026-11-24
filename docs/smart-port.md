@@ -8,7 +8,6 @@
 
 | 领域 | 移植内容 |
 | --- | --- |
-| Excel / BPS | 网关路由、图片与工具调用、会话恢复、预热池、403 恢复与质量联动 |
 | Smart 运维 | 账号质量巡检、定时题库检测、自动判分、自动隔离/恢复、规则模板、运营事件与告警 |
 | 账号维护 | Token Guard、2FA 凭据导入、OAuth 重新登录、托管/外置 worker 与代理配置 |
 | 调度与定价 | 优先级/利润信号调度、OAuth 调度倍率、分组内账号倍率、推理等级价卡、RPM 准入 |
@@ -34,8 +33,8 @@
 
 - 重新登录的托管运行包仅支持 Linux amd64 / arm64，必须有与服务版本匹配的 Release asset。详见 tools/reauth-runtime/README.md。开发版、旧 Release 或其他系统可使用独立部署的外置 worker。
 - 发布配置已改为本仓库的 Release 源；完整发布附带双架构运行包，Simple Release 附带 amd64 包。本次没有上传运行包或触发工作流。
-- BPS、Mihomo/采集及 Copilot sidecar 需按各自配置准备账号、出口、运行时和可达服务；代码移植不会复制另一仓库的生产凭据或数据库。
-- gateway 副本需共用 PostgreSQL、Redis 和密钥；BPS/图片、WS、本地代理等进程状态的路由要求见 deploy/kubernetes/README.md。示例使用占位镜像标签，部署时必须替换为已验证的镜像摘要。
+- Mihomo/采集及 Copilot sidecar 需按各自配置准备账号、出口、运行时和可达服务；代码移植不会复制另一仓库的生产凭据或数据库。
+- gateway 副本需共用 PostgreSQL、Redis 和密钥；WS、本地代理等进程状态的路由要求见 deploy/kubernetes/README.md。示例使用占位镜像标签，部署时必须替换为已验证的镜像摘要。
 
 ## 验证记录
 

@@ -1,6 +1,5 @@
 import { apiClient } from '../client'
 export interface PrioritySchedulingConfig {
-  balance_protocols?: boolean
   enabled: boolean
   mode: 'experience' | 'balanced' | 'profit' | 'custom'
   group_ids: number[]

@@ -17,6 +17,7 @@ export interface CostCenterSummary {
 
 export interface CostCenterEvent {
   id: number
+  reversal_of?: number | null
   event_type: string
   status: string
   source_type: string

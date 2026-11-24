@@ -3,12 +3,10 @@ export default {
   profit: '近期利润 / 利润率',
   economics: { usage: '使用记录', rate: '倍率估算', unknown: '利润样本不足' },
   priority: '优先级',
-  balanceProtocols: '在兼容的 BPS 与原生账号间均衡分流',
-  balanceProtocolsHint: '只选择通过分组、模型、配额与传输检查的账号，不改账号协议、不自动开启 BPS。关闭后恢复 BPS 优先。',
   modelAliases: '模型映射仅作为别名，保留默认模型范围',
   modelAliasesHint: '适用于 OpenAI OAuth。未命中别名的请求继续使用默认模型准入；关闭时，非空映射仍是白名单。确认账号应服务这些模型后再开启。',
   changeModelScope: '修改所选 OAuth 账号的模型映射范围',
-  bulkModelAliasesHint: '仅修改映射范围，保留每个账号现有的别名和凭据；不会自动开启 BPS。可用于修复只剩一条自动别名的新号。',
+  bulkModelAliasesHint: '仅修改映射范围，保留每个账号现有的别名和凭据。可用于修复只剩一条自动别名的新号。',
   selectionWeight: '分流权重', boundGroups: '绑定分组', explorationEligible: '可参与少量探索流量',
 
   title: '优先调度',

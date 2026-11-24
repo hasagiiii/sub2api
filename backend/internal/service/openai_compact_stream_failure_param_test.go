@@ -13,7 +13,7 @@ func TestWriteOpenAICompactSSEFailureMessageParam(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
-	writeOpenAICompactSSEFailureMessageParam(ctx, 400, "basispoints_request_invalid", "cannot forward encrypted content", "input[103].content[1]")
+	writeOpenAICompactSSEFailureMessageParam(ctx, 400, "invalid_request_error", "cannot forward encrypted content", "input[103].content[1]")
 	data := recorder.Body.String()
 	parts := strings.SplitN(data, "data: ", 2)
 	if len(parts) != 2 || !strings.HasPrefix(data, "event: response.failed\n") {

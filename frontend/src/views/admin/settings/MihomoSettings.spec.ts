@@ -108,11 +108,6 @@ describe('Mihomo IP management', () => {
     await wrapper.setProps({ section: 'kernel' }); await click('保存地区规则')
     expect(post).toHaveBeenLastCalledWith('/admin/system/mihomo', expect.objectContaining({ action: 'country_filter', subscriptions: [], dynamic_proxies: [] }))
   })
-  it('displays warm pool status only when returned by the backend', async () => {
-    wrapper = mountPanel(); await flushPromises(); expect(wrapper.find('[data-testid="bps-warm-pool"]').exists()).toBe(false)
-    get.mockResolvedValue({ data: { ...base, bps_warm_pool: { ready: 0, target: 0, checking: 0, cooling: 0 }, bps_ip_warm_pool: { ready: 2, target: 0, checking: 0, cooling: 0 } } })
-    await click('检测状态'); expect(wrapper.findAll('[data-testid="bps-warm-pool"]')).toHaveLength(2)
-  })
   it('loads and saves the mode through the existing dedicated backend endpoint', async () => {
     get.mockResolvedValue({ data: { ...base, subscription_download_mode: 'direct' } })
     wrapper = mountPanel(); await flushPromises()
@@ -132,13 +127,6 @@ describe('Mihomo IP management', () => {
     await click('保存下载模式')
     expect(wrapper.get<HTMLSelectElement>('#subscription-download-mode').element.value).toBe('proxy')
     expect(wrapper.text()).toContain('cannot save subscription settings')
-  })
-  it('renders source readiness from backend counters without client-side inference', async () => {
-    get.mockResolvedValue({ data: { ...base, bps_warm_pool: { ready: 7, target: 0, checking: 0, cooling: 1, ready_subscription: 5, ready_dynamic: 2 } } })
-    wrapper = mountPanel(); await flushPromises()
-    const pool = wrapper.get('[data-testid="bps-warm-pool"]')
-    expect(pool.text()).toContain('订阅就绪 5')
-    expect(pool.text()).toContain('动态就绪 2')
   })
   it.each(['subscriptions', 'dynamic'] as const)('closes %s after polling fails while backend status remains busy', async section => {
     vi.useFakeTimers()
@@ -268,17 +256,4 @@ describe('Mihomo node connection and quality checks', () => {
     expect(rowButton('admin.proxies.testConnection').attributes('disabled')).toBeDefined()
     expect(rowButton('admin.proxies.qualityCheck').attributes('disabled')).toBeDefined()
   })
-})
-
-it('shows warm target and shortage reuse without probing from the UI', async () => {
-  get.mockResolvedValue({data:{...base,bps_warm_pool:{target:8,ready:2,checking:1,cooling:3,failure_reasons:{bps_access_denied:3}}}})
-  const wrapper=mount(MihomoSettings)
-  try {
-    await flushPromises()
-    const pool=wrapper.get('[data-testid="bps-warm-pool"]')
-    expect(pool.text()).toContain('目标 8')
-    expect(pool.text()).toContain('就绪 2')
-    expect(pool.text()).toContain('不足时复用就绪出口')
-    expect(pool.text()).toContain('bps_access_denied: 3')
-  } finally { wrapper.unmount() }
 })

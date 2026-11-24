@@ -184,16 +184,3 @@ func TestHarvestIPPoolAttemptBudgetAndNodeName(t *testing.T) {
 	require.Equal(t, "IP池 · 东京", harvestIPPoolNodeName(harvestIPPoolExit{url: "http://u:secret@a.example.com:8080", name: "东京"}))
 	require.Equal(t, "IP池", harvestIPPoolNodeName(harvestIPPoolExit{url: "http://u:secret@a.example.com:8080"}))
 }
-
-func TestExcelBPSProxySourceFollowsSessionProxyToggle(t *testing.T) {
-	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{
-		"openai_excel_bps": true, ExcelBPSProxySourceKey: ExcelBPSProxySourceIPPool,
-	}}
-	require.Empty(t, account.ExcelBPSProxySource(), "the source is inert until the session proxy is on")
-	account.Extra["openai_excel_bps_mihomo"] = true
-	require.Equal(t, ExcelBPSProxySourceIPPool, account.ExcelBPSProxySource())
-	account.Extra[ExcelBPSProxySourceKey] = "unknown"
-	require.Equal(t, ExcelBPSProxySourceMihomo, account.ExcelBPSProxySource())
-	delete(account.Extra, ExcelBPSProxySourceKey)
-	require.Equal(t, ExcelBPSProxySourceMihomo, account.ExcelBPSProxySource())
-}

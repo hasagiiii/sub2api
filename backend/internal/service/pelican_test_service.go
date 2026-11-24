@@ -25,11 +25,6 @@ func pelicanTestOptionsFromContext(ctx context.Context) (pelicanTestOptions, boo
 	return options, ok
 }
 
-func isQualityObservation(ctx context.Context) bool {
-	options, _ := pelicanTestOptionsFromContext(ctx)
-	return options.observeOnly
-}
-
 // TestPelicanAccountConnection is the dedicated account test path for the
 // Pelican UI. The existing /test endpoint deliberately keeps its historical
 // probe payload; only this endpoint opts into the user prompt and reasoning.

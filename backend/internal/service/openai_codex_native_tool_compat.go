@@ -10,7 +10,6 @@ import (
 
 // stripOpenAICodexUnsupportedWebSearchFields removes provider-specific web
 // search controls that the ChatGPT/Codex inference endpoint does not accept.
-// BPS requests never reach this helper; only native OAuth/Codex forwarding does.
 func stripOpenAICodexUnsupportedWebSearchFields(body []byte) ([]byte, bool, error) {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return body, false, nil

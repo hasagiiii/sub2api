@@ -49,11 +49,6 @@ type qualityState struct {
 	AccountVersion time.Time       `json:"account_version"`
 	Removed        []qualityGroup  `json:"removed"`
 	Remaining      json.RawMessage `json:"remaining"`
-	// 以下只用于「降智开 BPS」：连续降智轮数、开启后连续满血轮数，以及开启前 / 开启时 BPS 相关 Extra 的快照。
-	FailureStreak int                        `json:"failure_streak,omitempty"`
-	PassStreak    int                        `json:"pass_streak,omitempty"`
-	BPSPrevious   map[string]json.RawMessage `json:"bps_previous,omitempty"`
-	BPSApplied    map[string]json.RawMessage `json:"bps_applied,omitempty"`
 }
 
 // Lease/version checks, account mutation, ownership and scheduler invalidation
@@ -75,7 +70,7 @@ func (r *scheduledTestPlanRepository) ApplyQualityOutcome(ctx context.Context, p
 	}
 	if plan.PelicanConfig.Quality.Action == service.QualityActionObserveOnly {
 		// Relinquish any former action without restoring or changing account
-		// settings; observation leaves BPS lifecycle to independent policies.
+		// settings; observation leaves account lifecycle to independent policies.
 		if _, err = tx.ExecContext(ctx, `DELETE FROM account_quality_states WHERE plan_id=$1`, plan.ID); err != nil {
 			return "", err
 		}
@@ -114,31 +109,13 @@ func (r *scheduledTestPlanRepository) ApplyQualityOutcome(ctx context.Context, p
 		err = tx.QueryRowContext(ctx, `SELECT EXISTS(
  SELECT 1 FROM account_quality_states s JOIN scheduled_test_plans p ON p.id=s.plan_id
  WHERE p.account_id=$1 AND p.id<>$2 AND COALESCE(s.state->>'action','')<>''
- AND (s.state->>'action'='enable_bps')=$3)`, plan.AccountID, plan.ID, q.Action == service.QualityActionEnableBPS).Scan(&owned)
+)`, plan.AccountID, plan.ID).Scan(&owned)
 		if err != nil {
 			return "", err
 		}
 		if owned {
 			return "action_conflict", nil
 		}
-	}
-	// 已被本规则开过 BPS 的账号即便规则后来改了动作，也由 BPS 分支负责恢复。
-	if state.Action == service.QualityActionEnableBPS || (state.Action == "" && q.Action == service.QualityActionEnableBPS) {
-		action, err := applyQualityBPSOutcome(ctx, tx, plan, outcome, status, state, len(raw) > 0)
-		if err != nil {
-			return "", err
-		}
-		if err = tx.Commit(); err != nil {
-			return "", err
-		}
-		return action, nil
-	}
-	if state.Action == "" && state.FailureStreak > 0 {
-		// 规则已不再是「降智开 BPS」：丢掉残留的连续次数，改回来时重新计数。
-		if _, err = tx.ExecContext(ctx, `DELETE FROM account_quality_states WHERE plan_id=$1`, plan.ID); err != nil {
-			return "", err
-		}
-		state = qualityState{}
 	}
 	groups, err := qualityGroups(ctx, tx, plan.AccountID)
 	if err != nil {
@@ -322,4 +299,13 @@ func (r *scheduledTestResultRepository) ListQualityHistory(ctx context.Context, 
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func qualityUpsertState(ctx context.Context, tx *sql.Tx, planID int64, state qualityState) error {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO account_quality_states(plan_id,state) VALUES($1,$2) ON CONFLICT (plan_id) DO UPDATE SET state=EXCLUDED.state`, planID, string(data))
+	return err
 }

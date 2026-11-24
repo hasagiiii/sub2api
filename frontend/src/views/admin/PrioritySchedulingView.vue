@@ -10,7 +10,6 @@
       <form v-if="draft" class="card p-5" @submit.prevent="save">
         <fieldset :disabled="saving" class="min-w-0 space-y-5">
           <label class="flex items-center gap-3 font-medium"><input v-model="draft.enabled" data-testid="enabled" type="checkbox" role="switch" />{{ t('priorityScheduling.enabled') }}</label>
-          <label class="block text-sm"><span class="flex items-center gap-3"><input v-model="draft.balance_protocols" data-testid="balance-protocols" type="checkbox" />{{ t('priorityScheduling.balanceProtocols') }}</span><small class="mt-1 block text-gray-500">{{ t('priorityScheduling.balanceProtocolsHint') }}</small></label>
           <div class="grid gap-5 lg:grid-cols-2">
             <section class="min-w-0 space-y-4">
               <label class="block"><span class="field-title">{{ t('priorityScheduling.strategy') }}</span><select v-model="draft.mode" class="input w-full" data-testid="mode"><option v-for="mode in modes" :key="mode" :value="mode">{{ t(`priorityScheduling.modes.${mode}`) }}</option></select></label>
@@ -66,7 +65,7 @@ async function load() {
     const config = await getPriorityConfig()
     if (!active(version)) return
     const { teams: _legacyTeams, ...currentConfig } = config as PrioritySchedulingConfig & { teams?: unknown }
-    draft.value = { ...currentConfig, balance_protocols: currentConfig.balance_protocols ?? true }; groups.value = (config.group_ids ?? []).join(', '); modelsText.value = (config.models ?? []).join('\n')
+    draft.value = { ...currentConfig }; groups.value = (config.group_ids ?? []).join(', '); modelsText.value = (config.models ?? []).join('\n')
   } catch { if (active(version)) error.value = t('priorityScheduling.error') }
   finally { if (active(version)) loading.value = false }
 }

@@ -55,8 +55,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	beginUpstreamResponseModelObservation(c)
 	body = normalizeOpenAIRequestLocale(ctx, account, body, "http")
 	ClearActualOpenAIUpstreamEndpoint(c)
-	// A failed account attempt must not leave a bypass reason on a later BPS response.
-	c.Writer.Header().Del("X-Codex2API-Basispoints-Bypass")
+
 	c.Writer.Header().Del("X-Codex2API-Upstream")
 	if shouldForwardOpenAIResponsesViaChatCompletions(account, body) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
@@ -94,15 +93,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			},
 		})
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
-	}
-
-	modelForBPS := gjson.GetBytes(body, "model").String()
-	if c.GetBool(bpsAccountProbeRequiredContextKey) &&
-		(!account.IsExcelBPSEnabledForModel(modelForBPS) || account.excelBPSNativeFallbackReason(body) != "") {
-		return nil, errors.New("bps probe path is unavailable")
-	}
-	if account.IsExcelBPSEnabledForModel(modelForBPS) {
-		return s.forwardExcelBPS(ctx, c, account, body, startTime)
 	}
 
 	if account.IsOpenAIOAuthLike() {

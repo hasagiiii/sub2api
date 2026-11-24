@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"net/http"
 	"net/url"
 	"sort"
@@ -1098,12 +1097,6 @@ func (s *AccountTokenGuardService) reloginAccount(ctx context.Context, cfg Accou
 		payload[key] = value
 	}
 	input := &UpdateAccountInput{Credentials: payload}
-	if strings.EqualFold(guardText(credential["plan_type"]), "free") && account.Extra["openai_excel_bps"] == true {
-		// Free accounts cannot use BPS. Disable the old flag in the same write
-		// so account validation does not reject the refreshed credentials.
-		input.Extra = maps.Clone(account.Extra)
-		input.Extra["openai_excel_bps"] = false
-	}
 	if _, err := s.admin.UpdateAccount(ctx, account.ID, input); err != nil {
 		return "自动重登", fmt.Errorf("写回凭据失败: %w", err)
 	}

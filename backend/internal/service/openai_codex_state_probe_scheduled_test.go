@@ -170,7 +170,6 @@ func TestStateProbeScheduleSkipsUnsupportedAccounts(t *testing.T) {
 		{name: "other provider", account: &Account{Platform: PlatformAnthropic, Type: AccountTypeOAuth}},
 		{name: "synthetic", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"synthetic_ui_test": true}}},
 		{name: "agent identity", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Credentials: map[string]any{"auth_mode": "agentIdentity"}}},
-		{name: "bps", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"openai_excel_bps": true}}},
 		{name: "deleted"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,8 +196,8 @@ func TestStateProbeScheduleSkipsUnsupportedAccounts(t *testing.T) {
 	}
 }
 
-func TestStateProbeScheduleAllowsSupportedAccountsAndBPSRecovery(t *testing.T) {
-	for _, kind := range []string{"oauth", "setup-token", "enable-bps", "pending-recovery"} {
+func TestStateProbeScheduleAllowsSupportedAccounts(t *testing.T) {
+	for _, kind := range []string{"oauth", "setup-token"} {
 		t.Run(kind, func(t *testing.T) {
 			plans, results := &qualityPlanRepo{}, &pelicanResults{}
 			account := stateProbeAccount()
@@ -207,15 +206,6 @@ func TestStateProbeScheduleAllowsSupportedAccountsAndBPSRecovery(t *testing.T) {
 			plan.PelicanConfig.Quality = &QualityPolicy{Action: "disable_scheduling"}
 			if kind == "setup-token" {
 				account.Type = AccountTypeSetupToken
-			}
-			if kind == "enable-bps" || kind == "pending-recovery" {
-				account.Extra = map[string]any{"openai_excel_bps": true}
-				if kind == "enable-bps" {
-					plan.PelicanConfig.Quality.Action = QualityActionEnableBPS
-					plan.PelicanConfig.Quality.BPS = &QualityBPSPolicy{FailureThreshold: 1, AllModels: true}
-				} else {
-					plan.PelicanConfig.BPSRecoveryPending = true
-				}
 			}
 			runner := &ScheduledTestRunnerService{
 				planRepo: plans, scheduledSvc: NewScheduledTestService(plans, results),

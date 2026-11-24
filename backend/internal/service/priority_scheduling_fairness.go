@@ -27,14 +27,6 @@ func priorityCapacityBand(item openAIAccountCandidateScore) int {
 	return band
 }
 
-func (s *OpenAIGatewayService) balancesPriorityProtocols(req OpenAIAccountScheduleRequest) bool {
-	if s == nil || req.Platform != PlatformOpenAI || !req.UseUpstreamTokenCost || req.RequiredImageCapability != "" {
-		return false
-	}
-	cfg := s.prioritySchedulingRuntimeConfig()
-	return cfg.BalanceProtocols && cfg.applies(req.GroupID, req.RequestedModel)
-}
-
 // Count distinct bindings, not group price/name or an inferred account class.
 // AccountGroups supports older snapshots that do not populate GroupIDs.
 func priorityAccountGroupCount(account *Account) int {
@@ -107,14 +99,10 @@ func (s *defaultOpenAIAccountScheduler) shouldRebalancePrioritySticky(ctx contex
 		account := &accounts[i]
 		if account.ID == sticky.ID || !account.IsSchedulable() || account.Priority > sticky.Priority ||
 			!s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) ||
-			!s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport, req.RequestedModel) ||
-			s.service.isExcelBPSCoolingDown(account, req.RequestedModel) {
+			!s.isAccountRequestCompatible(ctx, account, req) || !s.isAccountTransportCompatible(account, req.RequiredTransport, req.RequestedModel) {
 			continue
 		}
 		if _, excluded := req.ExcludedIDs[account.ID]; excluded {
-			continue
-		}
-		if !s.service.balancesPriorityProtocols(req) && sticky.IsExcelBPSEnabledForModel(req.RequestedModel) && !account.IsExcelBPSEnabledForModel(req.RequestedModel) {
 			continue
 		}
 		if req.RequireCompact && openAICompactSupportTier(account) < openAICompactSupportTier(sticky) {

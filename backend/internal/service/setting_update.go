@@ -122,56 +122,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if err := captureConfig.Validate(); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_REQUEST_CAPTURE_SETTINGS", err.Error())
 	}
-	imageRelay, err := normalizeExcelBPSImageRelaySettings(settings.ExcelBPSImageRelayEnabled, settings.ExcelBPSImageBaseURL, settings.ExcelBPSImageMode)
-	if err != nil {
-		return nil, err
-	}
-	settings.ExcelBPSImageBaseURL = imageRelay.BaseURL
-	if settings.ExcelBPSImageBodyLimitMiB == 0 {
-		settings.ExcelBPSImageBodyLimitMiB = DefaultExcelBPSImageBodyLimitMiB
-	}
-	if settings.ExcelBPSImageBudgetMiB == 0 {
-		settings.ExcelBPSImageBudgetMiB = DefaultExcelBPSImageBudgetMiB
-	}
-	if settings.ExcelBPSImageMaxRequests == 0 {
-		settings.ExcelBPSImageMaxRequests = DefaultExcelBPSImageMaxRequests
-	}
-	if settings.ExcelBPSImageMaxImageMiB == 0 {
-		settings.ExcelBPSImageMaxImageMiB = imageRelay.Limits.MaxImageMiB
-	}
-	if settings.ExcelBPSImageMaxImages == 0 {
-		settings.ExcelBPSImageMaxImages = imageRelay.Limits.MaxImages
-	}
-	if settings.ExcelBPSImageMaxTotalMiB == 0 {
-		settings.ExcelBPSImageMaxTotalMiB = imageRelay.Limits.MaxTotalMiB
-	}
-	if settings.ExcelBPSImageStorageMiB == 0 {
-		settings.ExcelBPSImageStorageMiB = imageRelay.Limits.StorageMiB
-	}
-	if settings.ExcelBPSImageStorageEntries == 0 {
-		settings.ExcelBPSImageStorageEntries = imageRelay.Limits.StorageEntries
-	}
-	if settings.ExcelBPSImageTTLMinutes == 0 {
-		settings.ExcelBPSImageTTLMinutes = imageRelay.Limits.TTLMinutes
-	}
-	if settings.ExcelBPSImageLimitPolicy == "" {
-		settings.ExcelBPSImageLimitPolicy = "off"
-	}
-	if settings.ExcelBPSImageWarningRemaining == 0 {
-		settings.ExcelBPSImageWarningRemaining = 8
-	}
-	if settings.ExcelBPSImageCompactReserve == 0 {
-		settings.ExcelBPSImageCompactReserve = 3
-	}
-	if err := validateExcelBPSImagePolicy(settings.ExcelBPSImageLimitPolicy, settings.ExcelBPSImageWarningRemaining, settings.ExcelBPSImageCompactReserve, settings.ExcelBPSImageMaxImages); err != nil {
-		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_IMAGE_POLICY", err.Error())
-	}
-	if err := settings.imageRelayLimits().Validate(); err != nil {
-		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_IMAGE_LIMITS", err.Error())
-	}
-	if err := validateExcelBPSImageCapacity(settings.ExcelBPSImageBodyLimitMiB, settings.ExcelBPSImageBudgetMiB, settings.ExcelBPSImageMaxRequests); err != nil {
-		return nil, err
-	}
 	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
 		return nil, err
 	}
@@ -710,21 +660,6 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyRequestCaptureEnabled] = strconv.FormatBool(captureConfig.Enabled)
 	updates[SettingKeyRequestCaptureQuotaMiB] = strconv.FormatInt(captureConfig.QuotaMiB, 10)
 	updates[SettingKeyRequestCaptureRetentionDays] = strconv.Itoa(captureConfig.RetentionDays)
-	updates[SettingKeyExcelBPSImageMode] = imageRelay.Mode
-	updates[SettingKeyExcelBPSImageRelayEnabled] = strconv.FormatBool(imageRelay.Enabled)
-	updates[SettingKeyExcelBPSImageBaseURL] = imageRelay.BaseURL
-	updates[SettingKeyExcelBPSImageBodyLimitMiB] = strconv.Itoa(settings.ExcelBPSImageBodyLimitMiB)
-	updates[SettingKeyExcelBPSImageBudgetMiB] = strconv.Itoa(settings.ExcelBPSImageBudgetMiB)
-	updates[SettingKeyExcelBPSImageMaxRequests] = strconv.Itoa(settings.ExcelBPSImageMaxRequests)
-	updates[SettingKeyExcelBPSImageMaxImageMiB] = strconv.Itoa(settings.ExcelBPSImageMaxImageMiB)
-	updates[SettingKeyExcelBPSImageLimitPolicy] = settings.ExcelBPSImageLimitPolicy
-	updates[SettingKeyExcelBPSImageWarningRemaining] = strconv.Itoa(settings.ExcelBPSImageWarningRemaining)
-	updates[SettingKeyExcelBPSImageCompactReserve] = strconv.Itoa(settings.ExcelBPSImageCompactReserve)
-	updates[SettingKeyExcelBPSImageMaxImages] = strconv.Itoa(settings.ExcelBPSImageMaxImages)
-	updates[SettingKeyExcelBPSImageMaxTotalMiB] = strconv.Itoa(settings.ExcelBPSImageMaxTotalMiB)
-	updates[SettingKeyExcelBPSImageStorageMiB] = strconv.Itoa(settings.ExcelBPSImageStorageMiB)
-	updates[SettingKeyExcelBPSImageStorageEntries] = strconv.Itoa(settings.ExcelBPSImageStorageEntries)
-	updates[SettingKeyExcelBPSImageTTLMinutes] = strconv.Itoa(settings.ExcelBPSImageTTLMinutes)
 
 	// 客服工单 / 客服浮窗 / 知识库 RAG 的持久化写入。
 	if err := s.appendSupportSettingsUpdates(ctx, updates, settings); err != nil {

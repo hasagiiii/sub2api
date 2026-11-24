@@ -60,7 +60,7 @@ func TestCaptureClientOutcomeSeparatesFailureAndRecoveredRetry(t *testing.T) {
 			st := s.NewStream("client_response", 0, 0, "text/event-stream", nil)
 			payload := completedCaptureEvent
 			if outcome == "failed" {
-				payload = "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"basispoints_stream_incomplete\"}}}\n\n"
+				payload = "data: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"stream_incomplete\"}}}\n\n"
 			}
 			_, err := st.Write([]byte(payload))
 			require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestCaptureClientOutcomeSeparatesFailureAndRecoveredRetry(t *testing.T) {
 			require.Equal(t, 200, rows[0].Status)
 			require.Equal(t, outcome, rows[0].ClientOutcome)
 			if outcome == "failed" {
-				require.Equal(t, "basispoints_stream_incomplete", rows[0].ErrorCode)
+				require.Equal(t, "stream_incomplete", rows[0].ErrorCode)
 			}
 		})
 	}

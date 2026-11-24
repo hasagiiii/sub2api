@@ -6,7 +6,6 @@ import { getAutoConfig, saveAutoConfig, type AutoConfig } from '@/api/admin/auto
 import { getAll } from '@/api/admin/groups'
 import type { Group } from '@/types'
 import { defaultModelBillingConfig } from '@/utils/modelBilling'
-import { defaultExcelBPSDefaults } from '@/utils/excelBPSDefaults'
 import { defaultOAuthModelMappings } from '@/utils/oauthModelMappings'
 vi.mock('@/components/account/ModelWhitelistSelector.vue', () => ({ default: { props: ['modelValue'], template: '<div data-testid="model-selection">{{ modelValue.join(", ") }}</div>' } }))
 const state = vi.hoisted(() => ({ auth: null as any }))
@@ -17,7 +16,7 @@ vi.mock('@/components/admin/operations/SmartOpsNav.vue', () => ({ default: { tem
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 vi.mock('@/api/admin/autoConfig', () => ({ getAutoConfig: vi.fn(), saveAutoConfig: vi.fn() }))
 vi.mock('@/api/admin/groups', () => ({ getAll: vi.fn() }))
-const config: AutoConfig = { model_billing: defaultModelBillingConfig(), model_mappings: defaultOAuthModelMappings('openai'), excel_bps: defaultExcelBPSDefaults(), enabled: false, platform: 'openai', priority: 50, load_factor: 1, concurrency: 3, group_ids: [], upgrade_enabled: false, upgrade_group_ids: [], successes_per_step: 20, upgrade_step: 1, max_concurrency: 100, cooldown_seconds: 60, revision: '' }
+const config: AutoConfig = { model_billing: defaultModelBillingConfig(), model_mappings: defaultOAuthModelMappings('openai'), enabled: false, platform: 'openai', priority: 50, load_factor: 1, concurrency: 3, group_ids: [], upgrade_enabled: false, upgrade_group_ids: [], successes_per_step: 20, upgrade_step: 1, max_concurrency: 100, cooldown_seconds: 60, revision: '' }
 beforeEach(() => {
  vi.resetAllMocks(); state.auth = reactive({ user: { id: 1, role: 'admin' } })
  vi.mocked(getAutoConfig).mockResolvedValue(structuredClone(config)); vi.mocked(saveAutoConfig).mockImplementation(async c => c)
@@ -119,29 +118,8 @@ describe('AutoConfigView', () => {
   expect(w.get<HTMLInputElement>('[data-testid="model-billing-multiplier-0"]').element.value).toBe('12.5')
   w.unmount()
  })
- it('saves only the reusable BPS template without any account activation switch', async () => {
-  const w = mount(AutoConfigView); await flushPromises()
-  expect(w.find('[data-testid="bps-initialize_enabled"]').exists()).toBe(false)
-  expect(w.get<HTMLInputElement>('[data-testid="bps-ignore_encrypted_content"]').element.checked).toBe(true)
-  await w.get('[data-testid="bps-ignore_encrypted_content"]').setValue(false)
-  await w.get('form').trigger('submit'); await flushPromises()
-  expect(saveAutoConfig).toHaveBeenCalledWith({ ...config, excel_bps: { ...config.excel_bps, ignore_encrypted_content: false } }); w.unmount()
- })
- it('restores the recommended template options', async () => {
-  const w = mount(AutoConfigView); await flushPromises()
-  await w.get('[data-testid="bps-ignore_encrypted_content"]').setValue(false)
-  await w.get('[data-testid="bps-reset-options"]').trigger('click')
-  expect(w.get<HTMLInputElement>('[data-testid="bps-ignore_encrypted_content"]').element.checked).toBe(true); w.unmount()
- })
- it('keeps recovery dependent on automatic 403 disabling', async () => {
-  const w = mount(AutoConfigView); await flushPromises()
-  await w.get('[data-testid="bps-auto_recover_on_403"]').setValue(true)
-  await w.get('[data-testid="bps-auto_disable_on_403"]').setValue(false)
-  const recovery = w.get<HTMLInputElement>('[data-testid="bps-auto_recover_on_403"]')
-  expect(recovery.element.disabled).toBe(true); expect(recovery.element.checked).toBe(false); w.unmount()
- })
  it('fills compatible defaults when loading legacy settings', async () => {
-  const { excel_bps: _bps, model_billing: _billing, model_mappings: _mapping, ...legacy } = config
+  const { model_billing: _billing, model_mappings: _mapping, ...legacy } = config
   vi.mocked(getAutoConfig).mockResolvedValueOnce(legacy)
   const w = mount(AutoConfigView); await flushPromises()
   await w.get('form').trigger('submit'); await flushPromises()

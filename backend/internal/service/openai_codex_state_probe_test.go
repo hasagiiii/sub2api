@@ -237,10 +237,8 @@ func TestProbeOpenAICodexStateRejectsUnsupportedAccounts(t *testing.T) {
 	synthetic.Extra = map[string]any{"synthetic_ui_test": true}
 	agent := stateProbeAccount()
 	agent.Credentials[openAIAuthModeCredentialKey] = OpenAIAuthModeAgentIdentity
-	bps := stateProbeAccount()
-	bps.Extra = map[string]any{"openai_excel_bps": true}
 
-	for name, account := range map[string]*Account{"nil": nil, "apikey": apiKey, "synthetic": synthetic, "agent": agent, "bps": bps} {
+	for name, account := range map[string]*Account{"nil": nil, "apikey": apiKey, "synthetic": synthetic, "agent": agent} {
 		t.Run(name, func(t *testing.T) {
 			result, upstream := runStateProbe(t, account)
 			require.Equal(t, OpenAICodexStateInconclusive, result.Verdict)

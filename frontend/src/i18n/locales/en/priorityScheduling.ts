@@ -3,12 +3,10 @@ export default {
   profit: 'Recent profit / margin',
   economics: { usage: 'Usage records', rate: 'Rate estimate', unknown: 'Insufficient profit samples' },
   priority: 'Priority',
-  balanceProtocols: 'Balance compatible BPS and native accounts',
-  balanceProtocolsHint: 'Only group-, model-, quota- and transport-compatible accounts participate. Account protocols stay intact and BPS is never enabled automatically. Disable to restore BPS preference.',
   modelAliases: 'Treat model mappings as aliases while keeping the default model scope',
   modelAliasesHint: 'OpenAI OAuth only. Unmatched aliases use default model admission; when disabled, nonempty mappings remain allowlists. Enable only for accounts intended to serve those models.',
   changeModelScope: 'Change the selected OAuth accounts’ model mapping scope',
-  bulkModelAliasesHint: 'Changes scope only, preserving each account’s aliases and credentials. Does not enable BPS. Use to repair new accounts restricted to one automatic alias.',
+  bulkModelAliasesHint: 'Changes scope only, preserving each account’s aliases and credentials. Use to repair new accounts restricted to one automatic alias.',
   selectionWeight: 'Selection weight', boundGroups: 'Bound groups', explorationEligible: 'Eligible for limited exploration',
 
   title: 'Priority scheduling', description: 'Meet experience targets, then balance quality, latency, capacity and cost.', enabled: 'Enable priority scheduling',
